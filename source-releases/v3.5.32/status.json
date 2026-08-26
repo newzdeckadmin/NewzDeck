@@ -1,0 +1,25 @@
+{
+  "product": "NewzDeck",
+  "release": "3.5.32",
+  "license_for_original_repository_source": "GPL-3.0-only",
+  "source_status": "transition-partial-corresponding-source",
+  "complete_components": [
+    "server.py",
+    "sab_engine.py",
+    "automation_engine.py",
+    "static/index.html",
+    "static/app.js",
+    "static/styles.css",
+    "NewzDeck.exe"
+  ],
+  "legacy_source_gaps": [
+    "NewzDeckBootstrap.exe",
+    "NewzDeckCore.exe",
+    "NewzDeckService.exe",
+    "NewzDeckTray.exe",
+    "NewzDeckPicker.exe",
+    "NewzDeckThumb.exe",
+    "NewzDeckYenc.exe"
+  ],
+  "notes": "Do not describe v3.5.32 as a complete corresponding-source GPL binary release until the legacy helper source gap is closed in a future release."
+}

@@ -1,0 +1,29 @@
+# NewzDeck local/runtime state
+runtime/
+data/
+downloads/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build outputs
+*.exe
+*.dll
+*.msi
+*.zip
+*.7z
+*.rar
+*.pdb
+*.tmp
+/dist/
+/build/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
