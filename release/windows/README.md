@@ -30,6 +30,7 @@ It preserves:
 - Start Menu shortcut and optional Desktop shortcut
 - The real NewzDeck icon
 - Installer foreground/stay-on-top behavior
+- No automatic post-install NewzDeck launch; the user starts NewzDeck normally after Setup fully exits, avoiding the same-version reinstall startup race found during v3.5.31 validation
 - No deletion of `%LOCALAPPDATA%\NewzDeck`
 - No Defender exclusions, PowerShell security exclusions, signing, or custom SFX launcher
 
@@ -84,6 +85,8 @@ The payload version must exactly match the requested release version.
 ## Inno Setup toolchain
 
 The workflow downloads the official immutable Inno Setup **7.1.0 x64** release from `jrsoftware/issrc`, verifies the published SHA-256 before running it, and requires a valid Authenticode signature on the Inno installer itself.
+
+The workflow uses Node.js 24-native `actions/checkout@v6` and `actions/upload-artifact@v6` to avoid the GitHub Actions Node.js 20 deprecation warning.
 
 NewzDeck's own installer remains intentionally unsigned.
 

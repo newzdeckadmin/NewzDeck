@@ -63,8 +63,10 @@ Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "{group}\NewzDeck"; Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NewzDeck.ico"
 Name: "{autodesktop}\NewzDeck"; Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NewzDeck.ico"; Tasks: desktopicon
 
-[Run]
-Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,NewzDeck}"; Flags: nowait postinstall skipifsilent
+; NewzDeck is intentionally not auto-launched from inside Setup. A same-version
+; reinstall exposed a startup timing race where the installer-triggered launch
+; could begin before the desktop backend handoff was ready. Users launch NewzDeck
+; normally from the installed Start Menu/Desktop shortcut after Setup has exited.
 
 [Code]
 const
