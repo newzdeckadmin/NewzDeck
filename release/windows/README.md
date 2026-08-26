@@ -1,107 +1,92 @@
-# Windows release process
+# NewzDeck Windows release process
 
-The tag workflow builds the conventional unsigned NewzDeck installer and the
-portable ZIP from one tested payload. It does not build or change the NewzDeck
-runtime, the Metadata Server, or the GitHub Pages site.
+This directory contains the release-only automation for the conventional unsigned NewzDeck Windows installer. It does not build or change NewzDeck runtime code, the Metadata Server, or the GitHub Pages website.
 
-## Required payload layout
+## Why the workflow starts from a draft release
 
-The resolved payload must have these files at its root:
+The public repository currently does not contain the compiled NewzDeck application payload. To avoid committing large generated binaries or inventing a new runtime build system, the GitHub Actions workflow takes the already-tested Portable ZIP as its trusted input.
 
-```text
-VERSION.txt                 # X.Y.Z only
-NewzDeck.exe                # application entry point
-NewzDeck.ico                # real NewzDeck application icon
-NewzDeck.Integration.exe    # optional existing integration repair helper
-...                         # all other tested runtime files
-```
+For each release, the maintainer uploads that tested Portable ZIP to a **draft GitHub Release**. GitHub Actions verifies its SHA-256, extracts and validates it, builds the installer from that exact payload, generates checksums, and can then publish the draft.
 
-`VERSION.txt` currently records the confirmed NewzDeck baseline, `3.5.31`.
-The Metadata Server remains at its confirmed `0.3.3` baseline inside the tested
-application payload; this release automation does not build or modify it.
+End users never run `BUILD_INSTALLER.bat`, install Inno Setup, or compile anything.
 
-If the existing payload supplies `NewzDeck.Integration.exe`, the installer calls
-it after files are installed as:
+## Preserved installer behavior
 
-```text
-repair --install-root <install directory> --data-root <persistent data directory>
-```
+The version-driven `NewzDeck.iss` is based directly on the installer that was successfully tested with NewzDeck v3.5.31.
 
-On uninstall it calls:
+It preserves:
 
-```text
-remove --install-root <install directory> --data-root <persistent data directory> --preserve-user-data
-```
+- Stable Inno product identity: `{A84C814C-704C-4C7D-A20B-BA5DD83F9429}`
+- Per-user install under `%LOCALAPPDATA%\Programs\NewzDeck`
+- Persistent data under `%LOCALAPPDATA%\NewzDeck`
+- Native x64 Inno Setup 7 installer
+- Windows 10 minimum
+- Overlay upgrades without purging generated/private runtime files
+- Existing `NewzDeckService` stop/repair behavior during upgrades
+- No automatic service enablement on a fresh install
+- Existing `NewzDeckTray` autostart migration to the new installed version
+- Safe service removal and tray-autostart cleanup during uninstall
+- Uninstall cancellation if Windows cannot remove an existing registered service
+- Start Menu shortcut and optional Desktop shortcut
+- The real NewzDeck icon
+- Installer foreground/stay-on-top behavior
+- No deletion of `%LOCALAPPDATA%\NewzDeck`
+- No Defender exclusions, PowerShell security exclusions, signing, or custom SFX launcher
 
-That application-owned helper is the safe place to repair/migrate the existing
-background-service registration and tray autostart, and to remove only that
-integration during uninstall. When the helper is absent, an upgrade leaves the
-existing registration untouched. The stable Inno Setup `AppId` and install path
-also preserve the existing Inno uninstall journal. Confirm once, before the
-first automated release, that `AppId=NewzDeck` matches the historical installer.
-
-The installer never deletes `%LOCALAPPDATA%\NewzDeck`. Settings, provider
-credentials, SAB state, queues, Automation libraries, metadata settings, and
-other persistent data therefore survive both upgrades and uninstalls.
-
-## Choose where the payload comes from
-
-Edit `payload-source.json` and use one of these source types:
-
-- `repository` (default): copy the tested payload into `payload/` and commit it.
-  This is simplest when the payload is a reasonable size.
-- `actions-artifact`: set `artifactName` and `runId` to a non-expired artifact
-  produced by a trusted build workflow in this repository. The artifact contents
-  must be the payload root, not another ZIP. This avoids committing large binaries.
-- `url`: set an immutable HTTPS ZIP URL and its lowercase or uppercase SHA-256 in
-  `sha256`. The workflow verifies the digest and rejects unsafe archive paths
-  before extraction.
-
-Do not use Git LFS merely for releases. Prefer a specific Actions artifact run
-or an immutable, checksum-pinned build ZIP when the compiled payload is large.
+There is no `NewzDeck.Integration.exe`; the proven installer uses `NewzDeckService.exe` plus Inno `[Code]` for service/tray integration.
 
 ## Publish a release
 
-1. Put the new, tested Windows payload in the configured source. The payload is
-   opaque to this repository: do not change runtime behavior while packaging it.
-2. Update the payload's `VERSION.txt` to `X.Y.Z`. For a repository payload this is
-   `release/windows/payload/VERSION.txt`.
-3. If using an Actions artifact or URL, update `payload-source.json` to pin that
-   exact input.
-4. Commit and push the payload/configuration change to `main`.
-5. Create and push the matching annotated tag:
+1. Produce and test the NewzDeck Portable ZIP.
+2. Calculate its SHA-256.
+3. In GitHub, create a **draft release** with tag `vX.Y.Z`.
+4. Attach the tested portable file using the exact name:
 
-   ```text
-   git tag -a vX.Y.Z -m "NewzDeck vX.Y.Z"
-   git push origin vX.Y.Z
-   ```
+   `NewzDeck_vX.Y.Z_Portable.zip`
 
-Only a pushed tag matching `v*.*.*` starts publication. Normal branch pushes,
-including pushes to `main`, do not run the release workflow.
+5. Leave the release as a draft.
+6. Open **Actions → Build Windows release → Run workflow**.
+7. Enter:
+   - `version`: `X.Y.Z`
+   - `portable_sha256`: the SHA-256 of the tested Portable ZIP
+   - `publish`: leave **false** for a validation-only run, or select **true** to publish after a successful build
+8. GitHub Actions downloads the draft asset, verifies it, builds with the official Inno Setup 7.1.0 x64 compiler, and produces:
 
-The workflow then checks that the tag is exactly `v` plus the payload version,
-verifies and installs Inno Setup 6.7.3 on a GitHub-hosted Windows runner, builds the installer,
-creates the portable ZIP from the same payload, generates SHA-256 checksums, and
-creates or updates the matching GitHub Release with exactly these assets:
+   - `NewzDeck_vX.Y.Z_Setup.exe`
+   - `NewzDeck_vX.Y.Z_Portable.zip`
+   - `NewzDeck_vX.Y.Z_SHA256.txt`
 
-```text
-NewzDeck_vX.Y.Z_Setup.exe
-NewzDeck_vX.Y.Z_Portable.zip
-NewzDeck_vX.Y.Z_SHA256.txt
-```
+Every run also stores the three outputs as a temporary GitHub Actions artifact for validation. With `publish=true`, the installer and checksum file are attached to the draft release and the release is published. The original tested Portable ZIP remains the public portable asset.
 
-## One-time repository checks
+## Required portable payload
 
-- GitHub Actions must be enabled.
-- Repository or organization policy must allow the workflow's `GITHUB_TOKEN` to
-  use `actions: read` and `contents: write`. No personal access token is needed.
-- Confirm that the historical installer used `AppId=NewzDeck`. If it used a GUID
-  or another value, replace the `AppId` in `NewzDeck.iss` with that exact value
-  before the first automated release, then never change it.
-- Confirm that the tested payload's existing integration helper follows the
-  command contract above. If integration is managed by the application itself,
-  omit the helper; the installer will not invent or replace that behavior.
+The portable ZIP must contain the normal tested NewzDeck payload at its root, including at least:
 
-The application remains unsigned. Windows SmartScreen may warn users; the
-workflow does not add signing, Defender exclusions, PowerShell exclusions,
-self-extracting launchers, or other nonstandard installer behavior.
+- `version.txt`
+- `NewzDeck.exe`
+- `NewzDeck.ico`
+- `NewzDeckBootstrap.exe`
+- `NewzDeckCore.exe`
+- `NewzDeckService.exe`
+- `NewzDeckTray.exe`
+- `NewzDeckPicker.exe`
+- `NewzDeckThumb.exe`
+- `NewzDeckYenc.exe`
+- `server.py`
+- `sab_engine.py`
+- `automation_engine.py`
+- `static/index.html`
+- `static/app.js`
+- `static/styles.css`
+
+The payload version must exactly match the requested release version.
+
+## Inno Setup toolchain
+
+The workflow downloads the official immutable Inno Setup **7.1.0 x64** release from `jrsoftware/issrc`, verifies the published SHA-256 before running it, and requires a valid Authenticode signature on the Inno installer itself.
+
+NewzDeck's own installer remains intentionally unsigned.
+
+## Website safety
+
+This release infrastructure does not modify `CNAME` or `index.html`. GitHub Pages remains independent from the Windows release workflow.

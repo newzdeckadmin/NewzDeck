@@ -4,10 +4,13 @@ param(
     [string]$PayloadDirectory,
 
     [Parameter(Mandatory)]
+    [string]$PortableArchive,
+
+    [Parameter(Mandatory)]
     [string]$OutputDirectory,
 
     [Parameter(Mandatory)]
-    [string]$GitTag,
+    [string]$Version,
 
     [Parameter(Mandatory)]
     [string]$IsccPath
@@ -17,30 +20,46 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $PayloadDirectory = (Resolve-Path -LiteralPath $PayloadDirectory).Path
+$PortableArchive = (Resolve-Path -LiteralPath $PortableArchive).Path
 $IsccPath = (Resolve-Path -LiteralPath $IsccPath).Path
 $scriptPath = Join-Path $PSScriptRoot 'NewzDeck.iss'
-$versionPath = Join-Path $PayloadDirectory 'VERSION.txt'
 
-foreach ($requiredFile in @('VERSION.txt', 'NewzDeck.exe', 'NewzDeck.ico')) {
-    $requiredPath = Join-Path $PayloadDirectory $requiredFile
-    if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
-        throw "Release payload is missing required root file '$requiredFile'."
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Version '$Version' is invalid. Expected X.Y.Z."
+}
+
+$requiredFiles = @(
+    'version.txt',
+    'NewzDeck.exe',
+    'NewzDeck.ico',
+    'NewzDeckBootstrap.exe',
+    'NewzDeckCore.exe',
+    'NewzDeckService.exe',
+    'NewzDeckTray.exe',
+    'NewzDeckPicker.exe',
+    'NewzDeckThumb.exe',
+    'NewzDeckYenc.exe',
+    'server.py',
+    'sab_engine.py',
+    'automation_engine.py',
+    'static/index.html',
+    'static/app.js',
+    'static/styles.css'
+)
+foreach ($requiredFile in $requiredFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PayloadDirectory $requiredFile) -PathType Leaf)) {
+        throw "Release payload is missing required file '$requiredFile'."
     }
 }
 
-$version = (Get-Content -LiteralPath $versionPath -Raw).Trim()
-if ($version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Payload version '$version' is invalid. VERSION.txt must contain X.Y.Z."
-}
-
-$expectedTag = "v$version"
-if ($GitTag -cne $expectedTag) {
-    throw "Release tag '$GitTag' does not match payload version '$version'. Expected '$expectedTag'."
+$payloadVersion = (Get-Content -LiteralPath (Join-Path $PayloadDirectory 'version.txt') -Raw).Trim()
+if ($payloadVersion -cne $Version) {
+    throw "Payload version '$payloadVersion' does not match requested version '$Version'."
 }
 
 $iconBytes = [System.IO.File]::ReadAllBytes((Join-Path $PayloadDirectory 'NewzDeck.ico'))
 if ($iconBytes.Length -lt 6 -or $iconBytes[0] -ne 0 -or $iconBytes[1] -ne 0 -or $iconBytes[2] -ne 1 -or $iconBytes[3] -ne 0) {
-    throw 'NewzDeck.ico is not a valid Windows icon file. Use the real NewzDeck application icon.'
+    throw 'NewzDeck.ico is not a valid Windows icon file.'
 }
 
 if (Test-Path -LiteralPath $OutputDirectory) {
@@ -54,7 +73,7 @@ else {
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
 $compilerArguments = @(
-    "/DAppVersion=$version",
+    "/DAppVersion=$Version",
     "/DPayloadDir=$PayloadDirectory",
     "/DOutputDir=$OutputDirectory",
     $scriptPath
@@ -65,9 +84,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
 }
 
-$installerName = "NewzDeck_v${version}_Setup.exe"
-$portableName = "NewzDeck_v${version}_Portable.zip"
-$checksumName = "NewzDeck_v${version}_SHA256.txt"
+$installerName = "NewzDeck_v${Version}_Setup.exe"
+$portableName = "NewzDeck_v${Version}_Portable.zip"
+$checksumName = "NewzDeck_v${Version}_SHA256.txt"
 $installerPath = Join-Path $OutputDirectory $installerName
 $portablePath = Join-Path $OutputDirectory $portableName
 $checksumPath = Join-Path $OutputDirectory $checksumName
@@ -76,13 +95,7 @@ if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Inno Setup did not produce expected installer '$installerName'."
 }
 
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory(
-    $PayloadDirectory,
-    $portablePath,
-    [System.IO.Compression.CompressionLevel]::Optimal,
-    $false
-)
+Copy-Item -LiteralPath $PortableArchive -Destination $portablePath -Force
 
 $checksumLines = foreach ($artifact in @($installerPath, $portablePath)) {
     $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -94,7 +107,7 @@ $checksumLines = foreach ($artifact in @($installerPath, $portablePath)) {
     [System.Text.UTF8Encoding]::new($false)
 )
 
-Write-Host "Built NewzDeck Windows release assets for ${expectedTag}:"
+Write-Host "Built NewzDeck Windows release assets for v${Version}:"
 Get-ChildItem -LiteralPath $OutputDirectory -File | ForEach-Object {
     Write-Host " - $($_.Name)"
 }
