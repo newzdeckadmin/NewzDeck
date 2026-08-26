@@ -1,0 +1,287 @@
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "NewzDeck version (X.Y.Z)"
+        required: true
+        type: string
+      portable_sha256:
+        description: "SHA-256 of the tested Portable ZIP already attached to the draft release"
+        required: true
+        type: string
+      publish:
+        description: "Publish the draft GitHub Release after a successful build"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build conventional Windows installer
+    if: github.repository == 'newzdeckadmin/NewzDeck'
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate release request
+        id: request
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          PORTABLE_SHA256: ${{ inputs.portable_sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Version '$env:VERSION' is invalid. Expected X.Y.Z."
+          }
+          if ($env:PORTABLE_SHA256 -notmatch '^[A-Fa-f0-9]{64}$') {
+            throw 'portable_sha256 must be exactly 64 hexadecimal characters.'
+          }
+
+          "tag=v$env:VERSION" >> $env:GITHUB_OUTPUT
+          "portable_name=NewzDeck_v$env:VERSION`_Portable.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Verify draft release and download tested portable build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.request.outputs.tag }}
+          PORTABLE_NAME: ${{ steps.request.outputs.portable_name }}
+          EXPECTED_SHA256: ${{ inputs.portable_sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $releaseJson = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          $release = @($releaseJson) | Where-Object { $_.tag_name -ceq $env:TAG } | Select-Object -First 1
+          if (-not $release) {
+            throw "No GitHub Release (draft or published) exists for '$env:TAG'. Create a DRAFT release for $env:TAG and attach $env:PORTABLE_NAME first."
+          }
+          if (-not $release.draft) {
+            throw "Release '$env:TAG' is already published. This workflow only builds from a draft release to avoid silently replacing public assets."
+          }
+
+          $asset = @($release.assets) | Where-Object { $_.name -ceq $env:PORTABLE_NAME } | Select-Object -First 1
+          if (-not $asset) {
+            throw "Draft release '$env:TAG' does not contain required asset '$env:PORTABLE_NAME'."
+          }
+
+          $archivePath = Join-Path $env:RUNNER_TEMP $env:PORTABLE_NAME
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/octet-stream'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          Invoke-WebRequest -Uri $asset.url -Headers $headers -OutFile $archivePath
+          if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
+            throw 'Portable ZIP download failed.'
+          }
+
+          $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -cne $env:EXPECTED_SHA256.ToLowerInvariant()) {
+            throw "Portable ZIP SHA-256 mismatch. Expected $env:EXPECTED_SHA256, got $actualHash."
+          }
+
+      - name: Safely extract and validate payload
+        id: payload
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          PORTABLE_NAME: ${{ steps.request.outputs.portable_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $archivePath = Join-Path $env:RUNNER_TEMP $env:PORTABLE_NAME
+          $payload = Join-Path $env:RUNNER_TEMP 'newzdeck-payload'
+          New-Item -ItemType Directory -Path $payload -Force | Out-Null
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+          try {
+            foreach ($entry in $archive.Entries) {
+              $name = $entry.FullName.Replace('\\', '/')
+              if ($name.StartsWith('/') -or $name -match '^[A-Za-z]:' -or $name.Split('/') -contains '..') {
+                throw "Unsafe path '$name' in portable ZIP."
+              }
+            }
+          }
+          finally {
+            $archive.Dispose()
+          }
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($archivePath, $payload)
+
+          $requiredFiles = @(
+            'version.txt',
+            'NewzDeck.exe',
+            'NewzDeck.ico',
+            'NewzDeckBootstrap.exe',
+            'NewzDeckCore.exe',
+            'NewzDeckService.exe',
+            'NewzDeckTray.exe',
+            'NewzDeckPicker.exe',
+            'NewzDeckThumb.exe',
+            'NewzDeckYenc.exe',
+            'server.py',
+            'sab_engine.py',
+            'automation_engine.py',
+            'static/index.html',
+            'static/app.js',
+            'static/styles.css'
+          )
+          foreach ($required in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath (Join-Path $payload $required) -PathType Leaf)) {
+              throw "Portable payload is missing required file '$required'."
+            }
+          }
+
+          $payloadVersion = (Get-Content -LiteralPath (Join-Path $payload 'version.txt') -Raw).Trim()
+          if ($payloadVersion -cne $env:VERSION) {
+            throw "Portable payload version '$payloadVersion' does not match requested version '$env:VERSION'."
+          }
+
+          "path=$payload" >> $env:GITHUB_OUTPUT
+
+      - name: Install verified Inno Setup 7.1.0 x64
+        id: inno
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $installerUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
+          $installerHash = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
+          $installerPath = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
+          $installDirectory = Join-Path $env:RUNNER_TEMP 'inno-setup-7.1.0'
+
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -cne $installerHash) {
+            throw "Inno Setup SHA-256 mismatch. Expected $installerHash, got $actualHash."
+          }
+
+          $signature = Get-AuthenticodeSignature -LiteralPath $installerPath
+          if ($signature.Status -ne 'Valid') {
+            throw "Inno Setup Authenticode verification failed: $($signature.Status)."
+          }
+
+          $arguments = @(
+            '/PORTABLE=1',
+            '/CURRENTUSER',
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            '/NOICONS',
+            "/DIR=$installDirectory"
+          )
+          $process = Start-Process -FilePath $installerPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) {
+            throw "Inno Setup installation failed with exit code $($process.ExitCode)."
+          }
+
+          $compiler = Join-Path $installDirectory 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw 'ISCC.exe was not found after installing Inno Setup 7.1.0.'
+          }
+          "path=$compiler" >> $env:GITHUB_OUTPUT
+
+      - name: Build installer and checksums
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          PORTABLE_NAME: ${{ steps.request.outputs.portable_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          $portableArchive = Join-Path $env:RUNNER_TEMP $env:PORTABLE_NAME
+
+          ./release/windows/build-release.ps1 `
+            -PayloadDirectory '${{ steps.payload.outputs.path }}' `
+            -PortableArchive $portableArchive `
+            -OutputDirectory $output `
+            -Version $env:VERSION `
+            -IsccPath '${{ steps.inno.outputs.path }}'
+
+      - name: Verify final assets
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          $expectedNames = @(
+            "NewzDeck_v$env:VERSION`_Setup.exe",
+            "NewzDeck_v$env:VERSION`_Portable.zip",
+            "NewzDeck_v$env:VERSION`_SHA256.txt"
+          )
+          $actualNames = @(Get-ChildItem -LiteralPath $output -File | Select-Object -ExpandProperty Name)
+          if (@(Compare-Object $expectedNames $actualNames).Count -ne 0) {
+            throw "Unexpected output. Expected: $($expectedNames -join ', '). Actual: $($actualNames -join ', ')."
+          }
+
+          Push-Location $output
+          try {
+            foreach ($line in Get-Content -LiteralPath $expectedNames[2]) {
+              if ($line -notmatch '^([a-f0-9]{64})  (.+)$') {
+                throw "Invalid checksum line: $line"
+              }
+              $actual = (Get-FileHash -LiteralPath $Matches[2] -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -cne $Matches[1]) {
+                throw "Checksum verification failed for '$($Matches[2])'."
+              }
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NewzDeck-v${{ inputs.version }}-windows-release
+          path: ${{ runner.temp }}/newzdeck-release/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish assets to draft GitHub Release
+        if: ${{ inputs.publish }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          $setup = Join-Path $output "NewzDeck_v$env:VERSION`_Setup.exe"
+          $checksum = Join-Path $output "NewzDeck_v$env:VERSION`_SHA256.txt"
+
+          gh release upload $env:TAG $setup $checksum --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload installer/checksum assets to draft release '$env:TAG'."
+          }
+
+          $notes = @"
+          NewzDeck v$env:VERSION for Windows.
+
+          NewzDeck is free/open-source software and is intentionally unsigned. Windows SmartScreen may display an Unknown Publisher warning. Verify downloads with the attached SHA-256 checksum file.
+          "@
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.txt'
+          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
+
+          gh release edit $env:TAG --title "NewzDeck v$env:VERSION" --notes-file $notesPath --draft=false
+          if ($LASTEXITCODE -ne 0) {
+            throw "Assets were built, but draft release '$env:TAG' could not be published."
+          }
