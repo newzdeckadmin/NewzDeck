@@ -261,9 +261,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Could not upload assets to GitHub Release '$tag'."
           }
-          if (-not $releaseExists) {
-            gh release edit $tag --draft=false
-            if ($LASTEXITCODE -ne 0) {
-              throw "Assets uploaded, but GitHub Release '$tag' could not be published. It remains a draft."
-            }
+          gh release edit $tag --draft=false
+          if ($LASTEXITCODE -ne 0) {
+            throw "Assets uploaded, but GitHub Release '$tag' could not be published. It may remain a draft."
           }
