@@ -6,6 +6,7 @@ NewzDeck is a Windows Usenet newsreader, downloader, and personal media automati
 **Source status:** Source-complete Windows release
 
 **Project website:** https://www.newzdeck.com
+
 **Windows releases:** https://github.com/newzdeckadmin/NewzDeck/releases
 
 ## License
