@@ -2,8 +2,12 @@
   "product": "NewzDeck",
   "version": "3.5.33",
   "source_status": "source-complete",
+  "release_status": "production",
   "license": "GPL-3.0-only",
   "accepted_portable_sha256": "6b96d0cd8ea92a29e5178d33eea1208de0309c70cf0b3e6e04d40ebf65cc2e39",
+  "published_portable_sha256": "a2e7ec5a79904f40e5fb0b864ee420c002b591e01aa64b840b58b026eed90935",
+  "published_setup_sha256": "03d0f94e3591b48ddcbad9d80f0a015dbe2c5d31ca8c52f83e41c9e971a6d7bb",
+  "published_sha256_asset_sha256": "d4b3786ac8f8e2d1ae7bf36b691ad5e03d62d34be9a60cca2cff1c92198e5e97",
   "newzdeck_owned_windows_binaries": {
     "NewzDeck.exe": "src/windows/NewzDeckLauncher.go",
     "NewzDeckService.exe": "src/windows/NewzDeckService.go",

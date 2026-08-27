@@ -2,10 +2,10 @@
 
 NewzDeck is a Windows Usenet newsreader, downloader, and personal media automation application.
 
-**Current production release:** v3.5.32  
-**Next source-complete release candidate:** v3.5.33
+**Current production release:** v3.5.33
+**Source status:** Source-complete Windows release
 
-**Project website:** https://www.newzdeck.com  
+**Project website:** https://www.newzdeck.com
 **Windows releases:** https://github.com/newzdeckadmin/NewzDeck/releases
 
 ## License
@@ -18,7 +18,7 @@ Third-party software, services, data, logos, and other assets retain their own l
 
 v3.5.32 remains the documented transition release: its Python/JavaScript application source and desktop launcher source are public, but several legacy NewzDeck-owned helper executables in that historical binary package were carried forward from the earlier binary-first development period.
 
-The **v3.5.33 source tree closes that gap**. Every NewzDeck-owned executable shipped by the v3.5.33 Windows Portable/Setup package is built from public source in this repository. The old `NewzDeckBootstrap.exe` and `NewzDeckCore.exe` compatibility binaries are retired and are not part of v3.5.33.
+The **v3.5.33 release closes that gap**. Every NewzDeck-owned executable shipped by the v3.5.33 Windows Portable/Setup package is built from public source in this repository. The old `NewzDeckBootstrap.exe` and `NewzDeckCore.exe` compatibility binaries are retired and are not part of v3.5.33.
 
 See [docs/SOURCE_RELEASES.md](docs/SOURCE_RELEASES.md) for the release-by-release source map.
 
@@ -50,11 +50,15 @@ The canonical Windows build uses:
 
 The validation run stages **the exact built Portable ZIP, Setup EXE, and SHA-256 file on a draft GitHub Release**. The publish run does not rebuild them; it verifies and publishes those exact tested draft assets, while also requiring the draft to remain pinned to the source commit that produced them.
 
-For v3.5.33, the accepted Windows Portable ZIP from the final r5 acceptance pass has SHA-256:
+The final published v3.5.33 Windows Portable ZIP has SHA-256:
+
+`a2e7ec5a79904f40e5fb0b864ee420c002b591e01aa64b840b58b026eed90935`
+
+The final r5 acceptance Portable used during pre-publication validation had SHA-256:
 
 `6b96d0cd8ea92a29e5178d33eea1208de0309c70cf0b3e6e04d40ebf65cc2e39`
 
-GitHub Actions can be given that hash during the source-build validation run to prove that the public-source rebuild is byte-for-byte identical to the accepted Portable package.
+The r5 hash is retained as historical acceptance provenance. The published hash above is the integrity value for the v3.5.33 Portable asset currently distributed from GitHub.
 
 See [docs/RELEASE_COMPLIANCE.md](docs/RELEASE_COMPLIANCE.md).
 
@@ -70,4 +74,4 @@ Do not commit provider usernames/passwords, Newznab API keys, TMDB credentials, 
 
 ## Project status
 
-NewzDeck is under active development. v3.5.33 is the first source-complete Windows release candidate and is being promoted through the source-built GitHub Actions validation/publish pipeline before replacing v3.5.32 as the current production release.
+NewzDeck is under active development. v3.5.33 is the first source-complete Windows production release and completes the transition from the earlier binary-first development model. The source-built GitHub Actions validation/publish pipeline established for v3.5.33 is the release model for subsequent Windows releases.

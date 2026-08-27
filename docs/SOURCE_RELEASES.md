@@ -55,3 +55,5 @@ A Windows release may be labeled source-complete only when all of the following 
 ## Exact-asset release staging
 
 Starting with v3.5.33, the GitHub Actions validation run builds from source and uploads all three Windows artifacts to a **draft** GitHub Release. The release is pinned to the exact source commit that produced them. The publish run verifies the draft checksums, Portable source manifest, version, retired-binary exclusions, accepted Portable hash when supplied, and source-commit pin before changing the draft to public. It does not rebuild the assets during publication.
+
+v3.5.33 completed this transition and is the first production Windows release under the source-complete model. v3.5.32 remains documented historically as the transition release and is not retroactively relabeled.
