@@ -1,23 +1,33 @@
 {
   "product": "NewzDeck",
-  "version": "3.5.33",
-  "base_version": "3.5.32",
-  "release": "Source-Complete Build Foundation",
-  "adapter_version": "3.5.33",
+  "version": "3.5.34",
+  "base_version": "3.5.33",
+  "release": "Reliability & Release Hardening",
+  "adapter_version": "3.5.34",
   "changes": [
-    "Makes every NewzDeck-owned Windows executable in the portable package rebuildable from GPLv3 source.",
-    "Moves first-run CPython 3.12.10 provisioning into the public desktop launcher and retires the legacy NewzDeckBootstrap.exe/NewzDeckCore.exe compatibility binaries.",
-    "Rebuilds the Windows service, tray, folder picker/taskbar helper, thumbnail helper, and native yEnc helper from public source.",
-    "Pins the official CPython 3.12.10 embeddable x64 package to SHA-256 4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3.",
-    "Preserves the v3.5.32 fast desktop startup path and Download Engine v2/SAB behavior."
+    "Repairs the verified GitHub updater for canonical versioned Setup/SHA256 release assets and enables the official latest-release feed by default.",
+    "Makes desktop heartbeat lifetime safe across Windows sleep/resume and browser timer throttling.",
+    "Prevents out-of-order Downloads polling responses from replacing newer SAB snapshots and adds a bounded status-request timeout.",
+    "Adds browser-origin protection for mutating localhost API requests and removes raw unexpected exception text from user-facing HTTP 500 responses.",
+    "Rotates Watch Folder scanning fairly beyond 100 NZBs.",
+    "Repairs the About & Updates TMDB attribution logo path and allows the attribution text to wrap cleanly at desktop and narrow widths.",
+    "Orders Completed downloads strictly newest-to-oldest by actual completion time.",
+    "Backfills real SAB completion timestamps for existing pre-v3.5.34 Completed history and preserves SAB newest-first history rank as a legacy fallback.",
+    "Fixes legacy native Completed ordering when completed_ts exists but is zero.",
+    "Removes acceptance-only files from production packaging and routes start.bat through NewzDeck.exe.",
+    "Preserves the accepted v3.5.33 SAB transfer, Automation ownership, Smart Import, and source-complete native-helper architecture."
   ],
   "regression_guards": [
     "Python compile validation for server.py, sab_engine.py and automation_engine.py",
     "JavaScript syntax validation for static/app.js",
-    "Windows x64 Go vet/build validation for every NewzDeck-owned helper",
-    "source-only deterministic Portable ZIP construction",
-    "service repair preserves stopped service state; explicit Install Background Service starts it",
-    "v3.5.32 startup health/fast handoff behavior retained",
-    "Metadata Server v0.3.3 compatibility retained"
+    "Canonical GitHub release asset-selection regression guard",
+    "Cross-origin POST rejection regression guard",
+    "Downloads snapshot generation ordering guard",
+    "Desktop sleep/resume heartbeat grace guard",
+    "About & Updates TMDB asset-path and text-wrapping guard",
+    "Completed Downloads reverse-chronological completion-time guard",
+    "Historical SAB completion timestamp backfill and history-rank fallback guard",
+    "Metadata Server v0.3.3 compatibility retained",
+    "No SAB transfer-data-path changes relative to accepted v3.5.33"
   ]
 }

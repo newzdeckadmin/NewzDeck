@@ -3,6 +3,7 @@
 NewzDeck is a Windows Usenet newsreader, downloader, and personal media automation application.
 
 **Current production release:** v3.5.33
+**Next source-built release:** v3.5.34 - accepted for source-built release staging
 **Source status:** Source-complete Windows release
 
 **Project website:** https://www.newzdeck.com

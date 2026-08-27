@@ -366,7 +366,7 @@ class SabDownloadManager:
     def start_background_threads(self) -> None:
         """Start SAB coordination workers once, after the local HTTP server is ready.
 
-        v3.5.33 decouples localhost/UI readiness from SAB identity probing and
+        v3.5.34 decouples localhost/UI readiness from SAB identity probing and
         completion reconciliation. These workers remain asynchronous exactly as
         before; only their start point moves out of module import.
         """
@@ -795,7 +795,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.33"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.34"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1043,7 +1043,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.33 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.34 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -2009,7 +2009,7 @@ class SabDownloadManager:
         return {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.5.33",
+            "adapter_version": "3.5.34",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -2273,8 +2273,17 @@ class SabDownloadManager:
     @staticmethod
     def _history_slots(payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         h = payload.get("history") if isinstance(payload.get("history"), dict) else payload
-        slots = h.get("slots") if isinstance(h, dict) and isinstance(h.get("slots"), list) else []
-        return h if isinstance(h, dict) else {}, [x for x in slots if isinstance(x, dict)]
+        raw_slots = h.get("slots") if isinstance(h, dict) and isinstance(h.get("slots"), list) else []
+        slots: list[dict[str, Any]] = []
+        for rank, raw in enumerate(raw_slots):
+            if not isinstance(raw, dict):
+                continue
+            slot = dict(raw)
+            # SAB history is returned newest-first. Preserve that ordering only as
+            # a fallback for old entries lacking the Unix ``completed`` timestamp.
+            slot["_newzdeck_history_rank"] = rank
+            slots.append(slot)
+        return h if isinstance(h, dict) else {}, slots
 
     def _recover_automation_context_for_slot(self, nzo_id: str, slot: dict[str, Any]) -> dict[str, Any]:
         engine = self.media_automation
@@ -2435,7 +2444,8 @@ class SabDownloadManager:
         automation_context = dict(meta.get("automation_context") or {})
         automation_label, automation_release_title, automation_destination = _automation_identity(automation_context)
         created = _num(slot.get("time_added"), _num(meta.get("created_ts"), time.time()))
-        completed_ts = _num(slot.get("completed"), 0)
+        completed_ts = max(_num(slot.get("completed"), 0), _num(meta.get("completed_ts"), 0))
+        history_rank = int(_num(slot.get("_newzdeck_history_rank"), 10**9)) if history else 10**9
         eta_seconds = 0 if history else _duration_seconds(slot.get("timeleft"))
         if eta_seconds <= 0 and not history and speed > 0 and expected > downloaded:
             eta_seconds = int((expected - downloaded) / speed)
@@ -2447,7 +2457,7 @@ class SabDownloadManager:
             "current_part": int(round(pct)), "processed_parts": int(round(pct)), "successful_parts": int(round(pct)), "failed_parts": 0,
             "total_parts": 100, "speed_bps": speed, "eta_seconds": eta_seconds, "connections_used": 0, "path": storage, "partial_path": str(slot.get("path") or ""),
             "error": str(slot.get("fail_message") or "") if status == "failed" else "", "created_ts": created, "started_ts": _num(meta.get("started_ts"), created),
-            "completed_ts": completed_ts, "recovered_parts": 0, "retry_count": 0, "priority": str(meta.get("priority") or "normal"), "paused": paused,
+            "completed_ts": completed_ts, "history_rank": history_rank, "recovered_parts": 0, "retry_count": 0, "priority": str(meta.get("priority") or "normal"), "paused": paused,
             "queue_order": _num(slot.get("index"), 0), "status_detail": str(slot.get("stage_log") or slot.get("status") or ""), "transfer_phase": "sabnzbd",
             "integrity_status": "healthy" if status == "completed" else "unknown", "post_status": post, "post_progress": int(meta.get("import_progress", 0) or 0),
             "post_message": str(meta.get("import_message") or pp), "automation_context": automation_context, "source": "nzb",
@@ -2493,6 +2503,7 @@ class SabDownloadManager:
             "health": {"state": "needs_attention" if str(job.get("import_status") or "")=="failed" else ("healthy" if status not in {"failed"} else "incomplete"), "label": "Import needs attention" if str(job.get("import_status") or "")=="failed" else ("✓ HEALTHY" if status not in {"failed"} else "Needs attention"), "missing_articles": 0,
                        "missing_bytes": 0, "recovery_blocks_available": 0, "recovery_blocks_queued": 0, "recovery_blocks_deferred": 0},
             "created_ts": _num(job.get("created_ts"), time.time()), "started_ts": _num(job.get("started_ts"), 0), "completed_ts": _num(job.get("completed_ts"), 0),
+            "history_rank": int(_num(job.get("history_rank"), 10**9)),
             "average_speed_bps": 0, "duration_seconds": 0, "folder": str(job.get("path") or self.download_dir_getter()),
             "deferred_recovery_files": 0, "direct_unpack_status": "active" if str(job.get("post_status")) == "extracting" else "", "direct_unpack_progress": int(job.get("post_progress", 0) or 0),
         }
@@ -2514,6 +2525,25 @@ class SabDownloadManager:
         return {"tracking_since_ts": tracking, "total_downloaded_bytes": total, "completed_files": completed,
                 "transfer_seconds": transfer, "peak_speed_bps": peak, "recovered_blocks": int(legacy_stats.get("recovered_blocks", 0) or 0),
                 "average_speed_bps": int(total / transfer) if transfer > 0 else 0}
+
+    @staticmethod
+    def _display_order_key(item: dict[str, Any]) -> tuple[Any, ...]:
+        """Keep live queue order intact while ordering terminal history newest-first."""
+        status = str(item.get("status") or "queued")
+        priority_rank = {"high": 0, "normal": 1, "low": 2}
+        if status in {"downloading", "queued", "retry_wait", "cancelling", "post_processing", "repair_needed"}:
+            queue_order = _num(item.get("queue_order"), _num(item.get("created_ts"), 0))
+            return (0, priority_rank.get(str(item.get("priority") or "normal"), 1), queue_order)
+        completed = _num(item.get("completed_ts"), 0)
+        created = _num(item.get("created_ts"), 0)
+        started = _num(item.get("started_ts"), 0)
+        history_rank = int(_num(item.get("history_rank"), 10**9))
+        if completed > 0:
+            return (1, 0, -completed, -created, str(item.get("id") or ""))
+        if history_rank < 10**9:
+            return (1, 1, history_rank, -created, str(item.get("id") or ""))
+        terminal_hint = max(started, created)
+        return (1, 2, -terminal_hint, -created, str(item.get("id") or ""))
 
     def snapshot(self) -> dict[str, Any]:
         now = time.time()
@@ -2564,13 +2594,15 @@ class SabDownloadManager:
                 collections.append(self._collection_from_job(job, meta))
                 status = str(job.get("status") or "queued")
                 counts[status if status in counts else "queued"] += 1
+            jobs.sort(key=self._display_order_key)
+            collections.sort(key=self._display_order_key)
             configured_capacity = sum(max(1, _clamp_int(p.get("connections"), 1, 100, 20) - (min(3, max(0, _clamp_int(p.get("connections"), 1, 100, 20) - 1)) if p.get("use_browsing", True) else 0)) for p in self.providers_getter() if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True))
             result = {"paused": bool(self.state.get("paused")), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
                       "folder": str(self.download_dir_getter()), "total_speed_bps": 0, "average_speed_bps": 0,
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.33 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.34 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -2730,9 +2762,22 @@ class SabDownloadManager:
                 self._active_latch_until.pop(nzo_id, None)
             self._job_last_seen_ts[nzo_id] = now
             self._job_last_view[nzo_id] = dict(job)
+            if history and str(job.get("status") or "") == "completed" and _num(job.get("completed_ts"), 0) > 0 and _num(meta.get("completed_ts"), 0) <= 0:
+                with self.lock:
+                    live_meta = self._tracked().get(nzo_id)
+                    if isinstance(live_meta, dict) and _num(live_meta.get("completed_ts"), 0) <= 0:
+                        live_meta["completed_ts"] = _num(job.get("completed_ts"), 0)
+                        self._touch_job_locked(live_meta)
+                        self._save_state()
             jobs.append(job)
             collections.append(self._collection_from_job(job, meta))
             counts[job["status"] if job["status"] in counts else "queued"] += 1
+        # Completed history must be deterministic and reverse-chronological. SAB's
+        # queue/history responses and NewzDeck's tracked dictionary are not a stable
+        # user-facing history order, so normalize them before returning the snapshot.
+        jobs.sort(key=self._display_order_key)
+        collections.sort(key=self._display_order_key)
+
         # Display a rolling transfer rate instead of SAB's one-poll instantaneous
         # zero. This keeps the KPI, package speed and ETA useful through brief socket
         # handoffs while raw_network_rate_bps remains available for diagnostics.
@@ -2773,7 +2818,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.33", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.34", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),

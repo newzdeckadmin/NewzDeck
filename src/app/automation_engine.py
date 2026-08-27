@@ -124,7 +124,7 @@ def _safe_component(value: Any, fallback: str = 'Media') -> str:
     text = str(value or '').strip()
     text = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip(' .')
-    
+
     if text.upper() in {'CON','PRN','AUX','NUL',*(f'COM{i}' for i in range(1,10)),*(f'LPT{i}' for i in range(1,10))}:
         text = '_' + text
     return (text or fallback)[:180]
@@ -266,7 +266,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.5.33'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.5.34'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -396,11 +396,11 @@ class MediaAutomationEngine:
             if singular in x:
                 x.pop(singular,None); changed=True
 
-        
+
         if 'automatic_queue_depth' not in x:
             x['automatic_queue_depth']=25; changed=True
 
-        
+
         env_metadata=str(os.environ.get('NEWZDECK_METADATA_URL') or '').strip().rstrip('/')
         current_metadata=str(x.get('metadata_service_url') or '').strip().rstrip('/')
         if env_metadata:
@@ -417,7 +417,7 @@ class MediaAutomationEngine:
             except Exception:
                 pass
 
-        
+
         if 'automatic_library_scan_minutes' not in x:
             x['automatic_library_scan_minutes']=30; changed=True
         if 'automatic_storage_reserve_gb' not in x:
@@ -736,7 +736,7 @@ class MediaAutomationEngine:
             pkg=collections.get(cid,{})
             status=str(pkg.get('status') or '')
             post=str(pkg.get('post_status') or '')
-            
+
             if status=='cancelled': continue
             # A genuine SAB terminal failure means the release/post itself was bad.
             # A completed transfer whose Smart Import later needs attention is NOT
@@ -1053,7 +1053,7 @@ class MediaAutomationEngine:
                     continue
             except Exception as exc:
 
-                
+
                 if str(item.get('metadata_provider') or '').lower()=='tmdb':
                     errors.append({'item_id':ident,'title':str(item.get('title') or ''),'error':str(exc)}); continue
             try:
@@ -1572,7 +1572,7 @@ class MediaAutomationEngine:
                     if value: c[k]=value[:240]
             _write(self.config_file,c)
 
-            
+
             if changed_root_keys:
                 lib=self._library(); adjusted=False
                 for item in lib:
@@ -2124,7 +2124,7 @@ class MediaAutomationEngine:
         return {'provider':'wikidata','metadata_id':qid,'wikidata_id':qid,'kind':'movie','title':title,'year':year,'date':release_date,'release_date':release_date,'overview':desc,'poster_url':'','imdb_id':imdb,'runtime':runtime,'wikipedia_title':enwiki}
 
     def _tmdb(self,path:str,params:dict[str,Any]|None=None):
-        
+
         key=self._tmdb_key()
         if not key: raise ValueError('Optional TMDB credentials are not configured')
         q=dict(params or {});q.setdefault('language','en-US')
@@ -2173,7 +2173,7 @@ class MediaAutomationEngine:
             self._event('metadata-fallback',f'Metadata Service unavailable during {kind} search; using fallback',error=str(exc))
         return self._legacy_metadata_search(kind,q)
 
-    
+
 
     def _discover_state(self):
         value=_read(self.discover_state_file,{})
@@ -2875,7 +2875,7 @@ class MediaAutomationEngine:
                         if abs(wi-hi)<=2048:
                             q=label(w,h)
                             if q!='Unknown': return q
-            
+
             if suffix in {'.mp4','.m4v','.mov'}:
                 for typ in (b'avc1',b'hvc1',b'hev1',b'av01',b'mp4v'):
                     start=0
@@ -2945,7 +2945,7 @@ class MediaAutomationEngine:
 
     def _storage_requirement(self, release_size:int, *, staging:bool=False) -> int:
         size=max(0,int(release_size or 0)); reserve=max(1,int(self.public_config().get('automatic_storage_reserve_gb') or 5))*1024**3
-        
+
         multiplier=2.20 if staging else 1.10
         return reserve + int(size*multiplier)
 
@@ -3050,7 +3050,7 @@ class MediaAutomationEngine:
         rank=self._quality_rank(quality,profile); cutoff=self._quality_rank(str(profile.get('cutoff') or ''),profile)
         if rank<999 and cutoff<999: return rank<=cutoff
 
-        
+
         def res(q):
             m=re.search(r'(?i)\b(2160|1080|720|576|480)p\b',str(q or ''))
             return int(m.group(1)) if m else 0
@@ -3282,7 +3282,7 @@ class MediaAutomationEngine:
         cfg=self._config(); roots=[Path(str(x).strip()).expanduser() for x in (cfg.get('tv_roots' if item.get('kind')=='tv' else 'movie_roots') or []) if str(x).strip()]
         if not roots: return None
 
-        
+
         existing=self._existing_media_path(item)
         if existing:
             for root in roots:
@@ -3603,7 +3603,7 @@ class MediaAutomationEngine:
             if attention and not any(e.get('action') in {'IMPORT','UPGRADE','DUPLICATE','KEEP_EXISTING'} for e in entries):
                 self._event('import-inspection',f"Import Inspector needs attention for {item.get('title')}",item_id=item.get('id'),season=context.get('season'),season_pack=bool(context.get('season_pack')),inspections=inspections[:80],needs_attention=len(attention),imported=0)
                 return {'ok':False,'needs_attention':True,'reason':'Import Inspector could not safely identify the completed media. Review the filenames before retrying.','inspection':inspections}
-            
+
             if progress_callback:
                 try: progress_callback(0,'Smart Import • inspecting completed media')
                 except Exception: pass
@@ -3686,7 +3686,7 @@ class MediaAutomationEngine:
         home=min([x for x in (available,digital,physical) if x],default='')
         if home: return home,'home'
 
-        
+
         if theatrical:
             try:
                 td=datetime.fromisoformat(theatrical).date()
@@ -3842,7 +3842,7 @@ class MediaAutomationEngine:
             for cf in data.get('custom_formats') or []:
                 if not isinstance(cf,dict): continue
                 cfs.append({'name':str(cf.get('name') or 'Preference'),'contains':[str(x).strip() for x in cf.get('contains') or [] if str(x).strip()],'score':int(cf.get('score',0) or 0)})
-            
+
             try: min_size_mb=max(0,float(data.get('min_size_mb') or 0))
             except Exception: min_size_mb=0
             try: max_size_gb=max(0,float(data.get('max_size_gb') or 0))

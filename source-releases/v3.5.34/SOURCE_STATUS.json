@@ -1,0 +1,68 @@
+{
+  "product": "NewzDeck",
+  "version": "3.5.34",
+  "source_status": "source-complete",
+  "release_status": "production-candidate",
+  "license": "GPL-3.0-only",
+  "accepted_windows_behavior_baseline": "v3.5.34-r5",
+  "accepted_r5_portable_sha256": "dafd586bb6b9eaa13b656310c54198f308bee3506ecdf9e0f5cdf413f71aa519",
+  "note": "The accepted r5 ZIP used an acceptance-only version suffix and service-handoff runner. Final v3.5.34 assets are rebuilt from the production source tag by GitHub Actions.",
+  "newzdeck_owned_windows_binaries": {
+    "NewzDeck.exe": "src/windows/NewzDeckLauncher.go",
+    "NewzDeckService.exe": "src/windows/NewzDeckService.go",
+    "NewzDeckTray.exe": "src/windows/NewzDeckTray.go",
+    "NewzDeckPicker.exe": "src/windows/NewzDeckPicker.go",
+    "NewzDeckThumb.exe": "src/windows/NewzDeckThumb.go",
+    "NewzDeckYenc.exe": "src/windows/NewzDeckYenc.go"
+  },
+  "retired_legacy_binaries": [
+    "NewzDeckBootstrap.exe",
+    "NewzDeckCore.exe"
+  ],
+  "canonical_toolchain": {
+    "python": "3.12.10",
+    "go": "1.23.2",
+    "inno_setup": "7.1.0 x64",
+    "goos": "windows",
+    "goarch": "amd64",
+    "cgo_enabled": false
+  },
+  "application_files": [
+    {
+      "path": "src/app/server.py",
+      "sha256": "60d1c31ee1cb700d15cded7f779f90e46e768babbba5bfa9808ac42a05bd8ed7"
+    },
+    {
+      "path": "src/app/sab_engine.py",
+      "sha256": "ed64ccde2f59d0e4e3ed35a9745ba9160068f4bdb0bf90bf93c48967d91c027c"
+    },
+    {
+      "path": "src/app/automation_engine.py",
+      "sha256": "8545fd2908ae6543033bb65ea0e2c76a154125ff6b6dc0fc175c605c823bf7e1"
+    },
+    {
+      "path": "src/app/build-manifest.json",
+      "sha256": "5f2843bdde0e3f4bb78c70dd33c3b99c5943c453c9237284db11e50cae86594a"
+    },
+    {
+      "path": "src/app/version.txt",
+      "sha256": "6bcb98787a9726f099418cf99a133987e3e5e39883d6e3e4504a871bfa745138"
+    },
+    {
+      "path": "src/app/static/index.html",
+      "sha256": "862e7d3b7d3c7bad7955a26baf8a8b1728a120926f4478c00a914adb4bff8d67"
+    },
+    {
+      "path": "src/app/static/app.js",
+      "sha256": "de24eccd63dbd70c59742891b7362cef57545408cf207a0ca79ac82c93b8d8c4"
+    },
+    {
+      "path": "src/app/static/styles.css",
+      "sha256": "f1d7f55fc9915563d028516fea6794c993154d7b708655c795f75e8a82765697"
+    },
+    {
+      "path": "src/app/static/tmdb-logo.svg",
+      "sha256": "d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b"
+    }
+  ]
+}

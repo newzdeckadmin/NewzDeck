@@ -131,7 +131,10 @@ THUMB_CACHE_DIR = USER_ROOT / "thumbnail-cache"
 DOWNLOAD_TEMP_DIR = USER_ROOT / "download-temp"
 UPDATE_DIR = USER_ROOT / "updates"
 UPDATE_FEED_CACHE_FILE = DATA_DIR / "update-feed.json"
-UPDATE_FEED_URL = os.environ.get("NEWZDECK_UPDATE_FEED_URL", "").strip()
+UPDATE_FEED_URL = os.environ.get(
+    "NEWZDECK_UPDATE_FEED_URL",
+    "https://api.github.com/repos/newzdeckadmin/NewzDeck/releases/latest",
+).strip()
 UPDATE_FEED_TTL_SECONDS = 15 * 60
 UPDATE_MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 TRAY_REQUEST_FILE = USER_ROOT / "tray-request.json"
@@ -231,7 +234,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.5.33"
+APP_VERSION = "3.5.34"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -612,11 +615,43 @@ def _release_checksum_value(text: str, filename: str) -> str:
                 return digest
             if not generic:
                 generic = digest
-    
+
     m = re.fullmatch(r"\s*([0-9a-fA-F]{64})\s*", str(text or ""))
     if m:
         return m.group(1).lower()
     return generic if target and len(str(text or "").splitlines()) == 1 else ""
+
+def _select_online_update_assets(assets: list[dict[str, Any]], latest_version: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Choose the canonical Setup/checksum pair for a GitHub release.
+
+    NewzDeck's public release naming is versioned (for example
+    ``NewzDeck_v3.5.34_Setup.exe`` and ``NewzDeck_v3.5.34_SHA256.txt``).  Keep a
+    conservative legacy fallback for older packages, but never pair a versioned
+    installer with a checksum belonging to a different release.
+    """
+    latest = re.sub(r"^[vV]", "", str(latest_version or "").strip())
+    canonical_installer = f"NewzDeck_v{latest}_Setup.exe".casefold() if latest else ""
+    canonical_checksum = f"NewzDeck_v{latest}_SHA256.txt".casefold() if latest else ""
+    by_name = {str(x.get("name") or "").casefold(): x for x in assets if isinstance(x, dict)}
+
+    installer = by_name.get(canonical_installer) if canonical_installer else None
+    if installer is None:
+        legacy = [x for x in assets if re.match(r"^NewzDeckSetup.*\.exe$", str(x.get("name") or ""), re.I)]
+        installer = legacy[0] if legacy else None
+
+    checksum = by_name.get(canonical_checksum) if canonical_checksum else None
+    if checksum is None and installer:
+        iname = str(installer.get("name") or "")
+        exact = (iname + ".sha256").casefold()
+        for asset in assets:
+            name = str(asset.get("name") or "")
+            low = name.casefold()
+            if low == exact or low in {"sha256sums.txt", "sha256sum.txt", "checksums.txt", "checksums.sha256"}:
+                checksum = asset
+                if low == exact:
+                    break
+    return installer, checksum
+
 
 def online_update_status(force: bool = False) -> dict[str, Any]:
     cached = json_read(UPDATE_FEED_CACHE_FILE, {})
@@ -651,19 +686,7 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
         tag = str(release.get("tag_name") or release.get("name") or "").strip()
         latest = re.sub(r"^[vV]", "", tag).strip() or APP_VERSION
         assets = [x for x in (release.get("assets") or []) if isinstance(x, dict)]
-        installers = [x for x in assets if re.match(r"^NewzDeckSetup.*\.exe$", str(x.get("name") or ""), re.I)]
-        installer = installers[0] if installers else None
-        checksum = None
-        if installer:
-            iname = str(installer.get("name") or "")
-            exact = (iname + ".sha256").casefold()
-            for asset in assets:
-                name = str(asset.get("name") or "")
-                low = name.casefold()
-                if low == exact or low in {"sha256sums.txt", "sha256sum.txt", "checksums.txt", "checksums.sha256"}:
-                    checksum = asset
-                    if low == exact:
-                        break
+        installer, checksum = _select_online_update_assets(assets, latest)
         result = {
             **base,
             "latest_version": latest,
@@ -681,7 +704,7 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
         json_write(UPDATE_FEED_CACHE_FILE, result)
         return result
     except Exception as exc:
-        
+
         if cached.get("latest_version"):
             return {**cached, "cached": True, "feed_error": str(exc), "checked_at": float(cached.get("checked_at") or 0)}
         return {**base, "feed_error": str(exc)}
@@ -4614,7 +4637,7 @@ def _ensure_managed_unrar_tool(*, force: bool = False) -> str | None:
             temp_dir.mkdir(parents=True, exist_ok=True)
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-            
+
             try:
                 subprocess.run(
                     [str(temp_installer), "/s"],
@@ -4650,7 +4673,7 @@ def _ensure_managed_unrar_tool(*, force: bool = False) -> str | None:
             if not extracted.is_file() or extracted.stat().st_size <= 64 * 1024:
                 raise ValueError("The verified RARLAB package did not produce UnRAR.exe")
 
-            
+
             try:
                 probe = subprocess.run(
                     [str(extracted)], cwd=str(temp_dir),
@@ -4717,7 +4740,7 @@ def _rar_volume_index(filename: str) -> int | None:
         return 1
     match = re.search(r"\.r(\d{2,3})$", name)
     if match:
-        return int(match.group(1)) + 2  
+        return int(match.group(1)) + 2
     return None
 
 def _is_rar_volume(filename: str) -> bool:
@@ -4814,7 +4837,7 @@ def _ensure_managed_par2_tool(*, force: bool = False) -> str | None:
                 chosen = min(candidates, key=lambda i: (0 if Path(i.filename).name.casefold() == "par2.exe" else 1, len(i.filename)))
                 with zf.open(chosen, "r") as src, (temp_dir / "par2.exe").open("wb") as dst:
                     shutil.copyfileobj(src, dst, length=1024 * 1024)
-                
+
                 for info in zf.infolist():
                     base = Path(info.filename).name.casefold()
                     if info.is_dir() or base not in {"copying", "copying.txt", "license", "license.txt", "readme", "readme.txt"}:
@@ -5305,7 +5328,7 @@ class DownloadManager:
             direct = rec.get("direct_unpack") if isinstance(rec.get("direct_unpack"), dict) else {}
             if direct.get("status") == "active":
 
-                
+
                 direct = {**direct, "status": "fallback", "message": "Direct Unpack was interrupted by a restart; normal extraction will be used", "error": "interrupted"}
             rec["direct_unpack"] = direct
         self.concurrent_downloads = PACKAGE_QUEUE_CONCURRENCY
@@ -5574,7 +5597,7 @@ class DownloadManager:
         if len(queued_rar) >= 2:
             return (queued_rar, min(MAX_CONCURRENT_DOWNLOADS, self._rar_parallelism_target_locked(queued_rar)))
 
-        
+
         return ([queued[0]], 1)
 
     def _find_job(self, job_id: str) -> dict[str, Any] | None:
@@ -5752,7 +5775,16 @@ class DownloadManager:
                 "folder": str(DOWNLOAD_DIR / safe_folder_name(str(rec.get("category_folder") or jobs[0].get("category_folder") or "")) / safe_folder_name(str(rec.get("name") or jobs[0].get("collection_name") or "Imported NZB"))) if str(rec.get("category_folder") or jobs[0].get("category_folder") or "") else str(DOWNLOAD_DIR / safe_folder_name(str(rec.get("name") or jobs[0].get("collection_name") or "Imported NZB"))),
                 "deferred_recovery_files": len(list(rec.get("recovery_catalog") or [])),
             })
-        out.sort(key=lambda x: (0 if x["status"] in {"downloading", "queued", "retry_wait", "post_processing", "repair_needed"} else 1, priority_rank.get(x.get("priority", "normal"), 1), float(x.get("created_ts", 0) or 0)))
+        def collection_display_key(x: dict[str, Any]) -> tuple[Any, ...]:
+            status = str(x.get("status") or "queued")
+            created = float(x.get("created_ts", 0) or 0)
+            if status in {"downloading", "queued", "retry_wait", "post_processing", "repair_needed"}:
+                return (0, priority_rank.get(str(x.get("priority") or "normal"), 1), created)
+            completed = float(x.get("completed_ts", 0) or 0)
+            started = float(x.get("started_ts", 0) or 0)
+            terminal_time = completed if completed > 0 else max(started, created)
+            return (1, 0, -terminal_time, -created, str(x.get("id") or ""))
+        out.sort(key=collection_display_key)
         return out
 
     def snapshot(self) -> dict[str, Any]:
@@ -5763,7 +5795,8 @@ class DownloadManager:
             def display_key(x):
                 if x.get("status") in ("queued", "downloading", "retry_wait", "cancelling"):
                     return (0, priority_rank.get(str(x.get("priority", "normal")), 1), float(x.get("queue_order", x.get("created_ts", 0)) or 0))
-                return (1, 0, -float(x.get("completed_ts", x.get("created_ts", 0)) or 0))
+                terminal_time = float(x.get("completed_ts") or x.get("started_ts") or x.get("created_ts") or 0)
+                return (1, 0, -terminal_time)
             for job in sorted(self.jobs, key=display_key):
                 copy = {k: v for k, v in job.items() if k not in ("segments", "media", "cancel_requested")}
                 jobs.append(copy)
@@ -7882,7 +7915,7 @@ class DownloadManager:
                 continue
             jobs.append((index, float(job.get("created_ts", 0) or 0), job))
         jobs.sort(key=lambda item: (item[0], item[1]))
-        
+
         seen: set[int] = set()
         ordered: list[dict[str, Any]] = []
         for index, _created, job in jobs:
@@ -7914,7 +7947,7 @@ class DownloadManager:
         unrar = _unrar_path()
         if not unrar:
 
-            
+
             if sys.platform == "win32" and not _unrar_install_lock.locked():
                 threading.Thread(target=_ensure_managed_unrar_tool, name="newzdeck-unrar-on-demand", daemon=True).start()
             if mode == "on":
@@ -7939,7 +7972,7 @@ class DownloadManager:
                 remaining = sum(1 for v in volumes if v.get("status") != "completed")
                 if remaining > max(2, DIRECT_UNPACK_AUTO_READ_AHEAD_VOLUMES):
                     return
-            
+
             if all(v.get("status") == "completed" for v in volumes):
                 return
             if any(v.get("status") in {"failed", "cancelled", "retry_wait"} or str(v.get("integrity_status") or "") == "repair_needed" for v in volumes):
@@ -8037,7 +8070,7 @@ class DownloadManager:
                 except queue.Empty:
                     pass
 
-                
+
 
                 folded = buffer.casefold()
                 marker = folded.rfind("insert disk with ")
@@ -8063,8 +8096,8 @@ class DownloadManager:
                             ready = bool(live and live.get("status") == "completed" and ready_path.is_file())
                             if ready and direct_mode == "auto":
 
-                                
-                                
+
+
                                 lookahead_end = min(len(volumes), next_index + DIRECT_UNPACK_AUTO_READ_AHEAD_VOLUMES)
                                 ahead = volumes[next_index:lookahead_end]
                                 if ahead and any(v.get("status") in {"queued", "downloading", "cancelling"} for v in ahead):
@@ -8374,7 +8407,7 @@ class DownloadManager:
                 if imported and imported.get("ok"):
                     destination=str(imported.get('destination') or '')
                     self._cleanup_automation_staging(collection_id, targets, parent, destination)
-                    
+
                     if imported.get('season_pack'):
                         count=int(imported.get('imported_count') or 0); kept=int(imported.get('kept_existing') or 0)
                         message=f"Smart Import complete • {count} episode{'s' if count!=1 else ''} imported" + (f" • {kept} existing kept" if kept else '')
@@ -8425,8 +8458,8 @@ class DownloadManager:
             required_repair_targets = [j for j in targets if nzb_job_blocks_collection(j) and str(j.get("integrity_status") or "") == "repair_needed"]
             if par2_files and optional_missing_targets and not required_repair_targets:
 
-                
-                
+
+
                 repair_note = f"Payload complete • {len(optional_missing_targets)} optional sidecar{'s' if len(optional_missing_targets) != 1 else ''} skipped • PAR2 repair not needed"
                 DIAGNOSTICS.event("info", "par2", "Skipped PAR2 repair for optional-only missing sidecar", target=key, optional=len(optional_missing_targets))
             elif par2_files:
@@ -8827,6 +8860,7 @@ class AutomationManager:
     def __init__(self):
         self.lock = threading.RLock(); self.stop = threading.Event(); self.file_state: dict[str, tuple[int,float,int]] = {}; self.completed_seen: set[str] = set()
         self.watch_imported = 0; self.watch_failed = 0; self.last_watch_message = ''; self.last_watch_ts = 0.0; self.last_media_auto_check = 0.0
+        self.watch_scan_cursor = 0
         self.last_media_notification_ts = time.time()
         self.thread = threading.Thread(target=self._loop, name='newzdeck-automation', daemon=True)
         self._started = False
@@ -8858,9 +8892,17 @@ class AutomationManager:
         folder = Path(str(settings.get('watch_folder') or DEFAULT_WATCH_FOLDER)).expanduser(); folder.mkdir(parents=True, exist_ok=True)
         provider_id = self._provider_id(settings)
         if not provider_id: return
-        live=set()
-        for path in sorted(folder.glob('*.nzb'))[:100]:
-            key=str(path.resolve()).casefold(); live.add(key)
+        all_paths = sorted(folder.glob('*.nzb'))
+        entries = [(path, str(path.resolve()).casefold()) for path in all_paths]
+        live = {key for _, key in entries}
+        if entries:
+            start = self.watch_scan_cursor % len(entries)
+            scan = (entries[start:] + entries[:start])[:100]
+            self.watch_scan_cursor = (start + len(scan)) % len(entries)
+        else:
+            scan = []
+            self.watch_scan_cursor = 0
+        for path, key in scan:
             try: st=path.stat()
             except OSError: continue
             prior=self.file_state.get(key); stable=(prior is not None and prior[0]==st.st_size and abs(prior[1]-st.st_mtime)<0.001)
@@ -9214,6 +9256,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
             self.send_header("X-NewzDeck-UI-Version", APP_VERSION)
+        # Localhost applications still need browser-origin boundaries.  These
+        # headers prevent another site from embedding or casually consuming the
+        # NewzDeck UI/API as a cross-origin resource.
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
         super().end_headers()
 
     def log_message(self, format, *args):
@@ -9222,6 +9272,33 @@ class AppHandler(SimpleHTTPRequestHandler):
             if path.startswith(("/thumb/", "/media/", "/api/thumbnail/")) or path in {"/api/downloads", "/api/app/heartbeat"}:
                 return
         safe_print("[%s] %s" % (self.log_date_time_string(), format % args))
+
+    def _mutation_origin_allowed(self) -> bool:
+        """Reject browser cross-site POSTs while allowing native/local helpers.
+
+        Native helpers and command-line clients generally omit Origin and
+        Sec-Fetch-Site, so absence of those browser headers remains allowed.  A
+        browser request that supplies them must be same-origin with this exact
+        localhost listener.
+        """
+        fetch_site = str(self.headers.get("Sec-Fetch-Site", "") or "").strip().casefold()
+        if fetch_site == "cross-site":
+            return False
+        origin = str(self.headers.get("Origin", "") or "").strip()
+        if not origin:
+            return True
+        try:
+            parsed = urllib.parse.urlparse(origin)
+            hostname = str(parsed.hostname or "").casefold()
+            request_host = str(self.headers.get("Host", "") or "").strip().casefold()
+            return (
+                parsed.scheme.casefold() in {"http", "https"}
+                and hostname in {"127.0.0.1", "localhost"}
+                and bool(request_host)
+                and parsed.netloc.casefold() == request_host
+            )
+        except Exception:
+            return False
 
     def _json(self, status: int, payload: Any):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -9406,6 +9483,12 @@ class AppHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         try:
+            if not self._mutation_origin_allowed():
+                try:
+                    DIAGNOSTICS.event("warning", "http-security", "Rejected cross-origin localhost POST", path=parsed.path)
+                except Exception:
+                    pass
+                return self._json(403, {"error": "Cross-origin requests are not allowed."})
             if parsed.path == "/api/update/online-install":
                 return self._json(200, download_verified_online_update())
             if parsed.path == "/api/update/install":
@@ -9583,7 +9666,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             safe_print("Unexpected error:", repr(exc))
             DIAGNOSTICS.event("error", "http", str(exc), path=parsed.path, trace=traceback.format_exc(limit=4))
-            return self._json(500, {"error": "Unexpected application error", "detail": str(exc)})
+            return self._json(500, {"error": "Unexpected application error. See Diagnostics for details."})
 
     def diagnostics_probe_api(self, data: dict[str, Any]):
         requested = str(data.get("provider_id", "") or "")
@@ -10344,7 +10427,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         low_name = filename.lower()
         valid_setup_name = (low_name.startswith("newzdeck") or low_name.startswith("usenetbrowser")) and "setup" in low_name and low_name.endswith(".exe")
         if not valid_setup_name:
-            raise ValueError("Select a NewzDeckSetup.exe update package")
+            raise ValueError("Select a NewzDeck Setup.exe update package")
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0 or length > 150 * 1024 * 1024:
             raise ValueError("Update package is empty or too large")
@@ -10609,18 +10692,39 @@ def find_available_port(start=DEFAULT_PORT, attempts=25):
     raise OSError("Could not find an available local port")
 
 def _desktop_lifecycle_monitor(httpd: ThreadingHTTPServer):
-    # The UI may be slow to become interactive during runtime/bootstrap work.  A
-    # single missed startup heartbeat must never tear down an otherwise healthy
-    # local backend and leave a rendered but disconnected desktop window.
+    # The UI may be slow to become interactive during runtime/bootstrap work. A
+    # single missed heartbeat must never tear down an otherwise healthy local
+    # backend.  A long scheduler gap is also treated as a likely sleep/resume
+    # event so a suspended Chromium window gets time to renew its lease.
     startup_deadline = time.monotonic() + 10 * 60.0
+    previous_check = time.monotonic()
+    resume_grace_until = 0.0
+    stale_checks = 0
     while True:
         time.sleep(3.0)
+        now = time.monotonic()
+        scheduler_gap = now - previous_check
+        previous_check = now
+        if scheduler_gap > 15.0:
+            resume_grace_until = max(resume_grace_until, now + 30.0)
+            startup_deadline = max(startup_deadline, now + 60.0)
+            stale_checks = 0
+            try:
+                DIAGNOSTICS.event("info", "desktop-lifecycle", "Desktop resume/scheduling gap detected; lease grace applied", gap_seconds=round(scheduler_gap, 1))
+            except Exception:
+                pass
+
         last_heartbeat, saw_heartbeat = desktop_heartbeat_state()
-        age = time.monotonic() - last_heartbeat
-        if saw_heartbeat and age > 90.0:
-            threading.Thread(target=httpd.shutdown, daemon=True).start()
-            return
-        if not saw_heartbeat and time.monotonic() > startup_deadline:
+        age = now - last_heartbeat
+        if saw_heartbeat:
+            if age > 90.0 and now >= resume_grace_until:
+                stale_checks += 1
+                if stale_checks >= 3:
+                    threading.Thread(target=httpd.shutdown, daemon=True).start()
+                    return
+            else:
+                stale_checks = 0
+        elif now > startup_deadline and now >= resume_grace_until:
             threading.Thread(target=httpd.shutdown, daemon=True).start()
             return
 

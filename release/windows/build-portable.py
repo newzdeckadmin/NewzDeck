@@ -30,12 +30,13 @@ def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
 def copy_app(stage: pathlib.Path):
-    for rel in ["server.py","sab_engine.py","automation_engine.py","build-manifest.json","start.bat","start.sh","version.txt"]:
+    # Production payload intentionally excludes development/acceptance launchers
+    # such as start.sh and PORTABLE_TESTING.txt.
+    for rel in ["server.py","sab_engine.py","automation_engine.py","build-manifest.json","start.bat","version.txt"]:
         shutil.copy2(APP/rel, stage/rel)
     shutil.copytree(APP/"static", stage/"static")
     shutil.copy2(ASSETS/"NewzDeck.ico", stage/"NewzDeck.ico")
     shutil.copy2(ROOT/"README.txt", stage/"README.txt")
-    shutil.copy2(ROOT/"PORTABLE_TESTING.txt", stage/"PORTABLE_TESTING.txt")
     shutil.copy2(ROOT/"UPDATING.txt", stage/"UPDATING.txt")
     shutil.copy2(ROOT/"LICENSE", stage/"LICENSE.txt")
     shutil.copy2(ROOT/"THIRD_PARTY_NOTICES.md", stage/"THIRD_PARTY_NOTICES.txt")
@@ -45,7 +46,7 @@ def build_go(stage: pathlib.Path):
     env=os.environ.copy(); env.update(GOOS='windows',GOARCH='amd64',CGO_ENABLED='0')
     version=subprocess.check_output(['go','version'],text=True).strip()
     if 'go1.23.2' not in version:
-        raise SystemExit(f'Go 1.23.2 is required for the canonical v3.5.33 build; found {version}')
+        raise SystemExit(f'Go 1.23.2 is required for the canonical Windows build; found {version}')
     for exe,src in HELPERS.items():
         run(['go','build','-trimpath','-ldflags=-s -w -H windowsgui -buildid=','-o',str(stage/exe),str(WIN/src)],env=env,cwd=str(ROOT))
 
@@ -73,6 +74,7 @@ def write_manifest(stage: pathlib.Path, version: str):
             {"path":"src/app/static/app.js","sha256":sha(APP/'static'/'app.js')},
             {"path":"src/app/static/index.html","sha256":sha(APP/'static'/'index.html')},
             {"path":"src/app/static/styles.css","sha256":sha(APP/'static'/'styles.css')},
+            {"path":"src/app/static/tmdb-logo.svg","sha256":sha(APP/'static'/'tmdb-logo.svg')},
         ],
     }
     (stage/'SOURCE_MANIFEST.json').write_text(json.dumps(manifest,indent=2)+"\n",encoding='utf-8')
@@ -96,11 +98,14 @@ def main():
         stage=pathlib.Path(td)/'payload';stage.mkdir()
         copy_app(stage);build_go(stage);write_manifest(stage,version)
         out=pathlib.Path(ns.output).resolve();deterministic_zip(stage,out)
-        # verify archive and required binaries
         with zipfile.ZipFile(out) as z: bad=z.testzip(); names=set(z.namelist())
         if bad: raise SystemExit(f'ZIP CRC failure: {bad}')
-        missing=[x for x in list(HELPERS)+['server.py','version.txt','LICENSE.txt','SOURCE_MANIFEST.json'] if x not in names]
+        missing=[x for x in list(HELPERS)+['server.py','version.txt','LICENSE.txt','SOURCE_MANIFEST.json','static/tmdb-logo.svg'] if x not in names]
         if missing: raise SystemExit(f'missing payload entries: {missing}')
+        forbidden={'NewzDeckBootstrap.exe','NewzDeckCore.exe','PORTABLE_TESTING.txt','start.sh'}
+        present=sorted(forbidden & names)
+        if present: raise SystemExit(f'production payload contains forbidden entries: {present}')
         print(f'Portable: {out}')
         print(f'SHA-256: {sha(out)}')
+
 if __name__=='__main__': main()

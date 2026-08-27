@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all',
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.5.33';
+const UI_VERSION = '3.5.34';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -33,6 +33,8 @@ const els = {
 };
 let thumbObserver = null;
 let continuousObserver = null;
+let downloadSnapshotRequestId = 0;
+let downloadSnapshotAppliedId = 0;
 let thumbDemandRaf = 0;
 let thumbWatchdogTimer = null;
 
@@ -1222,15 +1224,42 @@ function updateDownloadNavSummary(downloads=state.downloadSnapshot||{}){
   if(els.downloadNavBadge){els.downloadNavBadge.textContent=queueActivity;els.downloadNavBadge.classList.toggle('hidden',queueActivity===0)}
 }
 async function loadDownloads({render=true}={}){
+  const requestId=++downloadSnapshotRequestId;
   try{
-    const downloads=await api('/api/downloads');state.downloadSnapshot=downloads;recalculatePreviewConcurrency();updateDownloadNavSummary(downloads);
+    const downloads=await api('/api/downloads',null,{timeoutMs:6500,timeoutMessage:'Downloads status took too long to respond. NewzDeck will retry automatically.'});
+    // A slower older poll must never overwrite a newer SAB snapshot.
+    if(requestId<downloadSnapshotAppliedId)return downloads;
+    downloadSnapshotAppliedId=requestId;
+    state.downloadSnapshot=downloads;recalculatePreviewConcurrency();updateDownloadNavSummary(downloads);
     const changed=rebuildDownloadIndexes();
     const settingsOpen=els.settingsModal&&!els.settingsModal.classList.contains('hidden');
     if(render&&state.activeView==='downloads'&&!settingsOpen)renderDownloads();
     if(changed){if(state.activeView==='browse'&&state.viewMode==='list'&&state.selectedGroup)renderArticles();else updateDownloadBadgesInPlace();if(state.viewerOpen)updateViewerSelectionState();}
-  }catch(e){if(!state.serviceTransition&&state.activeView==='downloads')toast(e.message,'error')}
+    return downloads;
+  }catch(e){if(requestId===downloadSnapshotRequestId&&!state.serviceTransition&&state.activeView==='downloads')toast(e.message,'error')}
 }
-function visibleDownloadJobs(){return (state.downloadSnapshot?.jobs||[]).filter(downloadVisible)}
+function downloadCompletedSortValue(item){
+  const completed=Number(item?.completed_ts||0);
+  if(Number.isFinite(completed)&&completed>0)return completed;
+  const started=Number(item?.started_ts||0), created=Number(item?.created_ts||0);
+  return Math.max(Number.isFinite(started)?started:0,Number.isFinite(created)?created:0);
+}
+function sortDownloadsForCurrentView(items){
+  const out=[...(items||[])];
+  if(state.downloadFilter==='completed'){
+    out.sort((a,b)=>{
+      const aCompleted=Number(a?.completed_ts||0), bCompleted=Number(b?.completed_ts||0);
+      if(aCompleted!==bCompleted && (aCompleted>0||bCompleted>0))return bCompleted-aCompleted;
+      const aRank=Number(a?.history_rank??1e9), bRank=Number(b?.history_rank??1e9);
+      if(aRank!==bRank && (aRank<1e9||bRank<1e9))return aRank-bRank;
+      const byFallback=downloadCompletedSortValue(b)-downloadCompletedSortValue(a);
+      if(byFallback)return byFallback;
+      return String(b?.id||'').localeCompare(String(a?.id||''));
+    });
+  }
+  return out;
+}
+function visibleDownloadJobs(){return sortDownloadsForCurrentView((state.downloadSnapshot?.jobs||[]).filter(downloadVisible))}
 function updateDownloadSelectionBar(){
   const count=state.selectedDownloads.size;els.downloadSelectionBar.classList.toggle('hidden',count===0);els.downloadSelectionCount.textContent=`${count.toLocaleString()} selected`;
 }
@@ -1333,7 +1362,7 @@ function downloadPackage(pkg,allJobs){
 function renderDownloads(){
   const d=state.downloadSnapshot||{}, c=d.counts||{}, jobs=visibleDownloadJobs();
   const retryWaiting=Number(c.retry_wait||0), activeNow=(c.downloading||0)+(c.cancelling||0)+retryWaiting, queueActivity=activeNow+(c.queued||0);
-  const allJobs=d.jobs||[],collections=d.collections||[];
+  const allJobs=d.jobs||[],collections=sortDownloadsForCurrentView(d.collections||[]);
   const missingBlocks=allJobs.reduce((n,j)=>n+Number(j.failed_parts||0),0);
   const retryCount=allJobs.reduce((n,j)=>n+Number(j.retry_count||0),0);
   const recoveredCount=allJobs.reduce((n,j)=>n+Number(j.recovered_parts||0),0);
@@ -1957,6 +1986,11 @@ setInterval(()=>{if(!state.serviceTransition)loadDownloads()},1000);setInterval(
         const beat=()=>fetch('/api/app/heartbeat',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'}).catch(()=>{});
         beat();
         setInterval(beat,3000);
+        // Browsers can throttle timers while Windows sleeps or while the app is
+        // hidden. Renew the lease immediately when the desktop becomes active.
+        window.addEventListener('focus',beat);
+        window.addEventListener('pageshow',beat);
+        document.addEventListener('visibilitychange',()=>{if(!document.hidden)beat()});
         return;
       }
     }catch(_e){}
