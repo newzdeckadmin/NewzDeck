@@ -14,7 +14,7 @@
 #define MyURL "https://www.newzdeck.com"
 
 [Setup]
-; Stable product identity from the proven v3.5.31 installer. Never change this.
+; Stable product identity from the proven v3.5.31+ installer. Never change this.
 AppId={{A84C814C-704C-4C7D-A20B-BA5DD83F9429}
 AppName={#MyAppName}
 AppVersion={#AppVersion}
@@ -42,7 +42,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-CloseApplicationsFilter=NewzDeck.exe,NewzDeckBootstrap.exe,NewzDeckCore.exe,NewzDeckTray.exe,NewzDeckPicker.exe,NewzDeckThumb.exe,NewzDeckYenc.exe
+CloseApplicationsFilter=NewzDeck.exe,NewzDeckService.exe,NewzDeckTray.exe,NewzDeckPicker.exe,NewzDeckThumb.exe,NewzDeckYenc.exe
 UsePreviousAppDir=yes
 UsePreviousTasks=yes
 VersionInfoVersion={#AppVersion}.0
@@ -55,18 +55,16 @@ VersionInfoProductVersion={#AppVersion}
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Overlay the tested payload. Extra/generated files in the install directory are
-; deliberately not purged during upgrades.
+; Overlay the exact source-built payload. Extra/generated files in the install
+; directory are deliberately not purged during upgrades.
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\NewzDeck"; Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NewzDeck.ico"
 Name: "{autodesktop}\NewzDeck"; Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NewzDeck.ico"; Tasks: desktopicon
 
-; NewzDeck is intentionally not auto-launched from inside Setup. A same-version
-; reinstall exposed a startup timing race where the installer-triggered launch
-; could begin before the desktop backend handoff was ready. Users launch NewzDeck
-; normally from the installed Start Menu/Desktop shortcut after Setup has exited.
+; NewzDeck is intentionally not auto-launched from inside Setup. Users launch
+; NewzDeck normally after Setup exits, avoiding upgrade/startup handoff races.
 
 [Code]
 const

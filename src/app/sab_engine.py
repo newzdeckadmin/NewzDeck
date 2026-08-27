@@ -27,10 +27,32 @@ AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", 
 
 
 def _atomic_json_write(path: Path, value: Any) -> None:
+    """Atomically replace a local JSON state file, tolerating brief Windows sharing locks.
+
+    Windows can reject ``os.replace`` with ERROR_ACCESS_DENIED/ERROR_SHARING_VIOLATION
+    when another NewzDeck thread has the old JSON file open for a very short read.
+    The state files are tiny, so retrying only those transient sharing errors avoids
+    turning a harmless read/write overlap into a failed SAB completion/import cycle.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + f".tmp-{os.getpid()}-{threading.get_ident()}-{uuid.uuid4().hex[:8]}")
     temp.write_text(json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(temp, path)
+    try:
+        for attempt in range(20):
+            try:
+                os.replace(temp, path)
+                return
+            except PermissionError as exc:
+                winerror = getattr(exc, "winerror", None)
+                if os.name != "nt" or winerror not in {5, 32} or attempt >= 19:
+                    raise
+                time.sleep(min(0.01 * (attempt + 1), 0.08))
+    finally:
+        try:
+            if temp.exists():
+                temp.unlink()
+        except OSError:
+            pass
 
 
 def _json_read(path: Path, default: Any) -> Any:
@@ -38,6 +60,28 @@ def _json_read(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def _json_read_retry(path: Path, default: Any, *, attempts: int = 20, strict_existing: bool = False) -> Any:
+    """Read JSON without treating a transient Windows sharing/partial-read failure as missing state."""
+    path = Path(path)
+    existed = path.exists()
+    last: Exception | None = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            if not path.exists():
+                if existed and strict_existing:
+                    raise FileNotFoundError(str(path))
+                return default
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            last = exc
+            if attempt + 1 >= max(1, int(attempts)):
+                break
+            time.sleep(min(0.01 * (attempt + 1), 0.08))
+    if strict_existing and existed:
+        raise RuntimeError(f"Could not read existing state file {path.name} after retries: {last}")
+    return default
 
 
 def _clamp_int(value: Any, low: int, high: int, default: int = 0) -> int:
@@ -222,11 +266,13 @@ class SabDownloadManager:
         self.state_lock_file = self.root / ".newzdeck-jobs.lock"
         self.engine_state_file = self.root / "engine.json"
         self.identity_history_file = self.root / "engine-identities.json"
+        self.identity_lock_file = self.root / ".engine-identity.lock"
         self.bootstrap_lock_file = self.root / ".bootstrap.lock"
         self.launch_lock_file = self.root / ".engine-start.lock"
         self.config_file = self.admin_dir / "sabnzbd.ini"
         for d in (self.root, self.admin_dir, self.incoming_dir, self.incomplete_dir, self.cache_dir):
             d.mkdir(parents=True, exist_ok=True)
+        self._cleanup_stale_identity_temps()
 
         raw = _json_read(self.state_file, {})
         self.state = raw if isinstance(raw, dict) else {}
@@ -238,6 +284,10 @@ class SabDownloadManager:
         self.state.setdefault("removed_jobs", {})
         self.state.setdefault("_paused_updated_ts", 0.0)
         self.lock = threading.RLock()
+        # engine.json is shared by the UI polling, SAB coordination and completion
+        # threads.  Serializing identity normalization prevents Windows read/replace
+        # races from starving the Automation completion monitor.
+        self._identity_lock = threading.RLock()
         self.shutdown_event = threading.Event()
         self.sync_event = threading.Event()
         self.media_automation = None
@@ -308,13 +358,15 @@ class SabDownloadManager:
         self._engine_thread = None
         self._completion_thread = None
         self._background_threads_lock = threading.Lock()
+        self._import_kick_lock = threading.Lock()
+        self._import_kick_inflight: set[str] = set()
         if start_threads:
             self.start_background_threads()
 
     def start_background_threads(self) -> None:
         """Start SAB coordination workers once, after the local HTTP server is ready.
 
-        v3.5.32 decouples localhost/UI readiness from SAB identity probing and
+        v3.5.33 decouples localhost/UI readiness from SAB identity probing and
         completion reconciliation. These workers remain asynchronous exactly as
         before; only their start point moves out of module import.
         """
@@ -334,6 +386,53 @@ class SabDownloadManager:
                 self.diagnostics.event(level, "sab-engine", message, **details)
         except Exception:
             pass
+
+    def _cleanup_stale_identity_temps(self) -> None:
+        cutoff = time.time() - 30.0
+        removed = 0
+        for pattern in ("engine.json.tmp-*", "engine-identities.json.tmp-*", "engine.json.*.tmp", "engine-identities.json.*.tmp"):
+            try:
+                candidates = list(self.root.glob(pattern))
+            except OSError:
+                candidates = []
+            for temp in candidates:
+                try:
+                    if temp.stat().st_mtime > cutoff:
+                        continue
+                    temp.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+        if removed:
+            self._event("info", f"Cleaned {removed} stale SAB identity temp file(s)")
+
+    @contextlib.contextmanager
+    def _identity_file_guard(self):
+        self.identity_lock_file.parent.mkdir(parents=True, exist_ok=True)
+        fh = self.identity_lock_file.open("a+b")
+        try:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() <= 0:
+                fh.write(b"0")
+                fh.flush()
+            fh.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        finally:
+            fh.close()
 
     @contextlib.contextmanager
     def _state_file_guard(self):
@@ -581,52 +680,52 @@ class SabDownloadManager:
         return out
 
     def _load_engine_identity(self) -> dict[str, Any]:
-        raw = _json_read(self.engine_state_file, {})
-        if not isinstance(raw, dict):
-            raw = {}
-
-        # engine.json may point at an adopted legacy SAB config or a newer isolated
-        # admin generation. Keep that path stable across portable NewzDeck updates.
-        config_value = str(raw.get("config_file") or "").strip()
-        if config_value:
-            try:
-                candidate = Path(config_value)
-                root_resolved = self.root.resolve()
-                if candidate.resolve().is_relative_to(root_resolved):
-                    self.config_file = candidate
-                    self.admin_dir = candidate.parent
-            except Exception:
-                pass
-
-        config_ident = self._config_identity()
-        if not raw.get("api_key") and config_ident.get("api_key"):
-            raw["api_key"] = config_ident["api_key"]
-        if not raw.get("nzb_key") and config_ident.get("nzb_key"):
-            raw["nzb_key"] = config_ident["nzb_key"]
-        if not raw.get("api_key"):
-            raw["api_key"] = uuid.uuid4().hex
-        if not raw.get("nzb_key"):
-            raw["nzb_key"] = uuid.uuid4().hex
-        port = _clamp_int(raw.get("port"), 1025, 65535, 0)
-        if not port:
-            port = _clamp_int(config_ident.get("port"), 1025, 65535, 0)
-        if not port:
-            for candidate in range(65433, 65520):
-                if self._port_available(candidate):
-                    port = candidate
-                    break
-        if not port:
-            raise RuntimeError("NewzDeck could not reserve a private localhost port for its download engine")
-        raw.update({
-            "version": SAB_VERSION,
-            "port": port,
-            "url": f"http://127.0.0.1:{port}",
-            "api_key": str(raw["api_key"]),
-            "nzb_key": str(raw["nzb_key"]),
-            "config_file": str(self.config_file),
-        })
-        _atomic_json_write(self.engine_state_file, raw)
-        return raw
+        """Load SAB identity without rotating credentials because of a transient file-read failure."""
+        with self._identity_lock:
+            with self._identity_file_guard():
+                raw = _json_read_retry(self.engine_state_file, {}, strict_existing=True)
+                if not isinstance(raw, dict):
+                    raw = {}
+                original = dict(raw)
+                config_value = str(raw.get("config_file") or "").strip()
+                if config_value:
+                    try:
+                        candidate = Path(config_value)
+                        if candidate.resolve().is_relative_to(self.root.resolve()):
+                            self.config_file = candidate
+                            self.admin_dir = candidate.parent
+                    except Exception:
+                        pass
+                config_ident = self._config_identity()
+                if not raw.get("api_key") and config_ident.get("api_key"):
+                    raw["api_key"] = config_ident["api_key"]
+                if not raw.get("nzb_key") and config_ident.get("nzb_key"):
+                    raw["nzb_key"] = config_ident["nzb_key"]
+                if not raw.get("api_key"):
+                    raw["api_key"] = uuid.uuid4().hex
+                if not raw.get("nzb_key"):
+                    raw["nzb_key"] = uuid.uuid4().hex
+                port = _clamp_int(raw.get("port"), 1025, 65535, 0)
+                if not port:
+                    port = _clamp_int(config_ident.get("port"), 1025, 65535, 0)
+                if not port:
+                    for candidate in range(65433, 65520):
+                        if self._port_available(candidate):
+                            port = candidate
+                            break
+                if not port:
+                    raise RuntimeError("NewzDeck could not reserve a private localhost port for its download engine")
+                raw.update({
+                    "version": SAB_VERSION,
+                    "port": port,
+                    "url": f"http://127.0.0.1:{port}",
+                    "api_key": str(raw["api_key"]),
+                    "nzb_key": str(raw["nzb_key"]),
+                    "config_file": str(self.config_file),
+                })
+                if raw != original or not self.engine_state_file.exists():
+                    _atomic_json_write(self.engine_state_file, raw)
+                return raw
 
     def _record_identity(self, ident: dict[str, Any], source: str = "save") -> None:
         rec = {
@@ -639,30 +738,34 @@ class SabDownloadManager:
         }
         if not rec["port"]:
             return
-        hist = _json_read(self.identity_history_file, [])
-        if not isinstance(hist, list):
-            hist = []
-        # Keep only distinct recent identities. This is intentionally local private
-        # state, just like engine.json; it allows safe recovery after a bad upgrade.
-        hist = [x for x in hist if not (isinstance(x, dict) and int(x.get("port") or 0) == rec["port"]
-                                        and str(x.get("api_key") or "") == rec["api_key"])]
-        hist.append(rec)
-        _atomic_json_write(self.identity_history_file, hist[-24:])
+        with self._identity_lock:
+            with self._identity_file_guard():
+                hist = _json_read_retry(self.identity_history_file, [], strict_existing=True)
+                if not isinstance(hist, list):
+                    hist = []
+                hist = [x for x in hist if not (isinstance(x, dict) and int(x.get("port") or 0) == rec["port"]
+                                                and str(x.get("api_key") or "") == rec["api_key"])]
+                hist.append(rec)
+                _atomic_json_write(self.identity_history_file, hist[-24:])
 
     def _save_engine_identity(self, ident: dict[str, Any], *, source: str = "save") -> dict[str, Any]:
-        normalized = dict(ident)
-        port = _clamp_int(normalized.get("port"), 1025, 65535, 0)
-        if not port:
-            raise RuntimeError("Invalid private download-engine port")
-        normalized.update({
-            "version": SAB_VERSION,
-            "port": port,
-            "url": f"http://127.0.0.1:{port}",
-            "config_file": str(normalized.get("config_file") or self.config_file),
-        })
-        _atomic_json_write(self.engine_state_file, normalized)
-        self._record_identity(normalized, source=source)
-        return normalized
+        with self._identity_lock:
+            normalized = dict(ident)
+            port = _clamp_int(normalized.get("port"), 1025, 65535, 0)
+            if not port:
+                raise RuntimeError("Invalid private download-engine port")
+            normalized.update({
+                "version": SAB_VERSION,
+                "port": port,
+                "url": f"http://127.0.0.1:{port}",
+                "config_file": str(normalized.get("config_file") or self.config_file),
+            })
+            with self._identity_file_guard():
+                current = _json_read_retry(self.engine_state_file, {}, strict_existing=True)
+                if not isinstance(current, dict) or current != normalized:
+                    _atomic_json_write(self.engine_state_file, normalized)
+            self._record_identity(normalized, source=source)
+            return normalized
 
     def _api_base(self) -> tuple[str, str]:
         ident = self._load_engine_identity()
@@ -692,7 +795,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.32"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.33"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -940,7 +1043,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.32 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.33 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1483,7 +1586,7 @@ class SabDownloadManager:
         """
         text = str(exc or "").casefold()
         markers = (
-            "winerror 10054", "forcibly closed", "connection reset",
+            "winerror 10054", "errno 10054", "forcibly closed", "connection reset",
             "connection aborted", "broken pipe", "remote end closed connection",
             "connection refused", "timed out", "timeout",
         )
@@ -1721,7 +1824,7 @@ class SabDownloadManager:
     def _transient_provider_reset(message: str) -> bool:
         low = str(message or "").casefold()
         return any(token in low for token in (
-            "winerror 10054", "connection reset", "forcibly closed by the remote host",
+            "winerror 10054", "errno 10054", "connection reset", "forcibly closed by the remote host",
             "remote host closed", "connection aborted", "eof occurred in violation of protocol",
         ))
 
@@ -1906,7 +2009,7 @@ class SabDownloadManager:
         return {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.5.32",
+            "adapter_version": "3.5.33",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -1963,11 +2066,74 @@ class SabDownloadManager:
     def _priority_value(self, priority: str) -> int:
         return {"high": 1, "normal": 0, "low": -1}.get(str(priority).lower(), 0)
 
+    @staticmethod
+    def _sab_slot_name(slot: dict[str, Any]) -> str:
+        return str(slot.get("filename") or slot.get("name") or slot.get("nzb_name") or "").strip()
+
+    def _sab_ids_for_name(self, name: str, *, timeout: float = 2.0) -> set[str] | None:
+        """Return SAB queue/history IDs matching *name*, or None when SAB cannot be queried.
+
+        This is used only around addlocalfile's ambiguous failure window.  A successful
+        before/after comparison lets NewzDeck prove whether SAB accepted an NZB even
+        when its localhost HTTP response was reset before urllib received it.
+        """
+        wanted = _safe_name(name).casefold()
+        found: set[str] = set()
+        try:
+            queue_data = self._api("queue", start=0, limit=200, timeout=timeout)
+            history_data = self._api("history", start=0, limit=200, timeout=timeout)
+            _, qslots = self._queue_slots(queue_data)
+            _, hslots = self._history_slots(history_data)
+            for slot in qslots + hslots:
+                if _safe_name(self._sab_slot_name(slot)).casefold() != wanted:
+                    continue
+                nzo_id = str(slot.get("nzo_id") or slot.get("id") or "").strip()
+                if nzo_id:
+                    found.add(nzo_id)
+            return found
+        except Exception:
+            return None
+
+    def _confirm_new_sab_submission(self, name: str, before: set[str] | None, *, wait_seconds: float = 2.4) -> str:
+        if before is None:
+            return ""
+        deadline = time.time() + max(0.4, float(wait_seconds))
+        while time.time() < deadline:
+            current = self._sab_ids_for_name(name, timeout=1.2)
+            if current is not None:
+                added = sorted(current - before)
+                if added:
+                    return str(added[0])
+            time.sleep(0.2)
+        return ""
+
+    @staticmethod
+    def _friendly_submit_error(exc: Exception) -> str:
+        text = str(exc or "").casefold()
+        if any(x in text for x in ("winerror 10054", "errno 10054", "forcibly closed", "connection reset", "remote end closed", "connection aborted", "broken pipe")):
+            return "The built-in download engine briefly reset its local connection while queueing this release."
+        if any(x in text for x in ("winerror 10061", "errno 10061", "connection refused", "timed out", "timeout")):
+            return "The built-in download engine was temporarily unavailable while queueing this release."
+        return "The built-in download engine could not queue this release."
+
     def _submit_nzb(self, provider_id: str, source_name: str, raw: bytes, *, name: str,
                     expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None = None,
                     priority: str = "normal", password: str = "") -> dict[str, Any]:
-        self.ensure_running(blocking=True)
-        self._sync_configuration()
+        # Startup/configuration calls happen before addlocalfile and are therefore
+        # safe to retry.  SAB occasionally recycles its localhost HTTP listener
+        # during configuration persistence on Windows, which surfaces as 10054.
+        for attempt in range(3):
+            try:
+                self.ensure_running(blocking=True)
+                self._sync_configuration()
+                break
+            except Exception as exc:
+                if not self._is_transient_control_error(exc) or attempt >= 2:
+                    if self._is_transient_control_error(exc):
+                        raise RuntimeError(self._friendly_submit_error(exc) + " Please try Grab again in a moment.") from exc
+                    raise
+                time.sleep(0.25 * (attempt + 1))
+
         safe_source = _safe_name(Path(source_name).stem, "NewzDeck") + ".nzb"
         path = self.incoming_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{safe_source}"
         path.write_bytes(raw)
@@ -1975,13 +2141,54 @@ class SabDownloadManager:
         # SAB pp=3 means +Repair/+Unpack/Delete; pp=2 retains archive parts.
         cleanup = bool(settings.get("cleanup_archives", False) or automation_context)
         pp = 3 if cleanup else 2
-        result = self._api("addlocalfile", name=str(path), nzbname=_safe_name(name), cat="*", script="Default",
-                           priority=self._priority_value(priority), pp=pp, password=password or None, timeout=12)
+
+        before_ids = self._sab_ids_for_name(name, timeout=1.6)
+        result: dict[str, Any] = {}
+        try:
+            result = self._api("addlocalfile", name=str(path), nzbname=_safe_name(name), cat="*", script="Default",
+                               priority=self._priority_value(priority), pp=pp, password=password or None, timeout=12)
+        except Exception as exc:
+            if not self._is_transient_control_error(exc):
+                raise
+
+            # addlocalfile is not blindly retried: the reset may have happened *after*
+            # SAB accepted the NZB. First prove whether a new matching queue/history
+            # ID appeared. This prevents duplicate jobs after an ambiguous HTTP reset.
+            confirmed = self._confirm_new_sab_submission(name, before_ids)
+            if confirmed:
+                result = {"nzo_ids": [confirmed]}
+                self._event("warning", "Recovered SAB addlocalfile response after localhost connection reset", nzo_id=confirmed)
+            else:
+                # If SAB can now be queried successfully and no new job exists, one
+                # retry is safe. If its state remains unknowable, fail closed with a
+                # human message rather than risking a duplicate submission.
+                current_ids = self._sab_ids_for_name(name, timeout=1.6)
+                if before_ids is not None and current_ids is not None and not (current_ids - before_ids):
+                    time.sleep(0.25)
+                    try:
+                        result = self._api("addlocalfile", name=str(path), nzbname=_safe_name(name), cat="*", script="Default",
+                                           priority=self._priority_value(priority), pp=pp, password=password or None, timeout=12)
+                    except Exception as retry_exc:
+                        if self._is_transient_control_error(retry_exc):
+                            confirmed = self._confirm_new_sab_submission(name, before_ids)
+                            if confirmed:
+                                result = {"nzo_ids": [confirmed]}
+                            else:
+                                raise RuntimeError(self._friendly_submit_error(retry_exc) + " No duplicate was submitted; try Grab again in a moment.") from retry_exc
+                        else:
+                            raise
+                else:
+                    raise RuntimeError(self._friendly_submit_error(exc) + " NewzDeck could not safely confirm whether SAB accepted it, so it did not retry automatically. Check Downloads before trying Grab again.") from exc
+
         ids = result.get("nzo_ids") if isinstance(result.get("nzo_ids"), list) else []
         if not ids:
             # Some versions wrap this in result.
             wrapped = result.get("result") if isinstance(result.get("result"), dict) else {}
             ids = wrapped.get("nzo_ids") if isinstance(wrapped.get("nzo_ids"), list) else []
+        if not ids:
+            confirmed = self._confirm_new_sab_submission(name, before_ids, wait_seconds=1.2)
+            if confirmed:
+                ids = [confirmed]
         if not ids:
             raise RuntimeError(str(result.get("error") or "SABnzbd did not return a queue job ID"))
         nzo_id = str(ids[0])
@@ -2247,6 +2454,7 @@ class SabDownloadManager:
             "automation_label": automation_label, "automation_release_title": automation_release_title,
             "automation_destination": automation_destination, "display_name": automation_label or str(slot.get("filename") or meta.get("name") or "NZB package"),
             "source_filename": str(slot.get("filename") or ""), "import_status": import_status,
+            "imported": bool(meta.get("imported")),
             "release_failure_recorded": bool(meta.get("failure_feedback_recorded")),
             "release_failure_reason": str(meta.get("failure_reason") or ""),
             "collection_role": "payload", "is_auxiliary": False, "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
@@ -2279,6 +2487,7 @@ class SabDownloadManager:
             "connections_used": int(job.get("connections_used", 0) or 0), "retry_count": 0, "recovered_parts": 0, "failed_parts": 0,
             "post_status": str(job.get("post_status") or ""), "post_progress": int(job.get("post_progress", 0) or 0), "post_message": str(job.get("post_message") or ""),
             "import_status": str(job.get("import_status") or ""),
+            "imported": bool(job.get("imported")),
             "release_failure_recorded": bool(job.get("release_failure_recorded")),
             "release_failure_reason": str(job.get("release_failure_reason") or ""),
             "health": {"state": "needs_attention" if str(job.get("import_status") or "")=="failed" else ("healthy" if status not in {"failed"} else "incomplete"), "label": "Import needs attention" if str(job.get("import_status") or "")=="failed" else ("✓ HEALTHY" if status not in {"failed"} else "Needs attention"), "missing_articles": 0,
@@ -2361,7 +2570,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.32 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.33 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -2370,6 +2579,7 @@ class SabDownloadManager:
             qroot, qslots = self._queue_slots(queue_payload)
             hroot, hslots = self._history_slots(history_payload)
             self._adopt_untracked_slots(qslots, hslots)
+            self._kick_completed_automation_imports(qslots, hslots)
         except Exception as exc:
             self._last_error = str(exc)
             if self._last_snapshot is not None:
@@ -2563,7 +2773,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.32", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.33", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -2727,38 +2937,104 @@ class SabDownloadManager:
         self._save_state()
         self._event('info','Remembered failed Automation release for Interactive Search',nzo_id=nzo_id,reason=reason[:240])
 
+    @staticmethod
+    def _automation_import_rank(meta: dict[str, Any]) -> tuple[int, int, float]:
+        context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+        score = int(_num(context.get("release_score"), 0))
+        quality = str(context.get("release_quality") or context.get("release_title") or "").casefold()
+        resolution = 0
+        for value in (4320, 2160, 1440, 1080, 720, 576, 480):
+            if str(value) in quality:
+                resolution = value
+                break
+        return score, resolution, _num(meta.get("created_ts"), 0)
+
+    def _completed_automation_candidates(self, queue_slots: list[dict[str, Any]],
+                                         history_slots: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+        queue_by = {str(x.get("nzo_id") or x.get("id") or ""): x for x in queue_slots if isinstance(x, dict)}
+        hist_by = {str(x.get("nzo_id") or x.get("id") or ""): x for x in history_slots if isinstance(x, dict)}
+        with self.lock:
+            tracked = dict(self._tracked())
+        groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        for nzo_id, meta in tracked.items():
+            context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+            if not context or str(context.get("source") or "") != "automation_grab" or meta.get("imported"):
+                continue
+            target = str(context.get("target_key") or "").strip() or f"job:{nzo_id}"
+            groups.setdefault(target, []).append((str(nzo_id), meta))
+        selected: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        for rows in groups.values():
+            completed = []
+            active = []
+            for nzo_id, meta in rows:
+                hslot = hist_by.get(nzo_id)
+                qslot = queue_by.get(nzo_id)
+                if hslot is not None and str(hslot.get("status") or "").casefold() == "completed":
+                    completed.append((self._automation_import_rank(meta), nzo_id, meta, hslot))
+                elif qslot is not None and str(qslot.get("status") or "").casefold() not in {"failed", "completed"}:
+                    active.append((self._automation_import_rank(meta), nzo_id, meta, qslot))
+            if not completed:
+                continue
+            completed.sort(key=lambda x: x[0], reverse=True)
+            best = completed[0]
+            if active:
+                active.sort(key=lambda x: x[0], reverse=True)
+                if active[0][0] > best[0]:
+                    continue
+            selected.append((best[1], best[2], best[3]))
+        return selected
+
+    def _process_completed_automation_slots(self, queue_slots: list[dict[str, Any]],
+                                            history_slots: list[dict[str, Any]]) -> None:
+        for nzo_id, meta, slot in self._completed_automation_candidates(queue_slots, history_slots):
+            self._run_automation_import(nzo_id, meta, slot)
+
+    def _kick_completed_automation_imports(self, queue_slots: list[dict[str, Any]],
+                                           history_slots: list[dict[str, Any]]) -> None:
+        if self.media_automation is None:
+            return
+        candidates = self._completed_automation_candidates(queue_slots, history_slots)
+        if not candidates:
+            return
+        with self._import_kick_lock:
+            chosen = [row for row in candidates if row[0] not in self._import_kick_inflight]
+            for nzo_id, _meta, _slot in chosen:
+                self._import_kick_inflight.add(nzo_id)
+        if not chosen:
+            return
+        def worker(rows: list[tuple[str, dict[str, Any], dict[str, Any]]]) -> None:
+            try:
+                for nzo_id, meta, slot in rows:
+                    try:
+                        self._run_automation_import(nzo_id, meta, slot)
+                    finally:
+                        with self._import_kick_lock:
+                            self._import_kick_inflight.discard(nzo_id)
+            finally:
+                self._last_snapshot_ts = 0
+        threading.Thread(target=worker, args=(chosen,), name="newzdeck-sab-import-kick", daemon=True).start()
+
     def _completion_loop(self) -> None:
         while not self.shutdown_event.wait(2.0):
-            if self.media_automation is None or not self._ping(timeout=0.5):
+            if self.media_automation is None:
                 continue
             try:
-                _, history_payload = self._queue_and_history()
-                _, slots = self._history_slots(history_payload)
-                self._adopt_untracked_slots([], slots)
+                queue_payload, history_payload = self._queue_and_history()
+                _, qslots = self._queue_slots(queue_payload)
+                _, hslots = self._history_slots(history_payload)
+                self._adopt_untracked_slots(qslots, hslots)
                 self._refresh_shared_state()
-                by_id = {str(x.get("nzo_id") or x.get("id") or ""): x for x in slots}
+                by_id = {str(x.get("nzo_id") or x.get("id") or ""): x for x in hslots}
                 with self.lock:
                     tracked = dict(self._tracked())
-                now = time.time()
                 for nzo_id, meta in tracked.items():
                     context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
                     if not context or str(context.get("source") or "") != "automation_grab" or meta.get("imported"):
                         continue
-                    if str(meta.get("import_status") or "") == "waiting" and _num(meta.get("import_retry_after"), 0) > now:
-                        continue
                     slot = by_id.get(nzo_id)
-                    if not slot:
-                        continue
-                    slot_status = str(slot.get("status") or "").casefold()
-                    if slot_status == "failed":
-                        # Preserve the original release identity before the user can
-                        # remove the failed SAB history row. Interactive Search then
-                        # knows this exact post was bad even for a manual Grab.
-                        self._remember_failed_automation_release(nzo_id,meta,slot)
-                        continue
-                    if slot_status != "completed":
-                        continue
-                    self._run_automation_import(nzo_id, meta, slot)
+                    if slot is not None and str(slot.get("status") or "").casefold() == "failed":
+                        self._remember_failed_automation_release(nzo_id, meta, slot)
+                self._process_completed_automation_slots(qslots, hslots)
             except Exception as exc:
                 self._event("warning", f"Automation completion monitor failed: {exc}")
 

@@ -32,8 +32,6 @@ $requiredFiles = @(
     'version.txt',
     'NewzDeck.exe',
     'NewzDeck.ico',
-    'NewzDeckBootstrap.exe',
-    'NewzDeckCore.exe',
     'NewzDeckService.exe',
     'NewzDeckTray.exe',
     'NewzDeckPicker.exe',
@@ -44,7 +42,11 @@ $requiredFiles = @(
     'automation_engine.py',
     'static/index.html',
     'static/app.js',
-    'static/styles.css'
+    'static/styles.css',
+    'LICENSE.txt',
+    'THIRD_PARTY_NOTICES.txt',
+    'licenses/GO-BSD-3-CLAUSE.txt',
+    'SOURCE_MANIFEST.json'
 )
 foreach ($requiredFile in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $PayloadDirectory $requiredFile) -PathType Leaf)) {
@@ -52,9 +54,23 @@ foreach ($requiredFile in $requiredFiles) {
     }
 }
 
+foreach ($retiredFile in @('NewzDeckBootstrap.exe', 'NewzDeckCore.exe')) {
+    if (Test-Path -LiteralPath (Join-Path $PayloadDirectory $retiredFile)) {
+        throw "Retired legacy helper '$retiredFile' must not be present in a source-complete release payload."
+    }
+}
+
 $payloadVersion = (Get-Content -LiteralPath (Join-Path $PayloadDirectory 'version.txt') -Raw).Trim()
 if ($payloadVersion -cne $Version) {
     throw "Payload version '$payloadVersion' does not match requested version '$Version'."
+}
+
+$sourceManifest = Get-Content -LiteralPath (Join-Path $PayloadDirectory 'SOURCE_MANIFEST.json') -Raw | ConvertFrom-Json
+if ($sourceManifest.version -cne $Version -or $sourceManifest.license -cne 'GPL-3.0-only') {
+    throw 'SOURCE_MANIFEST.json version/license validation failed.'
+}
+if (@($sourceManifest.newzdeck_owned_binaries).Count -ne 6) {
+    throw 'SOURCE_MANIFEST.json must map exactly six NewzDeck-owned Windows binaries.'
 }
 
 $iconBytes = [System.IO.File]::ReadAllBytes((Join-Path $PayloadDirectory 'NewzDeck.ico'))
@@ -95,6 +111,7 @@ if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Inno Setup did not produce expected installer '$installerName'."
 }
 
+# The source-built Portable ZIP is copied byte-for-byte into the release output.
 Copy-Item -LiteralPath $PortableArchive -Destination $portablePath -Force
 
 $checksumLines = foreach ($artifact in @($installerPath, $portablePath)) {
@@ -107,7 +124,7 @@ $checksumLines = foreach ($artifact in @($installerPath, $portablePath)) {
     [System.Text.UTF8Encoding]::new($false)
 )
 
-Write-Host "Built NewzDeck Windows release assets for v${Version}:"
+Write-Host "Built NewzDeck source-complete Windows release assets for v${Version}:"
 Get-ChildItem -LiteralPath $OutputDirectory -File | ForEach-Object {
     Write-Host " - $($_.Name)"
 }

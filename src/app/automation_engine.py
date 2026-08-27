@@ -24,6 +24,16 @@ from typing import Any, Callable
 
 VIDEO_EXTS = {'.mkv','.mp4','.m4v','.avi','.mov','.wmv','.ts','.m2ts','.webm','.mpg','.mpeg'}
 
+def _friendly_grab_exception(exc: Exception) -> str:
+    text=str(exc or '').strip(); low=text.casefold()
+    if any(x in low for x in ('winerror 10054','errno 10054','forcibly closed','connection reset','connection aborted','broken pipe','remote end closed')):
+        return ('The built-in download engine briefly reset its local connection while queueing this release. '
+                'Check Downloads; if the release is not listed, try Grab again in a moment.')
+    if any(x in low for x in ('winerror 10061','errno 10061','connection refused','timed out','timeout','no connection could be made because the target machine actively refused it')):
+        return ('The built-in download engine was temporarily unavailable while queueing this release. '
+                'Check Downloads; if it is not listed, try Grab again in a moment.')
+    return text or 'The release could not be queued.'
+
 class ReleaseFetchError(RuntimeError):
     """A release-specific Newznab NZB retrieval failure.
 
@@ -256,7 +266,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.5.32'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.5.33'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -633,16 +643,26 @@ class MediaAutomationEngine:
         except OSError: pass
 
     def _auto_active_targets(self) -> set[str]:
+        """Reserve a target until its completed download has finished Smart Import."""
         active=set()
-        try: snap=self.download_manager.snapshot()
-        except Exception: return active
+        try:
+            snap=self.download_manager.snapshot()
+        except Exception:
+            rt=self._auto_runtime(); now=time.time()
+            for key,rec in (rt.get('targets') or {}).items():
+                if not isinstance(rec,dict): continue
+                status=str(rec.get('status') or ''); last_grab=float(rec.get('last_grab_ts') or 0)
+                if status in {'grabbed','queued','downloading','processing','importing'} and last_grab>0 and now-last_grab<12*3600:
+                    active.add(str(key))
+            return active
         for job in snap.get('jobs') or []:
             if not isinstance(job,dict): continue
             ctx=job.get('automation_context') if isinstance(job.get('automation_context'),dict) else {}
             if str(ctx.get('source') or '')!='automation_grab': continue
-            status=str(job.get('status') or '')
-            post=str(job.get('post_status') or '')
-            if status in {'queued','downloading','retry_wait','cancelling'} or post in {'queued','verifying','repairing','extracting','importing','waiting'}:
+            status=str(job.get('status') or ''); post=str(job.get('post_status') or '')
+            imported=bool(job.get('imported')); import_status=str(job.get('import_status') or '')
+            pending_import=(status=='completed' and not imported)
+            if status in {'queued','downloading','retry_wait','cancelling'} or post in {'queued','verifying','repairing','extracting','importing','waiting'} or pending_import or (import_status=='failed' and not imported):
                 key=str(ctx.get('target_key') or self._auto_target_key(context=ctx))
                 if key: active.add(key)
         return active
@@ -670,6 +690,12 @@ class MediaAutomationEngine:
             elif status=='retry_wait': mapped='retrying'; message=str(job.get('status_detail') or 'Waiting to retry download')
             elif status=='queued': mapped='queued'; message='Queued for download'
             elif status=='cancelling': mapped='cancelling'; message='Cancelling'
+            elif status=='completed' and not bool(job.get('imported')):
+                mapped='processing'; import_state=str(job.get('import_status') or '')
+                if import_state=='failed': message=str(job.get('post_message') or 'Smart Import needs attention')
+                elif import_state=='importing': message='Importing media to library'
+                elif import_state=='waiting': message=str(job.get('post_message') or 'Waiting for Smart Import retry')
+                else: message='Download complete • waiting for Smart Import'
             else: continue
             pct=float(job.get('percent') or job.get('progress_percent') or 0)
             rec={'status':mapped,'message':message,'progress':pct,'updated_ts':time.time(),'collection_id':str(job.get('collection_id') or ''),'season_pack':bool(ctx.get('season_pack'))}
@@ -4182,7 +4208,7 @@ class MediaAutomationEngine:
 
         def transient_kind(exc):
             text=str(exc or '').casefold()
-            if any(x in text for x in ('winerror 10054','forcibly closed','connection reset','remote end closed','connection aborted','broken pipe')):
+            if any(x in text for x in ('winerror 10054','errno 10054','forcibly closed','connection reset','remote end closed','connection aborted','broken pipe')):
                 return 'reset'
             if any(x in text for x in ('timed out','timeout','name or service not known','getaddrinfo','connection refused','network is unreachable')):
                 return 'service'
@@ -4216,15 +4242,20 @@ class MediaAutomationEngine:
                     break
                 except Exception as exc:
                     kind=transient_kind(exc)
-                    failures.append(f'{label}: {exc}')
+                    # Do not leak platform socket wording such as ``[WinError 10054]``
+                    # into the release-search toast. Preserve the classification, not
+                    # the OS-level exception text.
                     if kind=='reset':
+                        failures.append(f'{label}: connection was reset while retrieving the NZB')
                         if fetch_try==0:
                             time.sleep(0.25)
                             continue
                         bad_post_signal=True
                     elif kind=='service':
+                        failures.append(f'{label}: indexer connection failed or timed out')
                         service_signal=True
                     else:
+                        failures.append(f'{label}: indexer request failed')
                         service_signal=True
                     break
 
@@ -4329,7 +4360,17 @@ class MediaAutomationEngine:
 
             # Submission/control-plane errors are not proof that the release itself
             # is bad. Only SAB's terminal history state may blacklist after queueing.
-            result=self.download_manager.add_nzb(str(providers[0].get('id')),title+'.nzb',raw,automation_context=context or None)
+            try:
+                result=self.download_manager.add_nzb(str(providers[0].get('id')),title+'.nzb',raw,automation_context=context or None)
+            except Exception as exc:
+                # Never surface raw Windows socket/control-channel exceptions in the
+                # Grab toast. They describe the private localhost SAB control path,
+                # not the user's release. The download manager already performs the
+                # safe ambiguity check/retry; this is the final UI boundary.
+                low=str(exc or '').casefold()
+                if any(x in low for x in ('winerror 10054','errno 10054','forcibly closed','connection reset','connection aborted','broken pipe','winerror 10061','errno 10061','connection refused')):
+                    raise ValueError('The built-in download engine briefly lost its local connection while queueing this release. Check Downloads; if it is not listed, try Grab again in a moment.') from exc
+                raise
             if target_key:
                 self._finish_grab_reservation(reservation_path,reservation_payload,str(result.get('collection_id') or ''))
             self._event('grab',f"{'Automatically grabbed' if data.get('automatic') else 'Grabbed'} {title}",
@@ -4337,7 +4378,10 @@ class MediaAutomationEngine:
                         target_key=target_key,indexer=data.get('indexer'),item_id=item_id,
                         automatic=bool(data.get('automatic',False)))
             return result
-        except Exception:
+        except Exception as exc:
             if target_key:
                 self._release_grab_reservation(reservation_path)
+            low=str(exc or '').casefold()
+            if any(x in low for x in ('winerror 10054','errno 10054','forcibly closed','connection reset','connection aborted','broken pipe','remote end closed','winerror 10061','errno 10061','connection refused')):
+                raise ValueError(_friendly_grab_exception(exc)) from exc
             raise

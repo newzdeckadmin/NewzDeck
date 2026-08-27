@@ -1,31 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.5.32",
-  "base_version": "3.5.31",
-  "release": "Desktop Startup Performance & Fast Handoff",
-  "adapter_version": "3.5.32",
+  "version": "3.5.33",
+  "base_version": "3.5.32",
+  "release": "Source-Complete Build Foundation",
+  "adapter_version": "3.5.33",
   "changes": [
-    "Adds a fast service-off desktop launch path when the private CPython runtime already exists, bypassing the compatibility Bootstrap/Core chain during normal established-runtime startup.",
-    "Adds a constant-time /api/health?startup=1 probe so launcher readiness checks do not invoke SAB engine status, tool discovery, or full diagnostics.",
-    "Defers SAB coordination workers and Automation queue reconciliation until after the localhost HTTP listener is available.",
-    "Defers preview and thumbnail cache housekeeping until after cold startup so disk maintenance cannot contend with backend/UI readiness.",
-    "Opens the Chromium app window immediately after the current-version desktop backend is healthy.",
-    "Adds a startup-handoff mutex so a second shortcut click during cold startup cannot start a competing desktop handoff; an already-active desktop heartbeat also suppresses duplicate launches.",
-    "When an older service-off desktop backend lingers after an upgrade, resolves the exact localhost listener PID, terminates only that stale desktop backend, and continues through the established-runtime fast path instead of paying the full compatibility startup chain.",
-    "Preserves first-run runtime provisioning and background-service handoff through the unchanged v3.5.31 compatibility Bootstrap/Core executables; stale service-mode or unresolvable desktop handoffs still fall back there.",
-    "Preserves Download Engine v2/SAB behavior, Automation/Discover behavior, user state, and Metadata Server v0.3.3 compatibility."
+    "Makes every NewzDeck-owned Windows executable in the portable package rebuildable from GPLv3 source.",
+    "Moves first-run CPython 3.12.10 provisioning into the public desktop launcher and retires the legacy NewzDeckBootstrap.exe/NewzDeckCore.exe compatibility binaries.",
+    "Rebuilds the Windows service, tray, folder picker/taskbar helper, thumbnail helper, and native yEnc helper from public source.",
+    "Pins the official CPython 3.12.10 embeddable x64 package to SHA-256 4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3.",
+    "Preserves the v3.5.32 fast desktop startup path and Download Engine v2/SAB behavior."
   ],
   "regression_guards": [
     "Python compile validation for server.py, sab_engine.py and automation_engine.py",
     "JavaScript syntax validation for static/app.js",
-    "Windows x64 Go vet/build validation for the v3.5.32 launcher",
-    "backend/UI/SAB-adapter/version.txt/build-manifest version alignment",
-    "NewzDeckBootstrap.exe, NewzDeckCore.exe, NewzDeckService.exe, NewzDeckTray.exe, NewzDeckPicker.exe, NewzDeckThumb.exe and NewzDeckYenc.exe remain byte-identical to v3.5.31",
-    "startup health endpoint returns only identity/mode/heartbeat data without download-engine probing",
-    "SAB and Automation background managers start only after the HTTP listener is created",
-    "stale desktop backend termination is gated by a verified NewzDeck health response, desktop mode, service_mode=false, and exact owning listener PID",
-    "service-mode and unresolvable stale-version paths remain delegated to the compatibility bootstrap",
-    "user data remains outside the application directory under the version-independent NewzDeck user root",
+    "Windows x64 Go vet/build validation for every NewzDeck-owned helper",
+    "source-only deterministic Portable ZIP construction",
+    "service repair preserves stopped service state; explicit Install Background Service starts it",
+    "v3.5.32 startup health/fast handoff behavior retained",
     "Metadata Server v0.3.3 compatibility retained"
   ]
 }

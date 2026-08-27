@@ -231,7 +231,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.5.32"
+APP_VERSION = "3.5.33"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -9079,7 +9079,7 @@ try:
 except Exception:
     pass
 AUTOMATION_MANAGER = AutomationManager()
-# v3.5.32: background managers start only after the HTTP listener has been created.
+# v3.5.33: background managers start only after the HTTP listener has been created.
 
 def _process_memory_bytes() -> int:
     try:
@@ -9167,6 +9167,31 @@ def diagnostics_report() -> str:
     for e in d['events'][:20]: lines.append(f"- {datetime.fromtimestamp(e.get('ts',0)).isoformat(timespec='seconds')} [{e.get('level')}] {e.get('area')}: {e.get('message')}")
     return '\n'.join(lines)
 
+def _user_safe_error_message(exc: Exception, *, operation: str = "request") -> str:
+    """Translate transport/OS exceptions into stable user-facing messages."""
+    text = str(exc or "").strip()
+    low = text.casefold()
+    reset = any(x in low for x in (
+        "winerror 10054", "errno 10054", "forcibly closed", "connection reset",
+        "connection aborted", "broken pipe", "remote end closed connection",
+    )) or isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError))
+    unavailable = any(x in low for x in (
+        "winerror 10061", "errno 10061", "connection refused", "timed out", "timeout",
+        "no connection could be made because the target machine actively refused it",
+    )) or isinstance(exc, TimeoutError)
+    if reset:
+        if operation == "grab":
+            return ("The built-in download engine briefly reset its local connection while "
+                    "queueing this release. Check Downloads; if the release is not listed, "
+                    "try Grab again in a moment.")
+        return "NewzDeck briefly lost a local connection. The operation can be retried."
+    if unavailable:
+        if operation == "grab":
+            return ("The built-in download engine was temporarily unavailable while queueing "
+                    "this release. Check Downloads; if it is not listed, try Grab again in a moment.")
+        return "A required local service was temporarily unavailable. Try again in a moment."
+    return text or "The operation could not be completed."
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = f"NewzDeck/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
@@ -9250,7 +9275,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 "desktop_heartbeat_seen": bool(heartbeat_seen),
                 "desktop_heartbeat_age_seconds": round(heartbeat_age, 3) if heartbeat_age is not None else None,
             }
-            # v3.5.32 startup probes intentionally avoid download-engine pings,
+            # v3.5.33 startup probes intentionally avoid download-engine pings,
             # PATH/tool scans and other diagnostics. The launcher needs only the
             # identity/mode/heartbeat tuple; all normal UI health calls retain the
             # full response below. This keeps /api/health?startup=1 on the cold
@@ -9306,7 +9331,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     DIAGNOSTICS.event("error", "media-automation", "Automation summary failed", error=str(exc), trace=traceback.format_exc(limit=6))
                 except Exception:
                     pass
-                return self._json(503, {"error": "Automation could not be initialized", "detail": str(exc), "version": APP_VERSION})
+                return self._json(503, {"error": "Automation could not be initialized", "detail": _user_safe_error_message(exc), "version": APP_VERSION})
         if parsed.path == "/api/saved-searches":
             return self._json(200, {"items": get_saved_searches()})
         if parsed.path == "/api/cache/stats":
@@ -9525,7 +9550,19 @@ class AppHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/automation/releases/search":
                 return self._json(200, MEDIA_AUTOMATION.search_releases(str(data.get("item_id") or ""), data.get("season"), data.get("episode")))
             if parsed.path == "/api/automation/releases/grab":
-                return self._json(200, MEDIA_AUTOMATION.grab_release(data))
+                try:
+                    return self._json(200, MEDIA_AUTOMATION.grab_release(data))
+                except Exception as exc:
+                    try:
+                        DIAGNOSTICS.event("warning", "automation-grab", "Grab request failed",
+                                          error=str(exc), safe_error=_user_safe_error_message(exc, operation="grab"),
+                                          release=str(data.get("title") or ""), indexer=str(data.get("indexer") or ""))
+                    except Exception:
+                        pass
+                    return self._json(400, {
+                        "error": _user_safe_error_message(exc, operation="grab"),
+                        "code": "grab_failed",
+                    })
             if parsed.path == "/api/automation/blacklist/add":
                 return self._json(200, MEDIA_AUTOMATION.blacklist_release(data))
             if parsed.path == "/api/automation/blacklist/clear":
@@ -9538,7 +9575,11 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.settings_api(data)
             return self._json(404, {"error": "Not found"})
         except (ValueError, NntpError, socket.error, ssl.SSLError, OSError) as exc:
-            return self._json(400, {"error": str(exc)})
+            try:
+                DIAGNOSTICS.event("warning", "http", "Request failed", path=parsed.path, error=str(exc))
+            except Exception:
+                pass
+            return self._json(400, {"error": _user_safe_error_message(exc)})
         except Exception as exc:
             safe_print("Unexpected error:", repr(exc))
             DIAGNOSTICS.event("error", "http", str(exc), path=parsed.path, trace=traceback.format_exc(limit=4))
@@ -10046,6 +10087,12 @@ class AppHandler(SimpleHTTPRequestHandler):
             # registration from an interrupted upgrade should not strand the user.
             helper_action = 'repair' if _service_query_status() != 'not_installed' else 'install'
             _run_service_helper(helper_action, elevated=True, wait=True, timeout=70)
+            # v3.5.33 service "repair" intentionally preserves a stopped service so
+            # installer upgrades do not enable background mode behind the user's back.
+            # The explicit Install Background Service action, however, means take
+            # ownership now; start an existing repaired registration here.
+            if helper_action == 'repair':
+                _run_service_helper('start', elevated=True, wait=True, timeout=40)
             deadline = time.monotonic() + 45.0
             service_url = ''
             stable_health = 0

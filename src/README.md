@@ -1,9 +1,18 @@
 # NewzDeck Source Tree
 
-This directory begins NewzDeck's public source-first layout.
+This directory is NewzDeck's public source-first application tree.
 
-- `app/` contains the interpreted NewzDeck application code and browser UI from v3.5.32.
-- `windows/NewzDeckLauncher.go` is the exact source used to build the v3.5.32 outer launcher (`NewzDeck.exe`).
+For v3.5.33:
+
+- `app/` contains the Python backend, SAB adapter, media Automation engine, browser UI, and application manifests shipped in the Portable/Setup package.
+- `windows/NewzDeckLauncher.go` builds `NewzDeck.exe`.
+- `windows/NewzDeckService.go` builds `NewzDeckService.exe`.
+- `windows/NewzDeckTray.go` builds `NewzDeckTray.exe`.
+- `windows/NewzDeckPicker.go` builds `NewzDeckPicker.exe`.
+- `windows/NewzDeckThumb.go` builds `NewzDeckThumb.exe`.
+- `windows/NewzDeckYenc.go` builds `NewzDeckYenc.exe`.
 - `assets/` contains NewzDeck-owned build artwork.
 
-See `../docs/SOURCE_RELEASES.md` before treating a binary release as source-complete. The v3.5.32 source map still has legacy helper-source gaps.
+The legacy `NewzDeckBootstrap.exe` and `NewzDeckCore.exe` compatibility binaries are retired in v3.5.33 and are not shipped.
+
+The canonical source-to-Portable build is `../release/windows/build-portable.py`. See `../docs/SOURCE_RELEASES.md` and `../docs/RELEASE_COMPLIANCE.md` for the source-complete/release gate.

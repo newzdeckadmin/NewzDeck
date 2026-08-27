@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all',
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.5.32';
+const UI_VERSION = '3.5.33';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -36,6 +36,16 @@ let continuousObserver = null;
 let thumbDemandRaf = 0;
 let thumbWatchdogTimer = null;
 
+function friendlyTransportErrorMessage(message,path=''){
+  const text=String(message||'').trim(),low=text.toLocaleLowerCase();
+  const reset=/(?:winerror|errno)\s*10054|forcibly closed|connection reset|connection aborted|broken pipe|remote end closed/.test(low);
+  const unavailable=/(?:winerror|errno)\s*10061|connection refused|actively refused|timed out|timeout/.test(low);
+  const grab=String(path||'').includes('/api/automation/releases/grab');
+  if(reset)return grab?'The built-in download engine briefly reset its local connection while queueing this release. Check Downloads; if the release is not listed, try Grab again in a moment.':'NewzDeck briefly lost a local connection. Try the operation again.';
+  if(unavailable)return grab?'The built-in download engine was temporarily unavailable while queueing this release. Check Downloads; if it is not listed, try Grab again in a moment.':'A required local service was temporarily unavailable. Try again in a moment.';
+  return text||'The request could not be completed.';
+}
+
 async function api(path, body=null, options={}){
   const timeoutMs=Math.max(0,Number(options?.timeoutMs||0));
   const controller=timeoutMs?new AbortController():null;
@@ -45,9 +55,10 @@ async function api(path, body=null, options={}){
   if(controller)opts.signal=controller.signal;
   try{
     const r = await fetch(path, opts); let data={}; try{data=await r.json()}catch{}
-    if(!r.ok){let msg=data.error || `Request failed (${r.status})`;if(data.detail&&String(data.detail)!==String(data.error||''))msg+=` — ${data.detail}`;const err=new Error(msg);err.data=data;err.status=r.status;throw err} return data;
+    if(!r.ok){let msg=data.error || `Request failed (${r.status})`;if(data.detail&&String(data.detail)!==String(data.error||''))msg+=` — ${data.detail}`;msg=friendlyTransportErrorMessage(msg,path);const err=new Error(msg);err.data=data;err.status=r.status;throw err} return data;
   }catch(e){
     if(e?.name==='AbortError'){const err=new Error(options?.timeoutMessage||'Request timed out. NewzDeck stopped waiting so the interface can recover.');err.code='ui-timeout';throw err}
+    if(e instanceof Error)e.message=friendlyTransportErrorMessage(e.message,path);
     throw e;
   }finally{if(timer)clearTimeout(timer)}
 }
@@ -1843,7 +1854,7 @@ async function openReleaseSearch(itemId,season=null,episode=null){
   }catch(e){$('releaseSearchBody').innerHTML=automationEmpty('!','Search failed',e.message)}
 }
 async function blacklistAutomationRelease(r,b){if(!confirm(`Blacklist this release for this Automation target?\n\n${r.title}`))return;const old=b.textContent;b.disabled=true;b.textContent='Blocking…';try{await api('/api/automation/blacklist/add',r);toast('Release blacklisted for this target.','success');const c=state.releaseSearchContext||{};await loadAutomation({quiet:true});await openReleaseSearch(c.itemId,c.season,c.episode)}catch(e){toast(e.message,'error');b.disabled=false;b.textContent=old}}
-async function grabAutomationRelease(r,b){const old=b.textContent;b.disabled=true;b.textContent='Grabbing…';try{const d=await api('/api/automation/releases/grab',r);toast(`${d.collection_name||'Release'} added to the background download queue.`,'success');b.textContent='Queued';await loadDownloads()}catch(e){toast(e.message,'error');const markedFailed=/marked FAILED for this target/i.test(String(e.message||''));if(markedFailed&&state.releaseSearchContext?.itemId){const c={...state.releaseSearchContext};await loadAutomation({quiet:true});await openReleaseSearch(c.itemId,c.season,c.episode);return}b.disabled=false;b.textContent=old}}
+async function grabAutomationRelease(r,b){const old=b.textContent;b.disabled=true;b.textContent='Grabbing…';try{const d=await api('/api/automation/releases/grab',r);toast(`${d.collection_name||'Release'} added to the background download queue.`,'success');b.textContent='Queued';void loadDownloads()}catch(e){const msg=friendlyTransportErrorMessage(e.message,'/api/automation/releases/grab');toast(msg,'error');const markedFailed=/marked FAILED for this target/i.test(String(msg||''));if(markedFailed&&state.releaseSearchContext?.itemId){const c={...state.releaseSearchContext};await loadAutomation({quiet:true});await openReleaseSearch(c.itemId,c.season,c.episode);return}b.disabled=false;b.textContent=old}}
 function openQualityProfile(id=''){const p=(state.automation?.profiles||[]).find(x=>x.id===id)||null;$('qualityProfileTitle').textContent=p?'Edit Quality Profile':'New Quality Profile';$('qualityProfileId').value=p?.id||'';$('qualityProfileName').value=p?.name||'';$('qualityProfileQualities').value=(p?.qualities||['2160p WEB-DL','1080p WEB-DL','720p WEB-DL']).join('\n');$('qualityProfileFormats').value=(p?.custom_formats||[]).map(f=>`${f.name} | ${(f.contains||[]).join(', ')} | ${f.score||0}`).join('\n');$('qualityProfileMinSize').value=Number(p?.min_size_mb||0);$('qualityProfileMaxSize').value=Number(p?.max_size_gb||0);$('qualityProfileGroups').value=(p?.preferred_groups||[]).join('\n');$('qualityProfileRejectTerms').value=(p?.reject_terms||[]).join('\n');$('qualityProfileDelete').classList.toggle('hidden',!p);refreshQualityCutoff(p?.cutoff);$('qualityProfileModal').classList.remove('hidden')}
 function refreshQualityCutoff(value=''){const qs=$('qualityProfileQualities').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);$('qualityProfileCutoff').innerHTML=qs.map(q=>`<option value="${escapeHtml(q)}" ${q===value?'selected':''}>${escapeHtml(q)}</option>`).join('')}
 async function saveQualityProfile(){const formats=$('qualityProfileFormats').value.split(/\r?\n/).map(line=>{const [name,terms,score]=line.split('|').map(x=>x.trim());return name?{name,contains:(terms||'').split(',').map(x=>x.trim()).filter(Boolean),score:Number(score||0)}:null}).filter(Boolean);const payload={id:$('qualityProfileId').value,name:$('qualityProfileName').value,qualities:$('qualityProfileQualities').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),cutoff:$('qualityProfileCutoff').value,custom_formats:formats,min_size_mb:Number($('qualityProfileMinSize').value||0),max_size_gb:Number($('qualityProfileMaxSize').value||0),preferred_groups:$('qualityProfileGroups').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),reject_terms:$('qualityProfileRejectTerms').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)};try{await api('/api/automation/profile/save',payload);$('qualityProfileModal').classList.add('hidden');await loadAutomation();toast('Quality profile saved.','success')}catch(e){toast(e.message,'error')}}

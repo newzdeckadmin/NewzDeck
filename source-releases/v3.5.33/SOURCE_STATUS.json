@@ -1,0 +1,121 @@
+{
+  "product": "NewzDeck",
+  "version": "3.5.33",
+  "source_status": "source-complete",
+  "license": "GPL-3.0-only",
+  "accepted_portable_sha256": "6b96d0cd8ea92a29e5178d33eea1208de0309c70cf0b3e6e04d40ebf65cc2e39",
+  "newzdeck_owned_windows_binaries": {
+    "NewzDeck.exe": "src/windows/NewzDeckLauncher.go",
+    "NewzDeckService.exe": "src/windows/NewzDeckService.go",
+    "NewzDeckTray.exe": "src/windows/NewzDeckTray.go",
+    "NewzDeckPicker.exe": "src/windows/NewzDeckPicker.go",
+    "NewzDeckThumb.exe": "src/windows/NewzDeckThumb.go",
+    "NewzDeckYenc.exe": "src/windows/NewzDeckYenc.go"
+  },
+  "retired_legacy_binaries": [
+    "NewzDeckBootstrap.exe",
+    "NewzDeckCore.exe"
+  ],
+  "canonical_toolchain": {
+    "python": "3.12.10",
+    "go": "1.23.2",
+    "inno_setup": "7.1.0 x64",
+    "goos": "windows",
+    "goarch": "amd64",
+    "cgo_enabled": false
+  },
+  "files": [
+    {
+      "path": "src/app/server.py",
+      "sha256": "8d0a404c2dbad2f57c5dc7dd6588ae1b5c4afd5b065b3027a08342c26c84a0e7"
+    },
+    {
+      "path": "src/app/sab_engine.py",
+      "sha256": "0e80f22c6ff97aa1017ae813f2991f2e2cf60b904cc4c3e36030852d0332452d"
+    },
+    {
+      "path": "src/app/automation_engine.py",
+      "sha256": "5c037a9b16f6f2d50bfd9d5c015682c690e458303160d8c04646ca95b2ff6dc5"
+    },
+    {
+      "path": "src/app/build-manifest.json",
+      "sha256": "3efb2ce9806f7150a259338c62f2b25fce01b1eeb806586d9fe9e7f325403228"
+    },
+    {
+      "path": "src/app/version.txt",
+      "sha256": "ade9bd95e0b538c34ee205b2c5b64e0676699d51f724d584be8d1fea48b5daec"
+    },
+    {
+      "path": "src/app/static/index.html",
+      "sha256": "2a66445442099606f61be3970b9acffb7189a3a21af5d6c23f26b3236768cde1"
+    },
+    {
+      "path": "src/app/static/app.js",
+      "sha256": "a3ae9eb5e1e21f2bca6b1b830402407303adacae84c76398446f07ace469436c"
+    },
+    {
+      "path": "src/app/static/styles.css",
+      "sha256": "9d978f9b0cd1f586323b6f4af8a6dc876163a9af09cc2b5b8dabf11b519c6d05"
+    },
+    {
+      "path": "src/app/static/tmdb-logo.svg",
+      "sha256": "d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b"
+    },
+    {
+      "path": "src/windows/NewzDeckLauncher.go",
+      "sha256": "3c98a359f21c60797b908b0f41e13b2156110c51afd9f4c7d2398c6159bfded7"
+    },
+    {
+      "path": "src/windows/NewzDeckService.go",
+      "sha256": "a68faf1104460e0b3456d025d1c9746eecb400336246ad61e9ccbda663f9bb69"
+    },
+    {
+      "path": "src/windows/NewzDeckTray.go",
+      "sha256": "1b9312942fe4bc23540d4f5f07423eeb7d21106b2bf36a95bf32c6b0e582a7f1"
+    },
+    {
+      "path": "src/windows/NewzDeckPicker.go",
+      "sha256": "e4be361b98a4c775bf81c35d4d72178525ebfdd603eb951ddd082c9805ed1fab"
+    },
+    {
+      "path": "src/windows/NewzDeckThumb.go",
+      "sha256": "27af7b6183825f3ad5e49adc1f065e0ba09a3455440277d7b310471a29b4ff71"
+    },
+    {
+      "path": "src/windows/NewzDeckYenc.go",
+      "sha256": "ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd"
+    },
+    {
+      "path": "release/windows/build-portable.py",
+      "sha256": "936945008f598d301781b99205c88dd71f9de823e162b500ffa62a94c5095b95"
+    },
+    {
+      "path": "release/windows/build-release.ps1",
+      "sha256": "c60259e25d29c624766b6577ef79b8d39ae6e1a7fd7cdfb98d19d4daf9aa7d90"
+    },
+    {
+      "path": "release/windows/NewzDeck.iss",
+      "sha256": "c9e33da870b5553f7c1dc07f9edc841ac0ac52a461bba83eb84ba8877379ef4d"
+    },
+    {
+      "path": ".github/workflows/windows-release.yml",
+      "sha256": "753f9f0a8b7d2eef53d7a1c0e0f62ff518bed8066c191f2d216e175b4f8b5cca"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "sha256": "c4b61541ae3991f2c966b2bf84d6554d0cba62aea89836f1ac56531b3e87efd1"
+    },
+    {
+      "path": "LICENSE_SCOPE.md",
+      "sha256": "25bb1c0025fec66067905687d7f7a2e4e30fc87a2a4db902731b781e87f8015b"
+    },
+    {
+      "path": "docs/SOURCE_RELEASES.md",
+      "sha256": "a9b330c89809d43bcf4bb47b2ec0fe54cb8178eb65dc6a446a7727d72ff17f04"
+    },
+    {
+      "path": "docs/RELEASE_COMPLIANCE.md",
+      "sha256": "f4b2fe94ab8cc135a2e0c9de0a2f2dd737dc7821e537a0c19dfedf1a887396dc"
+    }
+  ]
+}

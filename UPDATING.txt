@@ -1,0 +1,4 @@
+NewzDeck portable updates preserve user state under %LOCALAPPDATA%\NewzDeck.
+For this v3.5.33 validation, extract to a fresh folder rather than replacing the
+installed v3.5.32 files. The production installer will be tested separately
+after the source-built portable passes Windows acceptance testing.

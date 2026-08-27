@@ -1,41 +1,57 @@
 # Source Releases
 
-NewzDeck is moving to a source-first release model. This document defines what "source-complete" means for a NewzDeck Windows release.
+This document records NewzDeck's transition from binary-first development to a source-first Windows release model and defines what "source-complete" means for NewzDeck.
 
-## v3.5.32 source map
-
-The v3.5.32 Portable/Setup payload contains NewzDeck-owned application code and helper executables.
+## v3.5.32 — transition source map
 
 | Shipped component | Public source status | Repository path |
 | --- | --- | --- |
-| `server.py` | Complete | `src/app/server.py` |
-| `sab_engine.py` | Complete | `src/app/sab_engine.py` |
-| `automation_engine.py` | Complete | `src/app/automation_engine.py` |
-| `static/index.html` | Complete | `src/app/static/index.html` |
-| `static/app.js` | Complete | `src/app/static/app.js` |
-| `static/styles.css` | Complete | `src/app/static/styles.css` |
-| `NewzDeck.exe` | Complete for v3.5.32 | `src/windows/NewzDeckLauncher.go` |
-| `NewzDeckBootstrap.exe` | Legacy source gap | Not yet published/reconstructed |
-| `NewzDeckCore.exe` | Legacy source gap | Not yet published/reconstructed |
-| `NewzDeckService.exe` | Legacy source gap | Not yet published/reconstructed |
-| `NewzDeckTray.exe` | Legacy source gap | Not yet published/reconstructed |
-| `NewzDeckPicker.exe` | Legacy source gap | Not yet published/reconstructed |
-| `NewzDeckThumb.exe` | Legacy source gap | Not yet published/reconstructed |
-| `NewzDeckYenc.exe` | Legacy source gap | Not yet published/reconstructed |
+| `server.py` | Complete | `src/app/server.py` historical v3.5.32 snapshot |
+| `sab_engine.py` | Complete | `src/app/sab_engine.py` historical v3.5.32 snapshot |
+| `automation_engine.py` | Complete | `src/app/automation_engine.py` historical v3.5.32 snapshot |
+| browser UI | Complete | `src/app/static/` historical v3.5.32 snapshot |
+| `NewzDeck.exe` | Complete for v3.5.32 | historical `src/windows/NewzDeckLauncher.go` |
+| `NewzDeckBootstrap.exe` | Legacy source gap | Not reconstructed for the historical binary |
+| `NewzDeckCore.exe` | Legacy source gap | Not reconstructed for the historical binary |
+| `NewzDeckService.exe` | Legacy source gap | Not reconstructed for the historical binary |
+| `NewzDeckTray.exe` | Legacy source gap | Not reconstructed for the historical binary |
+| `NewzDeckPicker.exe` | Legacy source gap | Not reconstructed for the historical binary |
+| `NewzDeckThumb.exe` | Legacy source gap | Not reconstructed for the historical binary |
+| `NewzDeckYenc.exe` | Legacy source gap | Not reconstructed for the historical binary |
 
-The helper binaries above were carried forward byte-for-byte from the pre-source-publication v3.5.31 baseline when v3.5.32 was built. The v3.5.32 source snapshot must therefore be described as **partial corresponding source** rather than a complete rebuildable source release.
+Those helpers were carried forward from the pre-source-publication baseline. v3.5.32 remains explicitly documented as a **transition release**, not retroactively described as source-complete.
 
-## Rule for future releases
+## v3.5.33 — first source-complete Windows release
 
-A future Windows release may be labeled source-complete only when all of the following are true:
+v3.5.33 removes the legacy Bootstrap/Core compatibility layer and ships six NewzDeck-owned Windows executables, all built directly from public Go source:
 
-1. Every NewzDeck-owned executable in the Portable ZIP maps to a source file/directory in the tagged repository.
-2. Build scripts/tool versions are documented and available.
-3. A clean build from the tag can produce functionally equivalent binaries without relying on an unpublished prior NewzDeck binary.
-4. The Portable ZIP/installer contains the NewzDeck GPL license and required third-party binary notices.
-5. A source archive or Git tag for the exact release is publicly available alongside the binaries.
+| Shipped component | Public source | Build path |
+| --- | --- | --- |
+| `NewzDeck.exe` | `src/windows/NewzDeckLauncher.go` | Go 1.23.2 Windows/amd64 |
+| `NewzDeckService.exe` | `src/windows/NewzDeckService.go` | Go 1.23.2 Windows/amd64 |
+| `NewzDeckTray.exe` | `src/windows/NewzDeckTray.go` | Go 1.23.2 Windows/amd64 |
+| `NewzDeckPicker.exe` | `src/windows/NewzDeckPicker.go` | Go 1.23.2 Windows/amd64 |
+| `NewzDeckThumb.exe` | `src/windows/NewzDeckThumb.go` | Go 1.23.2 Windows/amd64 |
+| `NewzDeckYenc.exe` | `src/windows/NewzDeckYenc.go` | Go 1.23.2 Windows/amd64 |
+| Python backend/SAB/Automation | `src/app/*.py` | Packaged as source |
+| browser UI | `src/app/static/` | Packaged as source/static assets |
+
+The canonical build is `release/windows/build-portable.py`. It validates the application source, compiles each Windows executable with `GOOS=windows`, `GOARCH=amd64`, `CGO_ENABLED=0`, generates `SOURCE_MANIFEST.json`, includes the GPL and third-party notices, and writes a deterministic Portable ZIP with fixed archive timestamps and ordering.
+
+`release/windows/build-release.ps1` then uses that exact source-built Portable payload to compile the conventional Inno Setup package.
+
+## Source-complete release rule
+
+A Windows release may be labeled source-complete only when all of the following are true:
+
+1. Every NewzDeck-owned executable in the Portable ZIP maps to public source in the tagged repository.
+2. Build scripts and canonical toolchain versions are public and documented.
+3. A clean build from the tag does not depend on an unpublished prior NewzDeck binary.
+4. The Portable ZIP/installer includes the NewzDeck GPL license and required third-party binary notices.
+5. The exact source tag/archive is public alongside the binaries.
 6. No secrets, credentials, user data, or private API keys are present in the published tree.
+7. The Windows acceptance build is tested before the same exact draft assets are published.
 
-## Why the transition is explicit
+## Exact-asset release staging
 
-Publishing a license file is not enough by itself to make a binary distribution source-complete. The project is documenting the gap rather than pretending legacy helper binaries have source that is not actually available in the repository.
+Starting with v3.5.33, the GitHub Actions validation run builds from source and uploads all three Windows artifacts to a **draft** GitHub Release. The release is pinned to the exact source commit that produced them. The publish run verifies the draft checksums, Portable source manifest, version, retired-binary exclusions, accepted Portable hash when supplied, and source-commit pin before changing the draft to public. It does not rebuild the assets during publication.

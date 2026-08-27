@@ -1,16 +1,18 @@
-// NewzDeck desktop launcher v3.5.32 — Desktop Startup Performance & Fast Handoff
+// NewzDeck desktop launcher v3.5.33 — Source-Complete Runtime & Handoff
 //
-// v3.5.31 proved the version-aware compatibility bootstrap and recovery model,
-// but cold service-off desktop launches could spend 10-30 seconds traversing
-// Bootstrap -> Core -> runtime/backend -> browser handoff. v3.5.32 keeps the
-// proven compatibility executables unchanged and adds a fast path for established
-// installations whose private CPython runtime already exists.
+// v3.5.33 keeps the proven v3.5.32 fast startup path but brings first-run CPython
+// provisioning into this published launcher source. The legacy opaque Bootstrap/Core
+// executables are no longer required or shipped.
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/bits"
 	"net/http"
 	"os"
@@ -36,10 +38,21 @@ var httpClient = &http.Client{Timeout: 750 * time.Millisecond}
 var kernel32 = syscall.NewLazyDLL("kernel32.dll")
 var procCreateMutexW = kernel32.NewProc("CreateMutexW")
 var procCloseHandle = kernel32.NewProc("CloseHandle")
+var user32 = syscall.NewLazyDLL("user32.dll")
+var procMessageBoxW = user32.NewProc("MessageBoxW")
 var iphlpapi = syscall.NewLazyDLL("iphlpapi.dll")
 var procGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
 
 const errorAlreadyExists = 183
+const (
+	pythonRuntimeURL    = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+	pythonRuntimeSHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
+	mbOK                = 0x00000000
+	mbYesNo             = 0x00000004
+	mbIconError         = 0x00000010
+	mbIconQuestion      = 0x00000020
+	idYes               = 6
+)
 
 func appDir() string {
 	exe, err := os.Executable()
@@ -78,7 +91,7 @@ func logLine(start time.Time, format string, args ...any) {
 	defer f.Close()
 	msg := fmt.Sprintf(format, args...)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	_, _ = fmt.Fprintf(f, "%s [startup-v3.5.32 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
+	_, _ = fmt.Fprintf(f, "%s [startup-v3.5.33 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
 }
 
 func acquireStartupMutex() (uintptr, bool) {
@@ -383,69 +396,148 @@ func waitHeartbeat(version string, deadline time.Time) (int, bool) {
 	return 0, false
 }
 
-func compatibilityFallback(start time.Time, version string, args []string) {
-	bootstrap := filepath.Join(appDir(), "NewzDeckBootstrap.exe")
-	core := filepath.Join(appDir(), "NewzDeckCore.exe")
-	if _, err := os.Stat(bootstrap); err != nil {
-		logLine(start, "compatibility bootstrap missing: %v", err)
-		return
-	}
-	if err := launchDetached(bootstrap, nil, args...); err != nil {
-		logLine(start, "compatibility bootstrap failed: %v", err)
-		return
-	}
-	logLine(start, "compatibility fallback launched")
+func messageBox(text, title string, flags uintptr) int {
+	ptext, _ := syscall.UTF16PtrFromString(text)
+	ptitle, _ := syscall.UTF16PtrFromString(title)
+	r, _, _ := procMessageBoxW.Call(0, uintptr(unsafe.Pointer(ptext)), uintptr(unsafe.Pointer(ptitle)), flags)
+	return int(r)
+}
 
-	deadline := time.Now().Add(60 * time.Second)
-	healthyAt := time.Time{}
-	for time.Now().Before(deadline) {
-		p, h, ok := currentHealth(version)
-		if ok {
-			if h.ServiceMode {
-				logLine(start, "service-mode backend healthy on port %d; compatibility path owns UI handoff", p)
-				return
-			}
-			if heartbeatActive(h) {
-				logLine(start, "compatibility path established desktop heartbeat on port %d", p)
-				return
-			}
-			if h.DesktopMode {
-				if healthyAt.IsZero() {
-					healthyAt = time.Now()
-					logLine(start, "compatibility backend healthy on port %d; waiting for its normal UI handoff", p)
-				}
-				// First-run/runtime-provisioning fallback retains a generous UI
-				// handoff window. If Core does not attach, open the already-ready
-				// backend directly rather than starting another backend process.
-				if time.Since(healthyAt) >= 5*time.Second {
-					if err := openDesktopApp(p); err == nil {
-						logLine(start, "opened healthy compatibility backend directly after UI handoff timeout")
-						if hp, ok := waitHeartbeat(version, time.Now().Add(12*time.Second)); ok {
-							logLine(start, "desktop heartbeat established after direct compatibility UI attach on port %d", hp)
-						}
-						return
-					}
-					if _, err := os.Stat(core); err == nil {
-						_ = launchDetached(core, nil)
-						logLine(start, "direct browser attach failed; invoked Core as final UI fallback")
-					}
-					return
-				}
-			}
+func runtimeReadyAt(dir string) bool {
+	for _, name := range []string{"python.exe", "pythonw.exe"} {
+		if st, err := os.Stat(filepath.Join(dir, name)); err == nil && !st.IsDir() {
+			return true
 		}
-		time.Sleep(150 * time.Millisecond)
 	}
-	logLine(start, "compatibility fallback reached 60s without a current-version backend")
+	return false
+}
+
+func unzipRuntime(data []byte, dst string) error {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	cleanDst, err := filepath.Abs(dst)
+	if err != nil {
+		return err
+	}
+	for _, f := range zr.File {
+		name := filepath.Clean(filepath.FromSlash(f.Name))
+		if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe path in CPython archive: %q", f.Name)
+		}
+		target := filepath.Join(cleanDst, name)
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return err
+		}
+		if absTarget != cleanDst && !strings.HasPrefix(strings.ToLower(absTarget), strings.ToLower(cleanDst+string(os.PathSeparator))) {
+			return fmt.Errorf("unsafe extraction target: %q", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		r, err := f.Open()
+		if err != nil {
+			return err
+		}
+		w, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+		if err != nil {
+			r.Close()
+			return err
+		}
+		_, copyErr := io.Copy(w, io.LimitReader(r, 64*1024*1024))
+		closeErr := w.Close()
+		r.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
+}
+
+func provisionRuntime(start time.Time) error {
+	if runtimePython() != "" {
+		return nil
+	}
+	if messageBox("NewzDeck needs its private Python 3.12 runtime.\n\nDownload and install the official CPython 3.12.10 embeddable runtime now?", "NewzDeck", mbYesNo|mbIconQuestion) != idYes {
+		return fmt.Errorf("runtime installation canceled")
+	}
+	logLine(start, "downloading official CPython 3.12.10 embeddable runtime")
+	client := &http.Client{Timeout: 3 * time.Minute}
+	req, _ := http.NewRequest("GET", pythonRuntimeURL, nil)
+	req.Header.Set("User-Agent", "NewzDeck/3.5.33")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("CPython download failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("python.org returned HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024+1))
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 || len(data) > 32*1024*1024 {
+		return fmt.Errorf("CPython runtime download has an invalid size")
+	}
+	actual := fmt.Sprintf("%x", sha256.Sum256(data))
+	if !strings.EqualFold(actual, pythonRuntimeSHA256) {
+		return fmt.Errorf("CPython SHA-256 verification failed (got %s)", actual)
+	}
+	target := filepath.Join(appDir(), "runtime")
+	tmp := filepath.Join(appDir(), fmt.Sprintf("runtime.new-%d", os.Getpid()))
+	_ = os.RemoveAll(tmp)
+	if err := os.MkdirAll(tmp, 0755); err != nil {
+		return err
+	}
+	if err := unzipRuntime(data, tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return fmt.Errorf("runtime extraction failed: %w", err)
+	}
+	if !runtimeReadyAt(tmp) {
+		_ = os.RemoveAll(tmp)
+		return fmt.Errorf("runtime extraction did not produce python.exe")
+	}
+	// The embeddable distribution's default ._pth already contains python312.zip
+	// and '.', which is sufficient because NewzDeck loads its sibling modules by
+	// explicit file path. Keep the upstream isolation policy intact.
+	if runtimeReadyAt(target) {
+		_ = os.RemoveAll(tmp)
+		return nil
+	}
+	_ = os.RemoveAll(target)
+	if err := os.Rename(tmp, target); err != nil {
+		_ = os.RemoveAll(tmp)
+		return fmt.Errorf("could not activate private runtime: %w", err)
+	}
+	logLine(start, "verified CPython runtime installed successfully")
+	return nil
+}
+
+func fatal(start time.Time, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	logLine(start, "%s", msg)
+	messageBox(msg, "NewzDeck", mbOK|mbIconError)
 }
 
 func main() {
 	started := time.Now()
 	version := localVersion()
 	if version == "" {
-		logLine(started, "version.txt could not be read")
+		fatal(started, "NewzDeck could not read version.txt.")
 		return
 	}
-
 	mutex, acquired := acquireStartupMutex()
 	if !acquired {
 		logLine(started, "startup already in progress; suppressing duplicate shortcut click")
@@ -456,76 +548,69 @@ func main() {
 	python := runtimePython()
 	if p, h, ok := anyExistingHealth(); ok {
 		if strings.TrimSpace(h.Version) != version {
-			if h.DesktopMode && !h.ServiceMode && python != "" && terminateStaleDesktopBackend(started, p, h.Version) {
-				// Fall through to the established-runtime fast path below.
+			if h.DesktopMode && !h.ServiceMode && terminateStaleDesktopBackend(started, p, h.Version) {
+				// Continue below with the current source-built runtime/backend.
+			} else if h.ServiceMode {
+				fatal(started, "A different NewzDeck background-service version (v%s) is still running. Stop or repair that service, then launch NewzDeck again.", h.Version)
+				return
 			} else {
-				logLine(started, "stale backend v%s detected on port %d (service=%v); delegating version handoff", h.Version, p, h.ServiceMode)
-				compatibilityFallback(started, version, os.Args[1:])
+				fatal(started, "An older NewzDeck backend (v%s) is still using local port %d and could not be handed over safely. Close it and try again.", h.Version, p)
 				return
 			}
 		} else {
-			if h.DesktopMode && heartbeatActive(h) {
-				logLine(started, "desktop heartbeat already active on port %d; suppressing duplicate launch", p)
+			if heartbeatActive(h) {
+				logLine(started, "active NewzDeck UI heartbeat already exists on port %d; suppressing duplicate launch", p)
 				return
 			}
-			if h.ServiceMode {
-				logLine(started, "current-version service backend detected on port %d; delegating handoff to compatibility bootstrap", p)
-				compatibilityFallback(started, version, os.Args[1:])
+			logLine(started, "current-version backend already healthy on port %d (service=%v); attaching UI directly", p, h.ServiceMode)
+			if err := openDesktopApp(p); err != nil {
+				fatal(started, "NewzDeck could not open its application window: %v", err)
 				return
 			}
 			if h.DesktopMode {
-				logLine(started, "healthy desktop backend already exists on port %d without an active heartbeat; attaching UI directly", p)
-				if err := openDesktopApp(p); err != nil {
-					logLine(started, "direct UI attach failed: %v; using compatibility fallback", err)
-					compatibilityFallback(started, version, os.Args[1:])
-					return
-				}
 				if hp, ok := waitHeartbeat(version, time.Now().Add(15*time.Second)); ok {
 					logLine(started, "desktop heartbeat established after direct attach on port %d", hp)
-				} else {
-					logLine(started, "browser was launched but no desktop heartbeat arrived within 15s")
 				}
-				return
 			}
+			return
 		}
 	}
 
 	if python == "" {
-		logLine(started, "private runtime not present; using compatibility bootstrap for first-run provisioning")
-		compatibilityFallback(started, version, os.Args[1:])
-		return
+		if err := provisionRuntime(started); err != nil {
+			fatal(started, "NewzDeck could not install its private runtime.\n\n%v", err)
+			return
+		}
+		python = runtimePython()
+		if python == "" {
+			fatal(started, "NewzDeck's private runtime was installed but python.exe could not be found.")
+			return
+		}
 	}
 
-	logLine(started, "established private runtime found; starting fast desktop backend directly")
+	logLine(started, "private runtime ready; starting desktop backend directly")
 	if err := startFastDesktopBackend(python, version); err != nil {
-		logLine(started, "fast backend launch failed: %v; using compatibility fallback", err)
-		compatibilityFallback(started, version, os.Args[1:])
+		fatal(started, "NewzDeck could not start its local backend.\n\n%v", err)
 		return
 	}
-
 	p, h, ok := waitCurrentBackend(version, time.Now().Add(25*time.Second))
 	if !ok {
-		logLine(started, "fast backend did not become healthy within 25s; using compatibility fallback")
-		compatibilityFallback(started, version, os.Args[1:])
+		fatal(started, "NewzDeck's local backend did not become ready. Check %%LOCALAPPDATA%%\\NewzDeck\\logs\\server.log and launcher-handoff.log for startup details.")
 		return
 	}
 	if h.ServiceMode {
-		logLine(started, "service backend won startup race on port %d; delegating UI handoff", p)
-		compatibilityFallback(started, version, os.Args[1:])
-		return
+		logLine(started, "service backend won startup race on port %d; attaching UI", p)
 	}
-	logLine(started, "fast desktop backend healthy on port %d; opening UI immediately", p)
+	logLine(started, "backend healthy on port %d; opening UI immediately", p)
 	if err := openDesktopApp(p); err != nil {
-		logLine(started, "browser launch failed: %v; invoking Core UI fallback", err)
-		core := filepath.Join(appDir(), "NewzDeckCore.exe")
-		if err2 := launchDetached(core, nil); err2 != nil {
-			logLine(started, "Core UI fallback also failed: %v", err2)
-		}
+		fatal(started, "NewzDeck could not open its application window.\n\n%v", err)
 		return
 	}
-	if hp, ok := waitHeartbeat(version, time.Now().Add(15*time.Second)); ok {
-		logLine(started, "desktop heartbeat established on port %d; startup complete", hp)
-	} else {
-		logLine(started, "UI process launched but no desktop heartbeat arrived within 15s")
+	if h.DesktopMode {
+		if hp, ok := waitHeartbeat(version, time.Now().Add(15*time.Second)); ok {
+			logLine(started, "desktop heartbeat established on port %d; startup complete", hp)
+		} else {
+			logLine(started, "UI process launched but no desktop heartbeat arrived within 15s")
+		}
 	}
 }

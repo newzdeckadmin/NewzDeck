@@ -15,8 +15,14 @@ The NewzDeck GPL license does **not** relicense:
 
 See `THIRD_PARTY_NOTICES.md` and `licenses/`.
 
-## v3.5.32 transition status
+## Release history
 
-The v3.5.32 public Windows binaries predate the complete public source tree. The source snapshot committed with this licensing transition is complete for the Python/JavaScript application and the v3.5.32 `NewzDeck.exe` launcher, but not yet for every legacy NewzDeck-owned helper executable carried into that release.
+### v3.5.32 — licensing/source transition
 
-Accordingly, this repository does not claim that v3.5.32 is a complete corresponding-source GPL binary distribution. The next source-complete production release must close the helper-source gap before it is described that way.
+The v3.5.32 public Windows binaries predate the complete public source tree. The source published for that historical release is complete for the Python/JavaScript application and v3.5.32 outer launcher, but not for every legacy helper executable carried into the v3.5.32 binary package. The project therefore does not rewrite history by describing v3.5.32 as a complete corresponding-source binary distribution.
+
+### v3.5.33 — source-complete build foundation
+
+The v3.5.33 source tree contains the buildable source for every NewzDeck-owned Windows executable shipped by v3.5.33. `NewzDeckBootstrap.exe` and `NewzDeckCore.exe` are retired rather than carried forward. The public build pipeline compiles all six current NewzDeck-owned Windows executables from this source tree and packages the Python/JavaScript source with the binary distribution.
+
+Third-party components continue to retain their own licenses and source/distribution obligations as documented in `THIRD_PARTY_NOTICES.md`.
