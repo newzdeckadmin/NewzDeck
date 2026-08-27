@@ -41,6 +41,7 @@ jobs:
 
           $installer = Get-Content -LiteralPath 'release/windows/NewzDeck.iss' -Raw
           if ($installer.Contains("ExpandConstant('{userprofile}")) { throw 'Installer still contains the invalid {userprofile} constant.' }
+          if ($installer.Contains('{ Inno Setup has no {userprofile}')) { throw 'Installer contains a nested Pascal comment delimiter around userprofile.' }
           foreach ($required in @("GetEnv('USERPROFILE')", "PathCombine(UserProfile, 'Downloads\NewzDeck')", "FindWindowByClassName('NewzDeckTrayWindow')", 'PostMessage(TrayWindow, WM_CLOSE, 0, 0)')) {
             if (-not $installer.Contains($required)) { throw "Installer is missing required upgrade fix: $required" }
           }

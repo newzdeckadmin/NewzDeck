@@ -157,7 +157,7 @@ begin
   Helper := ExpandConstant('{app}\NewzDeckService.exe');
   UserRoot := ExpandConstant('{localappdata}\NewzDeck');
 
-  { Inno Setup has no {userprofile} shell-folder constant. Resolve the Windows
+  { Inno Setup has no user-profile shell-folder constant. Resolve the Windows
     USERPROFILE environment variable at install time, with a safe fallback. }
   UserProfile := GetEnv('USERPROFILE');
   if UserProfile = '' then

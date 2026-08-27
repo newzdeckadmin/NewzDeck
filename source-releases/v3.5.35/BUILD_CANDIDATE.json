@@ -2,7 +2,7 @@
   "product": "NewzDeck",
   "version": "3.5.35",
   "status": "full-build-candidate",
-  "candidate_id": "v3.5.35-full-build-20260827-a",
-  "base_commit": "979a7d9b2df7322ba72282aedd1ac0682d825046",
-  "notes": "Clean full build after v3.5.34 installer/tray acceptance failures; no v3.5.34 tag rewrite."
+  "candidate_id": "v3.5.35-full-build-20260827-b",
+  "base_commit": "516a6ac050c85257f1eddba61b676d4740c1e3b1",
+  "notes": "Full v3.5.35 Windows build revision B. Fixes the Inno Pascal nested-comment compile blocker found in revision A and adds a local Inno Setup 7.1.0 compile preflight before any source commit/push. No release/tag publication."
 }
