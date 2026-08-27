@@ -1,4 +1,4 @@
-name: Build Windows release
+name: Build Windows release artifacts
 
 on:
   workflow_dispatch:
@@ -7,36 +7,21 @@ on:
         description: "NewzDeck version (X.Y.Z)"
         required: true
         type: string
-      expected_portable_sha256:
-        description: "Optional SHA-256 of an already accepted source-built Portable ZIP"
-        required: false
-        default: ""
-        type: string
-      publish:
-        description: "Publish the exact assets already staged on the draft release"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
-  contents: write
-
-concurrency:
-  group: windows-release-${{ inputs.version }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  build_draft:
-    name: Build source-complete Windows draft
-    if: ${{ !inputs.publish }}
+  build:
+    name: Build and smoke-test Windows artifacts
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ inputs.version }}
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@v6
-        with:
-          persist-credentials: false
 
       - name: Set up canonical Python
         uses: actions/setup-python@v6
@@ -49,122 +34,122 @@ jobs:
           go-version: '1.23.2'
           cache: false
 
-      - name: Validate release request and source version
-        id: request
+      - name: Validate source and release blockers
         shell: pwsh
-        env:
-          VERSION: ${{ inputs.version }}
-          EXPECTED_PORTABLE_SHA256: ${{ inputs.expected_portable_sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
 
           if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') {
             throw "Version '$env:VERSION' is invalid. Expected X.Y.Z."
           }
-          if ($env:EXPECTED_PORTABLE_SHA256 -and $env:EXPECTED_PORTABLE_SHA256 -notmatch '^[A-Fa-f0-9]{64}$') {
-            throw 'expected_portable_sha256 must be blank or exactly 64 hexadecimal characters.'
-          }
 
           $sourceVersion = (Get-Content -LiteralPath 'src/app/version.txt' -Raw).Trim()
           if ($sourceVersion -cne $env:VERSION) {
-            throw "Public source version '$sourceVersion' does not match requested version '$env:VERSION'."
+            throw "src/app/version.txt is '$sourceVersion', expected '$env:VERSION'."
           }
 
-          "tag=v$env:VERSION" >> $env:GITHUB_OUTPUT
-          "portable_name=NewzDeck_v$env:VERSION`_Portable.zip" >> $env:GITHUB_OUTPUT
-          "setup_name=NewzDeck_v$env:VERSION`_Setup.exe" >> $env:GITHUB_OUTPUT
-          "checksum_name=NewzDeck_v$env:VERSION`_SHA256.txt" >> $env:GITHUB_OUTPUT
-
-      - name: Reject an already-published release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.request.outputs.tag }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
-          $release = @($releases) | Where-Object { $_.tag_name -ceq $env:TAG } | Select-Object -First 1
-          if ($release -and -not $release.draft) {
-            throw "Release '$env:TAG' is already public. Refusing to replace published assets."
+          $server = Get-Content -LiteralPath 'src/app/server.py' -Raw
+          $expectedServer = 'APP_VERSION = "' + $env:VERSION + '"'
+          if (-not $server.Contains($expectedServer)) {
+            throw "server.py does not contain the expected application version."
           }
 
-      - name: Validate public application source
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py
-          node --check src/app/static/app.js
+          $ui = Get-Content -LiteralPath 'src/app/static/app.js' -Raw
+          $expectedUi = "const UI_VERSION = '$($env:VERSION)';"
+          if (-not $ui.Contains($expectedUi)) {
+            throw "app.js does not contain the expected UI version."
+          }
 
-          $forbidden = @(
-            'NewzDeckBootstrap.exe',
-            'NewzDeckCore.exe'
-          )
-          foreach ($name in $forbidden) {
-            if (Test-Path -LiteralPath (Join-Path 'src/windows' $name)) {
-              throw "Legacy opaque helper '$name' unexpectedly exists in the source build tree."
+          $installer = Get-Content -LiteralPath 'release/windows/NewzDeck.iss' -Raw
+          if ($installer.Contains("ExpandConstant('{userprofile}")) {
+            throw 'Installer contains the invalid userprofile constant.'
+          }
+          if ($installer.Contains('{ Inno Setup has no {userprofile}')) {
+            throw 'Installer contains the nested Pascal-comment regression.'
+          }
+          foreach ($required in @(
+            "GetEnv('USERPROFILE')",
+            "PathCombine(UserProfile, 'Downloads\NewzDeck')",
+            "FindWindowByClassName('NewzDeckTrayWindow')",
+            'PostMessage(TrayWindow, WM_CLOSE, 0, 0)'
+          )) {
+            if (-not $installer.Contains($required)) {
+              throw "Installer is missing required upgrade behavior: $required"
             }
           }
 
-      - name: Build deterministic Portable ZIP from public source
+          $tray = Get-Content -LiteralPath 'src/windows/NewzDeckTray.go' -Raw
+          foreach ($required in @(
+            'tpmReturnCmd',
+            'tpmNonotify',
+            'procSetForegroundWindow',
+            'procPostMessageW',
+            'case wmClose:',
+            'case "exit":'
+          )) {
+            if (-not $tray.Contains($required)) {
+              throw "Tray source is missing '$required'."
+            }
+          }
+          $expectedTrayVersion = 'argValue("--version", "' + $env:VERSION + '")'
+          if (-not $tray.Contains($expectedTrayVersion)) {
+            throw 'Tray source version does not match the requested build.'
+          }
+
+          $showMenu = [regex]::Match($tray, 'func showMenu\(\) \{(?s).*?\n\}').Value
+          if ($showMenu.Contains('refreshPaused()')) {
+            throw 'Tray menu performs a synchronous backend refresh before display.'
+          }
+
+          $builder = Get-Content -LiteralPath 'release/windows/build-portable.py' -Raw
+          if (-not $builder.Contains('"NewzDeckTray.exe": "NewzDeckTray.go"')) {
+            throw 'Portable builder is not using the canonical tray source.'
+          }
+          if ($builder.Contains('NewzDeckTrayV2.go')) {
+            throw 'Legacy acceptance tray filename remains in the production builder.'
+          }
+
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
+          node --check src/app/static/app.js
+
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o (Join-Path $env:RUNNER_TEMP 'tray-smoke-compile.exe') release/windows/smoke/NewzDeckTrayLockSmoke.go
+
+      - name: Build source-complete Portable ZIP
         id: portable
         shell: pwsh
-        env:
-          VERSION: ${{ inputs.version }}
-          PORTABLE_NAME: ${{ steps.request.outputs.portable_name }}
-          EXPECTED_PORTABLE_SHA256: ${{ inputs.expected_portable_sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $portablePath = Join-Path $env:RUNNER_TEMP $env:PORTABLE_NAME
-          python release/windows/build-portable.py --version $env:VERSION --output $portablePath
-
-          if (-not (Test-Path -LiteralPath $portablePath -PathType Leaf)) {
-            throw 'Source-to-Portable build did not create the expected ZIP.'
+          $portable = Join-Path $env:RUNNER_TEMP ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
+          python release/windows/build-portable.py --version $env:VERSION --output $portable
+          if (-not (Test-Path -LiteralPath $portable -PathType Leaf)) {
+            throw 'Portable build did not create the expected archive.'
           }
+          "path=$portable" >> $env:GITHUB_OUTPUT
+          "sha256=$((Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-          $actualHash = (Get-FileHash -LiteralPath $portablePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($env:EXPECTED_PORTABLE_SHA256 -and $actualHash -cne $env:EXPECTED_PORTABLE_SHA256.ToLowerInvariant()) {
-            throw "Source rebuild does not match the accepted Portable ZIP. Expected $env:EXPECTED_PORTABLE_SHA256, got $actualHash."
-          }
-
-          "path=$portablePath" >> $env:GITHUB_OUTPUT
-          "sha256=$actualHash" >> $env:GITHUB_OUTPUT
-          Write-Host "Source-built Portable SHA-256: $actualHash"
-
-      - name: Safely extract and validate source-built payload
+      - name: Extract and verify Portable payload
         id: payload
         shell: pwsh
         env:
-          VERSION: ${{ inputs.version }}
           PORTABLE_PATH: ${{ steps.portable.outputs.path }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $payload = Join-Path $env:RUNNER_TEMP 'newzdeck-payload'
+          $payload = Join-Path $env:RUNNER_TEMP 'newzdeck-release-payload'
           New-Item -ItemType Directory -Path $payload -Force | Out-Null
-
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [System.IO.Compression.ZipFile]::OpenRead($env:PORTABLE_PATH)
-          try {
-            foreach ($entry in $archive.Entries) {
-              $name = $entry.FullName.Replace('\\', '/')
-              if ($name.StartsWith('/') -or $name -match '^[A-Za-z]:' -or $name.Split('/') -contains '..') {
-                throw "Unsafe path '$name' in portable ZIP."
-              }
-            }
-          }
-          finally {
-            $archive.Dispose()
-          }
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($env:PORTABLE_PATH, $payload)
+          Expand-Archive -LiteralPath $env:PORTABLE_PATH -DestinationPath $payload -Force
 
           $requiredFiles = @(
             'version.txt',
             'NewzDeck.exe',
-            'NewzDeck.ico',
             'NewzDeckService.exe',
             'NewzDeckTray.exe',
             'NewzDeckPicker.exe',
             'NewzDeckThumb.exe',
             'NewzDeckYenc.exe',
+            'NewzDeck.ico',
             'server.py',
             'sab_engine.py',
             'automation_engine.py',
@@ -172,34 +157,41 @@ jobs:
             'static/app.js',
             'static/styles.css',
             'static/tmdb-logo.svg',
-            'LICENSE.txt',
-            'THIRD_PARTY_NOTICES.txt',
-            'licenses/GO-BSD-3-CLAUSE.txt',
             'SOURCE_MANIFEST.json'
           )
           foreach ($required in $requiredFiles) {
             if (-not (Test-Path -LiteralPath (Join-Path $payload $required) -PathType Leaf)) {
-              throw "Source-built payload is missing required file '$required'."
+              throw "Portable is missing '$required'."
             }
           }
 
-          foreach ($retired in @('NewzDeckBootstrap.exe', 'NewzDeckCore.exe')) {
-            if (Test-Path -LiteralPath (Join-Path $payload $retired)) {
-              throw "Retired compatibility binary '$retired' must not be shipped by v$env:VERSION."
+          foreach ($forbidden in @(
+            'NewzDeckBootstrap.exe',
+            'NewzDeckCore.exe',
+            'PORTABLE_TESTING.txt',
+            'start.sh'
+          )) {
+            if (Test-Path -LiteralPath (Join-Path $payload $forbidden)) {
+              throw "Portable contains forbidden '$forbidden'."
             }
           }
 
-          $payloadVersion = (Get-Content -LiteralPath (Join-Path $payload 'version.txt') -Raw).Trim()
-          if ($payloadVersion -cne $env:VERSION) {
-            throw "Portable payload version '$payloadVersion' does not match requested version '$env:VERSION'."
+          if ((Get-Content -LiteralPath (Join-Path $payload 'version.txt') -Raw).Trim() -cne $env:VERSION) {
+            throw 'Portable version.txt is wrong.'
           }
 
           $manifest = Get-Content -LiteralPath (Join-Path $payload 'SOURCE_MANIFEST.json') -Raw | ConvertFrom-Json
           if ($manifest.version -cne $env:VERSION -or $manifest.license -cne 'GPL-3.0-only') {
-            throw 'SOURCE_MANIFEST.json version/license validation failed.'
+            throw 'SOURCE_MANIFEST version/license is wrong.'
           }
           if (@($manifest.newzdeck_owned_binaries).Count -ne 6) {
-            throw 'SOURCE_MANIFEST.json must map exactly six NewzDeck-owned Windows binaries.'
+            throw 'Expected exactly six NewzDeck-owned binaries.'
+          }
+          $tray = @($manifest.newzdeck_owned_binaries) |
+            Where-Object { $_.binary -ceq 'NewzDeckTray.exe' } |
+            Select-Object -First 1
+          if (-not $tray -or $tray.source -cne 'src/windows/NewzDeckTray.go') {
+            throw 'Tray binary provenance is wrong.'
           }
 
           "path=$payload" >> $env:GITHUB_OUTPUT
@@ -209,13 +201,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
           $installerUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
           $installerHash = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
           $installerPath = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
           $installDirectory = Join-Path $env:RUNNER_TEMP 'inno-setup-7.1.0'
 
-          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          Invoke-WebRequest -UseBasicParsing -Uri $installerUrl -OutFile $installerPath
+
           $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actualHash -cne $installerHash) {
             throw "Inno Setup SHA-256 mismatch. Expected $installerHash, got $actualHash."
@@ -242,19 +234,17 @@ jobs:
 
           $compiler = Join-Path $installDirectory 'ISCC.exe'
           if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-            throw 'ISCC.exe was not found after installing Inno Setup 7.1.0.'
+            throw 'ISCC.exe was not found.'
           }
           "path=$compiler" >> $env:GITHUB_OUTPUT
 
-      - name: Build installer and release checksums
+      - name: Build Setup and checksums
         shell: pwsh
         env:
-          VERSION: ${{ inputs.version }}
           PORTABLE_PATH: ${{ steps.portable.outputs.path }}
         run: |
           $ErrorActionPreference = 'Stop'
           $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
-
           ./release/windows/build-release.ps1 `
             -PayloadDirectory '${{ steps.payload.outputs.path }}' `
             -PortableArchive $env:PORTABLE_PATH `
@@ -262,343 +252,124 @@ jobs:
             -Version $env:VERSION `
             -IsccPath '${{ steps.inno.outputs.path }}'
 
-      - name: Verify final release assets
+      - name: Verify release checksums
         shell: pwsh
         env:
-          VERSION: ${{ inputs.version }}
           PORTABLE_SHA256: ${{ steps.portable.outputs.sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
           $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
-          $expectedNames = @(
-            "NewzDeck_v$env:VERSION`_Setup.exe",
-            "NewzDeck_v$env:VERSION`_Portable.zip",
-            "NewzDeck_v$env:VERSION`_SHA256.txt"
-          )
-          $actualNames = @(Get-ChildItem -LiteralPath $output -File | Select-Object -ExpandProperty Name)
-          if (@(Compare-Object $expectedNames $actualNames).Count -ne 0) {
-            throw "Unexpected output. Expected: $($expectedNames -join ', '). Actual: $($actualNames -join ', ')."
-          }
+          $setup = Join-Path $output ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
+          $portable = Join-Path $output ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
+          $checksum = Join-Path $output ("NewzDeck_v{0}_SHA256.txt" -f $env:VERSION)
 
-          Push-Location $output
-          try {
-            foreach ($line in Get-Content -LiteralPath $expectedNames[2]) {
-              if ($line -notmatch '^([a-f0-9]{64})  (.+)$') {
-                throw "Invalid checksum line: $line"
-              }
-              $actual = (Get-FileHash -LiteralPath $Matches[2] -Algorithm SHA256).Hash.ToLowerInvariant()
-              if ($actual -cne $Matches[1]) {
-                throw "Checksum verification failed for '$($Matches[2])'."
-              }
-            }
-            $portableHash = (Get-FileHash -LiteralPath $expectedNames[1] -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($portableHash -cne $env:PORTABLE_SHA256) {
-              throw 'The Portable ZIP copied into the release output changed after source validation.'
+          foreach ($path in @($setup,$portable,$checksum)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing $(Split-Path -Leaf $path)."
             }
           }
-          finally {
-            Pop-Location
+
+          foreach ($line in Get-Content -LiteralPath $checksum) {
+            if ($line -notmatch '^([a-f0-9]{64})  (.+)$') {
+              throw "Invalid checksum line: $line"
+            }
+            $actual = (Get-FileHash -LiteralPath (Join-Path $output $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -cne $Matches[1]) {
+              throw "Checksum mismatch for $($Matches[2])."
+            }
           }
 
-      - name: Upload validation artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: NewzDeck-v${{ inputs.version }}-windows-release
-          path: ${{ runner.temp }}/newzdeck-release/*
-          if-no-files-found: error
-          retention-days: 14
+          if ((Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:PORTABLE_SHA256) {
+            throw 'Portable changed after source validation.'
+          }
 
-      - name: Stage exact build on draft GitHub Release
+      - name: Runtime smoke-test installed upgrade path
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-          TAG: ${{ steps.request.outputs.tag }}
+          PAYLOAD: ${{ steps.payload.outputs.path }}
         run: |
           $ErrorActionPreference = 'Stop'
           $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
-          $setup = Join-Path $output "NewzDeck_v$env:VERSION`_Setup.exe"
-          $portable = Join-Path $output "NewzDeck_v$env:VERSION`_Portable.zip"
-          $checksum = Join-Path $output "NewzDeck_v$env:VERSION`_SHA256.txt"
+          $setup = Join-Path $output ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-smoke-install'
+          New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
-          # A draft release created for a tag that does not yet exist can receive
-          # GitHub's internal "untagged-*" identifier. Prevent that completely:
-          # establish the immutable source tag before any release is created.
-          $tagRefs = @(gh api "repos/$env:GITHUB_REPOSITORY/git/matching-refs/tags/$env:TAG" | ConvertFrom-Json)
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not inspect source tag '$env:TAG'."
-          }
-
-          $tagRef = $tagRefs |
-            Where-Object { $_.ref -ceq "refs/tags/$env:TAG" } |
-            Select-Object -First 1
-
-          if ($tagRef) {
-            if ($tagRef.object.type -cne 'commit' -or $tagRef.object.sha -cne $env:GITHUB_SHA) {
-              throw "Existing tag '$env:TAG' does not point directly at build commit '$env:GITHUB_SHA'."
-            }
-          }
-          else {
-            gh api -X POST "repos/$env:GITHUB_REPOSITORY/git/refs" `
-              -f "ref=refs/tags/$env:TAG" `
-              -f "sha=$env:GITHUB_SHA" | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-              throw "Could not create immutable source tag '$env:TAG'."
+          function Run-Setup([string]$Label) {
+            $args = @(
+              '/VERYSILENT',
+              '/SUPPRESSMSGBOXES',
+              '/NORESTART',
+              '/NOICONS',
+              '/CLOSEAPPLICATIONS',
+              "/DIR=$installDir"
+            )
+            $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+            if ($p.ExitCode -ne 0) {
+              throw "$Label installer smoke test failed with exit code $($p.ExitCode)."
             }
           }
 
-          $tagCommit = (gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TAG" --jq .sha).Trim()
-          if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) {
-            throw "Source tag '$env:TAG' does not resolve to build commit '$env:GITHUB_SHA'."
+          Run-Setup 'Clean install'
+          if ((Get-Content -LiteralPath (Join-Path $installDir 'version.txt') -Raw).Trim() -cne $env:VERSION) {
+            throw 'Clean install version is wrong.'
           }
 
-          # Now that the real version tag exists, locate any existing draft.
-          $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          & sc.exe delete NewzDeckService | Out-Null
+          Start-Sleep -Milliseconds 250
+
+          $dummyBin = "$env:SystemRoot\System32\cmd.exe /c exit 0"
+          & sc.exe create NewzDeckService binPath= $dummyBin start= demand DisplayName= 'NewzDeck Background Service' | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            throw 'Could not list repository releases.'
-          }
-          $release = @($releases) |
-            Where-Object { $_.tag_name -ceq $env:TAG } |
-            Select-Object -First 1
-
-          $draftNotes = @"
-          NewzDeck v$env:VERSION - source-built Windows release candidate.
-
-          These exact draft assets were built by GitHub Actions from public source at commit $env:GITHUB_SHA. Test the Setup.exe before running this workflow again with publish=true.
-          "@
-
-          if (-not $release) {
-            # Use the Releases API and keep its response. Do not create the draft
-            # and then immediately re-list releases, which can race API visibility.
-            $releaseJson = gh api -X POST "repos/$env:GITHUB_REPOSITORY/releases" `
-              -f "tag_name=$env:TAG" `
-              -f "target_commitish=$env:GITHUB_SHA" `
-              -f "name=NewzDeck v$env:VERSION" `
-              -f "body=$draftNotes" `
-              -F draft=true `
-              -F prerelease=false
-            if ($LASTEXITCODE -ne 0) {
-              throw "Could not create draft release '$env:TAG'."
-            }
-            $release = $releaseJson | ConvertFrom-Json
-          }
-          elseif (-not $release.draft) {
-            throw "Release '$env:TAG' became public during the build. Refusing to replace published assets."
+            throw 'Could not create installer smoke-test service.'
           }
 
-          if (-not $release.id) {
-            throw "Draft release '$env:TAG' has no release ID."
-          }
+          $dummySource = Join-Path $env:GITHUB_WORKSPACE 'release/windows/smoke/NewzDeckTrayLockSmoke.go'
+          $dummyExe = Join-Path $installDir 'NewzDeckTray.exe'
+          $dummyReady = Join-Path $env:RUNNER_TEMP 'newzdeck-tray-lock.ready'
 
-          # Re-pin all important release metadata before replacing draft assets.
-          gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/$($release.id)" `
-            -f "tag_name=$env:TAG" `
-            -f "target_commitish=$env:GITHUB_SHA" `
-            -f "name=NewzDeck v$env:VERSION" `
-            -f "body=$draftNotes" `
-            -F draft=true `
-            -F prerelease=false | Out-Null
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o $dummyExe $dummySource
           if ($LASTEXITCODE -ne 0) {
-            throw "Could not pin draft release '$env:TAG' to source commit '$env:GITHUB_SHA'."
+            throw 'Could not build tray-lock smoke helper.'
           }
 
-          # gh release upload is now safe because both the real tag and draft
-          # release already exist and are addressable by the same version tag.
-          gh release upload $env:TAG $setup $portable $checksum --clobber
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not upload source-built assets to draft release '$env:TAG'."
+          Remove-Item -LiteralPath $dummyReady -Force -ErrorAction SilentlyContinue
+          $dummyProcess = Start-Process -FilePath $dummyExe -ArgumentList @($dummyReady) -PassThru
+          $deadline = [DateTime]::UtcNow.AddSeconds(10)
+          while (-not (Test-Path -LiteralPath $dummyReady) -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 100
+          }
+          if (-not (Test-Path -LiteralPath $dummyReady)) {
+            throw 'Tray-lock smoke helper did not become ready.'
           }
 
-          $verifiedRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not re-read draft release '$env:TAG' after upload."
-          }
-          if (-not $verifiedRelease.draft) {
-            throw "Release '$env:TAG' is not a draft after staging."
-          }
-          if ($verifiedRelease.tag_name -cne $env:TAG) {
-            throw "Draft release tag changed unexpectedly to '$($verifiedRelease.tag_name)'."
-          }
-          if ($verifiedRelease.target_commitish -cne $env:GITHUB_SHA) {
-            throw "Draft release targets '$($verifiedRelease.target_commitish)' instead of '$env:GITHUB_SHA'."
+          Run-Setup 'Installed upgrade'
+
+          try { $dummyProcess.Refresh() } catch {}
+          if (-not $dummyProcess.HasExited) {
+            throw 'Installer did not close the existing NewzDeckTrayWindow.'
           }
 
-          $expectedAssets = @(
-            "NewzDeck_v$env:VERSION`_Setup.exe",
-            "NewzDeck_v$env:VERSION`_Portable.zip",
-            "NewzDeck_v$env:VERSION`_SHA256.txt"
-          )
-          foreach ($name in $expectedAssets) {
-            if (-not (@($verifiedRelease.assets) | Where-Object { $_.name -ceq $name } | Select-Object -First 1)) {
-              throw "Draft release is missing staged asset '$name'."
-            }
+          $installedTrayHash = (Get-FileHash -LiteralPath (Join-Path $installDir 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $payloadTrayHash = (Get-FileHash -LiteralPath (Join-Path $env:PAYLOAD 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($installedTrayHash -cne $payloadTrayHash) {
+            throw 'Installer did not replace the locked tray executable.'
           }
 
-          $finalTagCommit = (gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TAG" --jq .sha).Trim()
-          if ($LASTEXITCODE -ne 0 -or $finalTagCommit -cne $env:GITHUB_SHA) {
-            throw "Version tag '$env:TAG' changed during staging."
+          $qc = (& sc.exe qc NewzDeckService | Out-String)
+          if ($qc -notmatch [regex]::Escape((Join-Path $installDir 'NewzDeckService.exe'))) {
+            throw 'Installer service repair did not point NewzDeckService to the installed helper.'
           }
 
-          Write-Host "Draft release $env:TAG contains the exact GitHub-built assets."
-          Write-Host "Source commit/tag: $env:GITHUB_SHA"
-  publish_draft:
-    name: Publish tested source-complete draft
-    if: ${{ inputs.publish }}
-    runs-on: windows-2022
-    timeout-minutes: 15
+          & sc.exe delete NewzDeckService | Out-Null
+          Write-Host 'Installed-upgrade smoke test passed.'
 
-    steps:
-      - name: Check out exact source candidate
-        uses: actions/checkout@v6
+      - name: Upload complete Windows build
+        uses: actions/upload-artifact@v6
         with:
-          persist-credentials: false
-
-      - name: Validate publish request
-        id: request
-        shell: pwsh
-        env:
-          VERSION: ${{ inputs.version }}
-          EXPECTED_PORTABLE_SHA256: ${{ inputs.expected_portable_sha256 }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Version '$env:VERSION' is invalid. Expected X.Y.Z."
-          }
-          if ($env:EXPECTED_PORTABLE_SHA256 -and $env:EXPECTED_PORTABLE_SHA256 -notmatch '^[A-Fa-f0-9]{64}$') {
-            throw 'expected_portable_sha256 must be blank or exactly 64 hexadecimal characters.'
-          }
-          $sourceVersion = (Get-Content -LiteralPath 'src/app/version.txt' -Raw).Trim()
-          if ($sourceVersion -cne $env:VERSION) {
-            throw "Current source version '$sourceVersion' does not match publish request '$env:VERSION'."
-          }
-          "tag=v$env:VERSION" >> $env:GITHUB_OUTPUT
-
-      - name: Download and verify the exact staged draft assets
-        id: draft
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-          TAG: ${{ steps.request.outputs.tag }}
-          EXPECTED_PORTABLE_SHA256: ${{ inputs.expected_portable_sha256 }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
-          $release = @($releases) | Where-Object { $_.tag_name -ceq $env:TAG } | Select-Object -First 1
-          if (-not $release) {
-            throw "No draft release exists for '$env:TAG'. Run this workflow with publish=false first."
-          }
-          if (-not $release.draft) {
-            throw "Release '$env:TAG' is already public."
-          }
-          if ($release.target_commitish -cne $env:GITHUB_SHA) {
-            throw "Draft assets were built from '$($release.target_commitish)', but current main is '$env:GITHUB_SHA'. Refusing to publish unpinned/mismatched source."
-          }
-          $tagCommit = (gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TAG" --jq .sha).Trim()
-          if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) {
-            throw "Release tag '$env:TAG' resolves to '$tagCommit' instead of the tested source commit '$env:GITHUB_SHA'."
-          }
-
-          $expectedNames = @(
-            "NewzDeck_v$env:VERSION`_Setup.exe",
-            "NewzDeck_v$env:VERSION`_Portable.zip",
-            "NewzDeck_v$env:VERSION`_SHA256.txt"
-          )
-          foreach ($name in $expectedNames) {
-            if (-not (@($release.assets) | Where-Object { $_.name -ceq $name } | Select-Object -First 1)) {
-              throw "Draft release is missing required tested asset '$name'."
-            }
-          }
-
-          $download = Join-Path $env:RUNNER_TEMP 'tested-draft-assets'
-          New-Item -ItemType Directory -Path $download -Force | Out-Null
-          gh release download $env:TAG --dir $download `
-            --pattern $expectedNames[0] `
-            --pattern $expectedNames[1] `
-            --pattern $expectedNames[2]
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Could not download the staged draft assets for final verification.'
-          }
-
-          Push-Location $download
-          try {
-            foreach ($line in Get-Content -LiteralPath $expectedNames[2]) {
-              if ($line -notmatch '^([a-f0-9]{64})  (.+)$') {
-                throw "Invalid checksum line: $line"
-              }
-              $actual = (Get-FileHash -LiteralPath $Matches[2] -Algorithm SHA256).Hash.ToLowerInvariant()
-              if ($actual -cne $Matches[1]) {
-                throw "Draft checksum verification failed for '$($Matches[2])'."
-              }
-            }
-
-            $portablePath = Join-Path $download $expectedNames[1]
-            $portableHash = (Get-FileHash -LiteralPath $portablePath -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($env:EXPECTED_PORTABLE_SHA256 -and $portableHash -cne $env:EXPECTED_PORTABLE_SHA256.ToLowerInvariant()) {
-              throw "Draft Portable SHA-256 '$portableHash' does not match accepted hash '$env:EXPECTED_PORTABLE_SHA256'."
-            }
-
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $archive = [System.IO.Compression.ZipFile]::OpenRead($portablePath)
-            try {
-              $entries = @{}
-              foreach ($entry in $archive.Entries) { $entries[$entry.FullName] = $entry }
-              foreach ($required in @('version.txt','SOURCE_MANIFEST.json','LICENSE.txt','THIRD_PARTY_NOTICES.txt','NewzDeck.exe','NewzDeckService.exe','NewzDeckTray.exe','NewzDeckPicker.exe','NewzDeckThumb.exe','NewzDeckYenc.exe')) {
-                if (-not $entries.ContainsKey($required)) { throw "Portable is missing '$required'." }
-              }
-              foreach ($retired in @('NewzDeckBootstrap.exe','NewzDeckCore.exe')) {
-                if ($entries.ContainsKey($retired)) { throw "Portable unexpectedly contains retired '$retired'." }
-              }
-
-              $reader = New-Object System.IO.StreamReader($entries['version.txt'].Open())
-              try { $payloadVersion = $reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
-              if ($payloadVersion -cne $env:VERSION) { throw "Portable version '$payloadVersion' is wrong." }
-
-              $reader = New-Object System.IO.StreamReader($entries['SOURCE_MANIFEST.json'].Open())
-              try { $manifestText = $reader.ReadToEnd() } finally { $reader.Dispose() }
-              $manifest = $manifestText | ConvertFrom-Json
-              if ($manifest.version -cne $env:VERSION -or @($manifest.newzdeck_owned_binaries).Count -ne 6) {
-                throw 'Portable source manifest final verification failed.'
-              }
-            }
-            finally {
-              $archive.Dispose()
-            }
-          }
-          finally {
-            Pop-Location
-          }
-
-          "release_id=$($release.id)" >> $env:GITHUB_OUTPUT
-          Write-Host "Exact tested draft assets verified for source commit $env:GITHUB_SHA."
-
-      - name: Publish exact tested draft
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
-          TAG: ${{ steps.request.outputs.tag }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $versionedNotes = Join-Path $env:GITHUB_WORKSPACE "source-releases/v$env:VERSION/RELEASE_NOTES.md"
-          if (Test-Path -LiteralPath $versionedNotes -PathType Leaf) {
-            $notes = [IO.File]::ReadAllText($versionedNotes, [Text.Encoding]::UTF8)
-          }
-          else {
-            $notes = "# NewzDeck v$env:VERSION`n`nSource-complete Windows release built from the public v$env:VERSION tag."
-          }
-
-          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.txt'
-          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
-
-          gh release edit $env:TAG --title "NewzDeck v$env:VERSION" --notes-file $notesPath --draft=false
-          if ($LASTEXITCODE -ne 0) {
-            throw "Verified assets remain on the draft, but '$env:TAG' could not be published."
-          }
-
-          $published = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG" | ConvertFrom-Json
-          if ($published.draft) {
-            throw "GitHub still reports '$env:TAG' as a draft after publish."
-          }
-          Write-Host "Published NewzDeck $env:TAG from exact tested source-built assets."
+          name: NewzDeck-v${{ inputs.version }}-windows-build
+          path: ${{ runner.temp }}/newzdeck-release/*
+          if-no-files-found: error
+          retention-days: 14

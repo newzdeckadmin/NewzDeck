@@ -1,0 +1,23 @@
+{
+  "product": "NewzDeck",
+  "version": "3.5.35",
+  "source_status": "source-complete",
+  "release_status": "production",
+  "license": "GPL-3.0-only",
+  "tag": "v3.5.35",
+  "source_commit": "d5435cb46ce778f6edea37bbd0b3758718bd1111",
+  "github_actions_run": 33050067034,
+  "published_assets": {
+    "NewzDeck_v3.5.35_Setup.exe": "c9daa17ab2bbf429e77e2009239979ed5156715cf62284c4db5025e0e83490eb",
+    "NewzDeck_v3.5.35_Portable.zip": "cec30158f559a17c6a2bb6b0116e2842c96d5bcbb214f51076f4e8234314bd3a",
+    "NewzDeck_v3.5.35_SHA256.txt": "6b7161e518a9995515ac8288f4db08da02771d68c26fa20a1763a08028563185"
+  },
+  "newzdeck_owned_windows_binaries": {
+    "NewzDeck.exe": "src/windows/NewzDeckLauncher.go",
+    "NewzDeckService.exe": "src/windows/NewzDeckService.go",
+    "NewzDeckTray.exe": "src/windows/NewzDeckTray.go",
+    "NewzDeckPicker.exe": "src/windows/NewzDeckPicker.go",
+    "NewzDeckThumb.exe": "src/windows/NewzDeckThumb.go",
+    "NewzDeckYenc.exe": "src/windows/NewzDeckYenc.go"
+  }
+}

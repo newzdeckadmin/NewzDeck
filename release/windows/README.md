@@ -1,95 +1,63 @@
-# NewzDeck Windows release process
+# Building NewzDeck for Windows
 
-This directory contains the release-only automation for the conventional unsigned NewzDeck Windows installer. It does not build or change NewzDeck runtime code, the Metadata Server, or the GitHub Pages website.
+> **Just want to use NewzDeck?** You do not need anything in this folder. Download the latest Windows Installer or Portable ZIP from the [Releases page](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
-## Why the workflow starts from a draft release
+This directory contains the Windows packaging tools used to build the same type of artifacts distributed in official NewzDeck releases.
 
-The public repository currently does not contain the compiled NewzDeck application payload. To avoid committing large generated binaries or inventing a new runtime build system, the GitHub Actions workflow takes the already-tested Portable ZIP as its trusted input.
+## Official build model
 
-For each release, the maintainer uploads that tested Portable ZIP to a **draft GitHub Release**. GitHub Actions verifies its SHA-256, extracts and validates it, builds the installer from that exact payload, generates checksums, and can then publish the draft.
+A Windows build starts from the public source tree and produces:
 
-End users never run `BUILD_INSTALLER.bat`, install Inno Setup, or compile anything.
+- `NewzDeck_vX.Y.Z_Portable.zip`
+- `NewzDeck_vX.Y.Z_Setup.exe`
+- `NewzDeck_vX.Y.Z_SHA256.txt`
 
-## Preserved installer behavior
+The Portable build compiles all six NewzDeck-owned Windows executables from the Go source under `src/windows/` and packages the application source/static files from `src/app/`.
 
-The version-driven `NewzDeck.iss` is based directly on the installer that was successfully tested with NewzDeck v3.5.31.
+The installer is built from that exact Portable payload.
 
-It preserves:
+## Toolchain
 
-- Stable Inno product identity: `{A84C814C-704C-4C7D-A20B-BA5DD83F9429}`
-- Per-user install under `%LOCALAPPDATA%\Programs\NewzDeck`
-- Persistent data under `%LOCALAPPDATA%\NewzDeck`
-- Native x64 Inno Setup 7 installer
-- Windows 10 minimum
-- Overlay upgrades without purging generated/private runtime files
-- Existing `NewzDeckService` stop/repair behavior during upgrades
-- No automatic service enablement on a fresh install
-- Existing `NewzDeckTray` autostart migration to the new installed version
-- Safe service removal and tray-autostart cleanup during uninstall
-- Uninstall cancellation if Windows cannot remove an existing registered service
-- Start Menu shortcut and optional Desktop shortcut
-- The real NewzDeck icon
-- Installer foreground/stay-on-top behavior
-- No automatic post-install NewzDeck launch; the user starts NewzDeck normally after Setup fully exits, avoiding the same-version reinstall startup race found during v3.5.31 validation
-- No deletion of `%LOCALAPPDATA%\NewzDeck`
-- No Defender exclusions, PowerShell security exclusions, signing, or custom SFX launcher
+The canonical Windows build uses:
 
-There is no `NewzDeck.Integration.exe`; the proven installer uses `NewzDeckService.exe` plus Inno `[Code]` for service/tray integration.
+- Python 3.12.10
+- Go 1.23.2
+- Windows x64 (`GOOS=windows`, `GOARCH=amd64`, `CGO_ENABLED=0`)
+- Inno Setup 7.1.0 x64
 
-## Publish a release
+The GitHub Actions workflow verifies the Inno Setup installer download by SHA-256 and Authenticode before using it.
 
-1. Produce and test the NewzDeck Portable ZIP.
-2. Calculate its SHA-256.
-3. In GitHub, create a **draft release** with tag `vX.Y.Z`.
-4. Attach the tested portable file using the exact name:
+## GitHub Actions
 
-   `NewzDeck_vX.Y.Z_Portable.zip`
+Use **Actions → Build Windows release artifacts → Run workflow** and enter the version from `src/app/version.txt`.
 
-5. Leave the release as a draft.
-6. Open **Actions → Build Windows release → Run workflow**.
-7. Enter:
-   - `version`: `X.Y.Z`
-   - `portable_sha256`: the SHA-256 of the tested Portable ZIP
-   - `publish`: leave **false** for a validation-only run, or select **true** to publish after a successful build
-8. GitHub Actions downloads the draft asset, verifies it, builds with the official Inno Setup 7.1.0 x64 compiler, and produces:
+The workflow:
 
-   - `NewzDeck_vX.Y.Z_Setup.exe`
-   - `NewzDeck_vX.Y.Z_Portable.zip`
-   - `NewzDeck_vX.Y.Z_SHA256.txt`
+1. validates the public application source;
+2. builds all six NewzDeck Windows executables from source;
+3. builds and validates the Portable ZIP;
+4. compiles the Setup EXE;
+5. verifies the release checksums;
+6. performs a clean-install and installed-upgrade smoke test, including the tray-lock/service-repair upgrade path;
+7. uploads the three completed files as a GitHub Actions artifact.
 
-Every run also stores the three outputs as a temporary GitHub Actions artifact for validation. With `publish=true`, the installer and checksum file are attached to the draft release and the release is published. The original tested Portable ZIP remains the public portable asset.
+The build workflow does **not** publish or replace a GitHub Release automatically. This keeps release publication separate from the build and acceptance test.
 
-## Required portable payload
+## Installer behavior
 
-The portable ZIP must contain the normal tested NewzDeck payload at its root, including at least:
+The normal installer:
 
-- `version.txt`
-- `NewzDeck.exe`
-- `NewzDeck.ico`
-- `NewzDeckBootstrap.exe`
-- `NewzDeckCore.exe`
-- `NewzDeckService.exe`
-- `NewzDeckTray.exe`
-- `NewzDeckPicker.exe`
-- `NewzDeckThumb.exe`
-- `NewzDeckYenc.exe`
-- `server.py`
-- `sab_engine.py`
-- `automation_engine.py`
-- `static/index.html`
-- `static/app.js`
-- `static/styles.css`
+- installs per-user under `%LOCALAPPDATA%\Programs\NewzDeck`;
+- preserves persistent data under `%LOCALAPPDATA%\NewzDeck`;
+- upgrades over an existing installation;
+- closes the NewzDeck tray companion before replacing locked files;
+- repairs an existing NewzDeck background service when necessary;
+- keeps the same NewzDeck application icon for the installed app and shortcuts;
+- does not add Defender exclusions;
+- remains intentionally unsigned.
 
-The payload version must exactly match the requested release version.
+## Source and licenses
 
-## Inno Setup toolchain
+NewzDeck-owned source is GPL-3.0-only unless a file says otherwise. Third-party software retains its own license.
 
-The workflow downloads the official immutable Inno Setup **7.1.0 x64** release from `jrsoftware/issrc`, verifies the published SHA-256 before running it, and requires a valid Authenticode signature on the Inno installer itself.
-
-The workflow uses Node.js 24-native `actions/checkout@v6` and `actions/upload-artifact@v6` to avoid the GitHub Actions Node.js 20 deprecation warning.
-
-NewzDeck's own installer remains intentionally unsigned.
-
-## Website safety
-
-This release infrastructure does not modify `CNAME` or `index.html`. GitHub Pages remains independent from the Windows release workflow.
+See the repository root `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `licenses/` directory.

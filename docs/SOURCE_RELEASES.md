@@ -1,71 +1,66 @@
-# Source Releases
+# NewzDeck source and release history
 
-This document records NewzDeck's transition from binary-first development to a source-first Windows release model and defines what "source-complete" means for NewzDeck.
+NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## v3.5.32 — transition source map
+This page exists for people who want to understand how the public source relates to released Windows binaries. You do not need this information to install or use NewzDeck.
 
-| Shipped component | Public source status | Repository path |
-| --- | --- | --- |
-| `server.py` | Complete | `src/app/server.py` historical v3.5.32 snapshot |
-| `sab_engine.py` | Complete | `src/app/sab_engine.py` historical v3.5.32 snapshot |
-| `automation_engine.py` | Complete | `src/app/automation_engine.py` historical v3.5.32 snapshot |
-| browser UI | Complete | `src/app/static/` historical v3.5.32 snapshot |
-| `NewzDeck.exe` | Complete for v3.5.32 | historical `src/windows/NewzDeckLauncher.go` |
-| `NewzDeckBootstrap.exe` | Legacy source gap | Not reconstructed for the historical binary |
-| `NewzDeckCore.exe` | Legacy source gap | Not reconstructed for the historical binary |
-| `NewzDeckService.exe` | Legacy source gap | Not reconstructed for the historical binary |
-| `NewzDeckTray.exe` | Legacy source gap | Not reconstructed for the historical binary |
-| `NewzDeckPicker.exe` | Legacy source gap | Not reconstructed for the historical binary |
-| `NewzDeckThumb.exe` | Legacy source gap | Not reconstructed for the historical binary |
-| `NewzDeckYenc.exe` | Legacy source gap | Not reconstructed for the historical binary |
+## Current release: v3.5.35
 
-Those helpers were carried forward from the pre-source-publication baseline. v3.5.32 remains explicitly documented as a **transition release**, not retroactively described as source-complete.
+**v3.5.35 is the current stable production release.**
 
-## v3.5.33 — first source-complete Windows release
+The official Windows Installer and Portable ZIP were built from commit:
 
-v3.5.33 removes the legacy Bootstrap/Core compatibility layer and ships six NewzDeck-owned Windows executables, all built directly from public Go source:
+`d5435cb46ce778f6edea37bbd0b3758718bd1111`
 
-| Shipped component | Public source | Build path |
-| --- | --- | --- |
-| `NewzDeck.exe` | `src/windows/NewzDeckLauncher.go` | Go 1.23.2 Windows/amd64 |
-| `NewzDeckService.exe` | `src/windows/NewzDeckService.go` | Go 1.23.2 Windows/amd64 |
-| `NewzDeckTray.exe` | `src/windows/NewzDeckTray.go` | Go 1.23.2 Windows/amd64 |
-| `NewzDeckPicker.exe` | `src/windows/NewzDeckPicker.go` | Go 1.23.2 Windows/amd64 |
-| `NewzDeckThumb.exe` | `src/windows/NewzDeckThumb.go` | Go 1.23.2 Windows/amd64 |
-| `NewzDeckYenc.exe` | `src/windows/NewzDeckYenc.go` | Go 1.23.2 Windows/amd64 |
-| Python backend/SAB/Automation | `src/app/*.py` | Packaged as source |
-| browser UI | `src/app/static/` | Packaged as source/static assets |
+The public `v3.5.35` tag points to that same commit.
 
-The canonical build is `release/windows/build-portable.py`. It validates the application source, compiles each Windows executable with `GOOS=windows`, `GOARCH=amd64`, `CGO_ENABLED=0`, generates `SOURCE_MANIFEST.json`, includes the GPL and third-party notices, and writes a deterministic Portable ZIP with fixed archive timestamps and ordering.
+Published SHA-256 values:
 
-`release/windows/build-release.ps1` then uses that exact source-built Portable payload to compile the conventional Inno Setup package.
+- Setup EXE: `c9daa17ab2bbf429e77e2009239979ed5156715cf62284c4db5025e0e83490eb`
+- Portable ZIP: `cec30158f559a17c6a2bb6b0116e2842c96d5bcbb214f51076f4e8234314bd3a`
+- SHA-256 file: `6b7161e518a9995515ac8288f4db08da02771d68c26fa20a1763a08028563185`
 
-## Source-complete release rule
+All six NewzDeck-owned Windows executables are built from public Go source:
 
-A Windows release may be labeled source-complete only when all of the following are true:
+| Windows file | Public source |
+| --- | --- |
+| `NewzDeck.exe` | `src/windows/NewzDeckLauncher.go` |
+| `NewzDeckService.exe` | `src/windows/NewzDeckService.go` |
+| `NewzDeckTray.exe` | `src/windows/NewzDeckTray.go` |
+| `NewzDeckPicker.exe` | `src/windows/NewzDeckPicker.go` |
+| `NewzDeckThumb.exe` | `src/windows/NewzDeckThumb.go` |
+| `NewzDeckYenc.exe` | `src/windows/NewzDeckYenc.go` |
 
-1. Every NewzDeck-owned executable in the Portable ZIP maps to public source in the tagged repository.
-2. Build scripts and canonical toolchain versions are public and documented.
-3. A clean build from the tag does not depend on an unpublished prior NewzDeck binary.
-4. The Portable ZIP/installer includes the NewzDeck GPL license and required third-party binary notices.
-5. The exact source tag/archive is public alongside the binaries.
-6. No secrets, credentials, user data, or private API keys are present in the published tree.
-7. The Windows acceptance build is tested before the same exact draft assets are published.
+The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
-## Exact-asset release staging
+## v3.5.34
 
-Starting with v3.5.33, the GitHub Actions validation run builds from source and uploads all three Windows artifacts to a **draft** GitHub Release. The release is pinned to the exact source commit that produced them. The publish run verifies the draft checksums, Portable source manifest, version, retired-binary exclusions, accepted Portable hash when supplied, and source-commit pin before changing the draft to public. It does not rebuild the assets during publication.
+v3.5.34 was an **unreleased development candidate**. It contained reliability work that passed application acceptance testing, but its Windows installer did not pass final release acceptance.
 
-v3.5.33 completed this transition and is the first production Windows release under the source-complete model. v3.5.32 remains documented historically as the transition release and is not retroactively relabeled.
+No public v3.5.34 GitHub Release was published.
 
-## v3.5.34 — Reliability & Release Hardening
+The accepted application reliability work from that candidate was carried forward into v3.5.35, where the installer and tray issues were also corrected.
 
-v3.5.34 is the first normal production follow-on to the v3.5.33 source-complete
-transition. It keeps the six-source-built-Windows-binary model and changes the
-application layer only: updater compatibility, suspend/resume lifecycle
-hardening, Downloads snapshot ordering, Completed-history migration/sorting,
-TMDB attribution, localhost request hardening, Watch Folder fairness, and
-production-package cleanup.
+## v3.5.33
 
-The final v3.5.34 Windows assets are rebuilt from the public `v3.5.34` tag by
-the same deterministic GitHub Actions pipeline established in v3.5.33.
+v3.5.33 was the first NewzDeck Windows release in which every NewzDeck-owned executable shipped in the release had corresponding public source in the repository.
+
+It established the source-complete Windows build model used by current releases.
+
+## v3.5.32 and earlier
+
+v3.5.32 marks the transition from NewzDeck's earlier binary-first development period to the current public-source build model.
+
+Some legacy helper binaries in that historical package did not have complete corresponding build source published. The repository keeps that distinction documented rather than retroactively describing older packages as source-complete.
+
+## Build toolchain
+
+Current official Windows builds use:
+
+- Python 3.12.10 for source validation and packaging
+- Go 1.23.2 for NewzDeck-owned Windows executables
+- Inno Setup 7.1.0 x64 for the Windows installer
+
+Official release downloads are available from:
+
+https://github.com/newzdeckadmin/NewzDeck/releases/latest

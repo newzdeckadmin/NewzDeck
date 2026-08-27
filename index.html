@@ -623,7 +623,7 @@
             </a>
           </div>
           <div class="hero-meta">
-            <span><i></i><b id="heroVersion">v3.5.33</b> current release</span>
+            <span><i></i><b id="heroVersion">v3.5.35</b> current release</span>
             <span><i></i>Installer + Portable</span>
             <span><i></i>GNU GPLv3</span>
           </div>
@@ -682,7 +682,7 @@
         <div class="trust-item"><span>Platform</span><strong>Windows x64</strong></div>
         <div class="trust-item"><span>Distribution</span><strong>Installer + Portable</strong></div>
         <div class="trust-item"><span>License</span><strong>GNU GPLv3</strong></div>
-        <div class="trust-item"><span>Price</span><strong>Free. No subscription.</strong></div>
+        <div class="trust-item"><span>Price</span><strong>NewzDeck is free</strong></div>
       </div>
     </section>
 
@@ -816,7 +816,7 @@
         <div class="reveal">
           <div class="section-kicker">Open source</div>
           <h2>Free software, built in the open.</h2>
-          <p class="section-lead">NewzDeck's published source is licensed under GNU GPLv3. Releases, source, issue tracking, build documentation, third-party notices, and the project's source-publication transition are all available in the public GitHub repository.</p>
+          <p class="section-lead">NewzDeck's published source is licensed under GNU GPLv3. Releases, source, issue tracking, build information, third-party notices, and release provenance are available in the public GitHub repository.</p>
           <div class="hero-actions">
             <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">Browse source</a>
             <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck/blob/main/docs/SOURCE_RELEASES.md" target="_blank" rel="noopener">Source release status</a>
@@ -832,7 +832,7 @@
           <h2>Ready to try it?</h2>
           <p>NewzDeck is available free for Windows x64. Choose the standard installer or the portable build from the latest GitHub release.</p>
           <div class="release-line">
-            <span class="release-pill">Latest: <strong id="downloadVersion">v3.5.33</strong></span>
+            <span class="release-pill">Latest: <strong id="downloadVersion">v3.5.35</strong></span>
             <span class="release-pill">Windows x64</span>
             <span class="release-pill">GPLv3</span>
           </div>
@@ -848,7 +848,7 @@
             <img src="assets/NewzDeck.png" alt="" aria-hidden="true" />
             <div class="label">Current production release</div>
           </div>
-          <div class="release-version"><strong id="releaseVersion">v3.5.33</strong><span>● AVAILABLE</span></div>
+          <div class="release-version"><strong id="releaseVersion">v3.5.35</strong><span>● AVAILABLE</span></div>
           <div class="release-list">
             <div class="release-row"><b>Windows Installer</b><span id="installerSize">Setup.exe</span></div>
             <div class="release-row"><b>Portable build</b><span id="portableSize">Portable.zip</span></div>
@@ -869,7 +869,7 @@
           <details class="reveal"><summary>Can downloads continue when I close the window?</summary><p>Yes. NewzDeck includes a Windows background runtime and tray experience so active work can continue without keeping the main interface open.</p></details>
           <details class="reveal"><summary>Is NewzDeck signed?</summary><p>No. Current Windows builds are intentionally unsigned, so Windows may display an Unknown Publisher or SmartScreen warning. Release checksums are provided on GitHub for verification.</p></details>
           <details class="reveal"><summary>Is NewzDeck free?</summary><p>Yes. NewzDeck is a free project with source published under GNU GPLv3. There is no NewzDeck subscription fee.</p></details>
-          <details class="reveal"><summary>Is the project still in development?</summary><p>Yes. NewzDeck has public Windows releases and a growing source tree, but development is active and the project is continuing its transition to a fully reproducible source-first release model.</p></details>
+          <details class="reveal"><summary>Is the project still in development?</summary><p>Yes. NewzDeck is under active development, and current Windows releases are built from the public source in this repository.</p></details>
         </div>
       </div>
     </section>
@@ -917,7 +917,7 @@
     fetch(RELEASE_API, { headers: { 'Accept': 'application/vnd.github+json' } })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('release lookup failed')))
       .then(release => {
-        const version = release.tag_name || 'v3.5.33';
+        const version = release.tag_name || 'v3.5.35';
         ['heroVersion', 'downloadVersion', 'releaseVersion'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.textContent = version;
