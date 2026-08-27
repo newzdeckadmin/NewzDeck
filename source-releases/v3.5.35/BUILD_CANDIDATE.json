@@ -1,0 +1,8 @@
+{
+  "product": "NewzDeck",
+  "version": "3.5.35",
+  "status": "full-build-candidate",
+  "candidate_id": "v3.5.35-full-build-20260827-a",
+  "base_commit": "979a7d9b2df7322ba72282aedd1ac0682d825046",
+  "notes": "Clean full build after v3.5.34 installer/tray acceptance failures; no v3.5.34 tag rewrite."
+}

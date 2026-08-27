@@ -71,6 +71,7 @@ const
   ServiceRegKey = 'SYSTEM\CurrentControlSet\Services\NewzDeckService';
   TrayRunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   TrayRunValue = 'NewzDeckTray';
+  WM_CLOSE = $0010;
 
 var
   ServiceWasInstalled: Boolean;
@@ -83,12 +84,38 @@ end;
 
 function RunElevatedAndWait(const FileName, Parameters, WorkingDir: String; var ResultCode: Integer): Boolean;
 begin
-  Result := ShellExec('runas', FileName, Parameters, WorkingDir, SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  { Avoid an unnecessary runas/UAC hop when Setup already has administrative
+    rights (for example on managed or CI systems). Normal per-user installs
+    still request elevation only for the service maintenance helper. }
+  if IsAdmin then
+    Result := Exec(FileName, Parameters, WorkingDir, SW_HIDE, ewWaitUntilTerminated, ResultCode)
+  else
+    Result := ShellExec('runas', FileName, Parameters, WorkingDir, SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function QuoteArg(const S: String): String;
 begin
   Result := '"' + S + '"';
+end;
+
+procedure CloseExistingTray();
+var
+  TrayWindow: HWND;
+  Attempt: Integer;
+begin
+  { The tray companion owns a hidden top-level window named by class. Restart
+    Manager can detect NewzDeckTray.exe but cannot reliably close this hidden
+    notification-area process. Ask the window itself to close before Inno does
+    file-lock discovery. The old tray also honors WM_CLOSE through DefWindowProc. }
+  for Attempt := 1 to 30 do
+  begin
+    TrayWindow := FindWindowByClassName('NewzDeckTrayWindow');
+    if TrayWindow = 0 then
+      Exit;
+
+    PostMessage(TrayWindow, WM_CLOSE, 0, 0);
+    Sleep(100);
+  end;
 end;
 
 procedure InitializeWizard();
@@ -105,6 +132,10 @@ begin
   ServiceWasInstalled := ServiceInstalled();
   TrayAutostartWasEnabled := RegValueExists(HKCU, TrayRunKey, TrayRunValue);
 
+  { Close the signed-in-user tray companion before Inno's Restart Manager
+    application-lock check. This makes ordinary upgrades non-interactive. }
+  CloseExistingTray();
+
   if ServiceWasInstalled then
   begin
     { Stop the old service before its executable is overlaid. SC returns a
@@ -117,7 +148,7 @@ end;
 
 procedure RepairExistingService();
 var
-  Helper, Params, UserRoot, DefaultDownload: String;
+  Helper, Params, UserRoot, DefaultDownload, UserProfile: String;
   ResultCode: Integer;
 begin
   if not ServiceWasInstalled then
@@ -125,7 +156,14 @@ begin
 
   Helper := ExpandConstant('{app}\NewzDeckService.exe');
   UserRoot := ExpandConstant('{localappdata}\NewzDeck');
-  DefaultDownload := ExpandConstant('{userprofile}\Downloads\NewzDeck');
+
+  { Inno Setup has no {userprofile} shell-folder constant. Resolve the Windows
+    USERPROFILE environment variable at install time, with a safe fallback. }
+  UserProfile := GetEnv('USERPROFILE');
+  if UserProfile = '' then
+    UserProfile := ExpandConstant('{localappdata}');
+  DefaultDownload := PathCombine(UserProfile, 'Downloads\NewzDeck');
+
   Params := 'repair --user-root ' + QuoteArg(UserRoot) +
             ' --default-download-dir ' + QuoteArg(DefaultDownload);
 

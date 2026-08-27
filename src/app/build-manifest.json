@@ -1,33 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.5.34",
-  "base_version": "3.5.33",
-  "release": "Reliability & Release Hardening",
-  "adapter_version": "3.5.34",
+  "version": "3.5.35",
+  "base_version": "3.5.34",
+  "release": "Installer & Tray Reliability",
+  "adapter_version": "3.5.35",
   "changes": [
-    "Repairs the verified GitHub updater for canonical versioned Setup/SHA256 release assets and enables the official latest-release feed by default.",
-    "Makes desktop heartbeat lifetime safe across Windows sleep/resume and browser timer throttling.",
-    "Prevents out-of-order Downloads polling responses from replacing newer SAB snapshots and adds a bounded status-request timeout.",
-    "Adds browser-origin protection for mutating localhost API requests and removes raw unexpected exception text from user-facing HTTP 500 responses.",
-    "Rotates Watch Folder scanning fairly beyond 100 NZBs.",
-    "Repairs the About & Updates TMDB attribution logo path and allows the attribution text to wrap cleanly at desktop and narrow widths.",
-    "Orders Completed downloads strictly newest-to-oldest by actual completion time.",
-    "Backfills real SAB completion timestamps for existing pre-v3.5.34 Completed history and preserves SAB newest-first history rank as a legacy fallback.",
-    "Fixes legacy native Completed ordering when completed_ts exists but is zero.",
-    "Removes acceptance-only files from production packaging and routes start.bat through NewzDeck.exe.",
-    "Preserves the accepted v3.5.33 SAB transfer, Automation ownership, Smart Import, and source-complete native-helper architecture."
+    "Includes all accepted v3.5.34 reliability, updater, Downloads ordering, TMDB attribution, localhost hardening and Watch Folder fairness work.",
+    "Fixes the Windows installer upgrade path so the signed-in-user tray companion is closed before file-lock discovery.",
+    "Fixes existing-background-service upgrades by resolving the default download path from USERPROFILE with supported Inno Setup runtime functions.",
+    "Reworks the tray context-menu path to use the documented foreground-window plus TPM_RETURNCMD pattern and adds an explicit WM_CLOSE/Exit path.",
+    "Keeps the tray context menu responsive by avoiding a synchronous backend status request before the menu is displayed.",
+    "Builds and validates the complete Windows Setup and Portable artifacts without creating or publishing a GitHub release."
   ],
   "regression_guards": [
     "Python compile validation for server.py, sab_engine.py and automation_engine.py",
     "JavaScript syntax validation for static/app.js",
-    "Canonical GitHub release asset-selection regression guard",
-    "Cross-origin POST rejection regression guard",
-    "Downloads snapshot generation ordering guard",
-    "Desktop sleep/resume heartbeat grace guard",
-    "About & Updates TMDB asset-path and text-wrapping guard",
-    "Completed Downloads reverse-chronological completion-time guard",
-    "Historical SAB completion timestamp backfill and history-rank fallback guard",
-    "Metadata Server v0.3.3 compatibility retained",
-    "No SAB transfer-data-path changes relative to accepted v3.5.33"
+    "All six NewzDeck-owned Windows binaries rebuilt from public Go source with Go 1.23.2",
+    "Installer source rejects the invalid {userprofile} constant",
+    "Installer upgrade smoke test exercises an existing NewzDeckService registration",
+    "Installer upgrade smoke test exercises a running NewzDeckTrayWindow that locks NewzDeckTray.exe",
+    "Release checksum verification for Setup.exe and Portable.zip",
+    "No SAB transfer-data-path changes relative to accepted v3.5.34 application behavior"
   ]
 }

@@ -234,7 +234,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.5.34"
+APP_VERSION = "3.5.35"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -625,7 +625,7 @@ def _select_online_update_assets(assets: list[dict[str, Any]], latest_version: s
     """Choose the canonical Setup/checksum pair for a GitHub release.
 
     NewzDeck's public release naming is versioned (for example
-    ``NewzDeck_v3.5.34_Setup.exe`` and ``NewzDeck_v3.5.34_SHA256.txt``).  Keep a
+    ``NewzDeck_v3.5.35_Setup.exe`` and ``NewzDeck_v3.5.35_SHA256.txt``).  Keep a
     conservative legacy fallback for older packages, but never pair a versioned
     installer with a checksum belonging to a different release.
     """

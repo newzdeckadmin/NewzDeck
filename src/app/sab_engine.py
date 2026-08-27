@@ -795,7 +795,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.34"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.35"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1043,7 +1043,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.34 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.35 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -2009,7 +2009,7 @@ class SabDownloadManager:
         return {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.5.34",
+            "adapter_version": "3.5.35",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -2602,7 +2602,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.34 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.35 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -2818,7 +2818,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.34", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.35", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
