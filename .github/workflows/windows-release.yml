@@ -320,50 +320,126 @@ jobs:
           $portable = Join-Path $output "NewzDeck_v$env:VERSION`_Portable.zip"
           $checksum = Join-Path $output "NewzDeck_v$env:VERSION`_SHA256.txt"
 
+          # A draft release created for a tag that does not yet exist can receive
+          # GitHub's internal "untagged-*" identifier. Prevent that completely:
+          # establish the immutable source tag before any release is created.
+          $tagRefs = @(gh api "repos/$env:GITHUB_REPOSITORY/git/matching-refs/tags/$env:TAG" | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect source tag '$env:TAG'."
+          }
+
+          $tagRef = $tagRefs |
+            Where-Object { $_.ref -ceq "refs/tags/$env:TAG" } |
+            Select-Object -First 1
+
+          if ($tagRef) {
+            if ($tagRef.object.type -cne 'commit' -or $tagRef.object.sha -cne $env:GITHUB_SHA) {
+              throw "Existing tag '$env:TAG' does not point directly at build commit '$env:GITHUB_SHA'."
+            }
+          }
+          else {
+            gh api -X POST "repos/$env:GITHUB_REPOSITORY/git/refs" `
+              -f "ref=refs/tags/$env:TAG" `
+              -f "sha=$env:GITHUB_SHA" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not create immutable source tag '$env:TAG'."
+            }
+          }
+
+          $tagCommit = (gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TAG" --jq .sha).Trim()
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) {
+            throw "Source tag '$env:TAG' does not resolve to build commit '$env:GITHUB_SHA'."
+          }
+
+          # Now that the real version tag exists, locate any existing draft.
           $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
-          $release = @($releases) | Where-Object { $_.tag_name -ceq $env:TAG } | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not list repository releases.'
+          }
+          $release = @($releases) |
+            Where-Object { $_.tag_name -ceq $env:TAG } |
+            Select-Object -First 1
 
           $draftNotes = @"
-          NewzDeck v$env:VERSION — source-built Windows release candidate.
+          NewzDeck v$env:VERSION â€” source-built Windows release candidate.
 
           These exact draft assets were built by GitHub Actions from public source at commit $env:GITHUB_SHA. Test the Setup.exe before running this workflow again with publish=true.
           "@
-          $notesPath = Join-Path $env:RUNNER_TEMP 'draft-notes.txt'
-          [System.IO.File]::WriteAllText($notesPath, $draftNotes, [System.Text.UTF8Encoding]::new($false))
 
           if (-not $release) {
-            gh release create $env:TAG --draft --title "NewzDeck v$env:VERSION" --target $env:GITHUB_SHA --notes-file $notesPath
+            # Use the Releases API and keep its response. Do not create the draft
+            # and then immediately re-list releases, which can race API visibility.
+            $releaseJson = gh api -X POST "repos/$env:GITHUB_REPOSITORY/releases" `
+              -f "tag_name=$env:TAG" `
+              -f "target_commitish=$env:GITHUB_SHA" `
+              -f "name=NewzDeck v$env:VERSION" `
+              -f "body=$draftNotes" `
+              -F draft=true `
+              -F prerelease=false
             if ($LASTEXITCODE -ne 0) {
               throw "Could not create draft release '$env:TAG'."
             }
-            $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
-            $release = @($releases) | Where-Object { $_.tag_name -ceq $env:TAG } | Select-Object -First 1
+            $release = $releaseJson | ConvertFrom-Json
           }
           elseif (-not $release.draft) {
-            throw "Release '$env:TAG' became public during the build. Refusing to replace it."
+            throw "Release '$env:TAG' became public during the build. Refusing to replace published assets."
           }
 
+          if (-not $release.id) {
+            throw "Draft release '$env:TAG' has no release ID."
+          }
+
+          # Re-pin all important release metadata before replacing draft assets.
           gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/$($release.id)" `
+            -f "tag_name=$env:TAG" `
             -f "target_commitish=$env:GITHUB_SHA" `
             -f "name=NewzDeck v$env:VERSION" `
-            -F draft=true | Out-Null
+            -f "body=$draftNotes" `
+            -F draft=true `
+            -F prerelease=false | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            throw 'Could not pin the draft release to the source commit that produced the assets.'
+            throw "Could not pin draft release '$env:TAG' to source commit '$env:GITHUB_SHA'."
           }
 
+          # gh release upload is now safe because both the real tag and draft
+          # release already exist and are addressable by the same version tag.
           gh release upload $env:TAG $setup $portable $checksum --clobber
           if ($LASTEXITCODE -ne 0) {
             throw "Could not upload source-built assets to draft release '$env:TAG'."
           }
 
-          $tagCommit = (gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TAG" --jq .sha).Trim()
-          if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:GITHUB_SHA) {
-            throw "Draft tag '$env:TAG' does not resolve to source commit $env:GITHUB_SHA. Delete the stale draft/tag and run validation again rather than publishing mismatched source."
+          $verifiedRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not re-read draft release '$env:TAG' after upload."
+          }
+          if (-not $verifiedRelease.draft) {
+            throw "Release '$env:TAG' is not a draft after staging."
+          }
+          if ($verifiedRelease.tag_name -cne $env:TAG) {
+            throw "Draft release tag changed unexpectedly to '$($verifiedRelease.tag_name)'."
+          }
+          if ($verifiedRelease.target_commitish -cne $env:GITHUB_SHA) {
+            throw "Draft release targets '$($verifiedRelease.target_commitish)' instead of '$env:GITHUB_SHA'."
           }
 
-          Write-Host "Draft release $env:TAG now contains the exact GitHub-built assets to test."
-          Write-Host "Source commit/tag: $env:GITHUB_SHA"
+          $expectedAssets = @(
+            "NewzDeck_v$env:VERSION`_Setup.exe",
+            "NewzDeck_v$env:VERSION`_Portable.zip",
+            "NewzDeck_v$env:VERSION`_SHA256.txt"
+          )
+          foreach ($name in $expectedAssets) {
+            if (-not (@($verifiedRelease.assets) | Where-Object { $_.name -ceq $name } | Select-Object -First 1)) {
+              throw "Draft release is missing staged asset '$name'."
+            }
+          }
 
+          $finalTagCommit = (gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:TAG" --jq .sha).Trim()
+          if ($LASTEXITCODE -ne 0 -or $finalTagCommit -cne $env:GITHUB_SHA) {
+            throw "Version tag '$env:TAG' changed during staging."
+          }
+
+          Write-Host "Draft release $env:TAG contains the exact GitHub-built assets."
+          Write-Host "Source commit/tag: $env:GITHUB_SHA"
   publish_draft:
     name: Publish tested source-complete draft
     if: ${{ inputs.publish }}
