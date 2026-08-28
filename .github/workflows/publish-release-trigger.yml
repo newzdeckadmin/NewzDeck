@@ -74,6 +74,7 @@ jobs:
           }
 
           "version=$version" >> $env:GITHUB_OUTPUT
+          "source_commit=$actualSourceCommit" >> $env:GITHUB_OUTPUT
           "VERSION=$version" >> $env:GITHUB_ENV
 
       - name: Set up canonical Python
@@ -175,9 +176,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
-          New-Item -ItemType Directory -Path $output -Force | Out-Null
-          $portable = Join-Path $output ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
+          $portableOutput = Join-Path $env:RUNNER_TEMP 'newzdeck-portable-build'
+          New-Item -ItemType Directory -Path $portableOutput -Force | Out-Null
+          $portable = Join-Path $portableOutput ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
           python release/windows/build-portable.py --version $env:VERSION --output $portable
           if (-not (Test-Path -LiteralPath $portable -PathType Leaf)) {
             throw 'Portable build failed.'
@@ -397,6 +398,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_COMMIT: ${{ steps.version.outputs.source_commit }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
@@ -419,7 +421,7 @@ jobs:
           $checksum = Join-Path $output ("NewzDeck_v{0}_SHA256.txt" -f $env:VERSION)
 
           & gh release create $tag $setup $portable $checksum `
-            --target $env:GITHUB_SHA `
+            --target $env:SOURCE_COMMIT `
             --title "NewzDeck v$env:VERSION" `
             --notes-file "release/RELEASE_NOTES_v$env:VERSION.md" `
             --latest
@@ -445,7 +447,8 @@ jobs:
         run: |
           @"
           ## NewzDeck v$env:VERSION
-          - Commit: $env:GITHUB_SHA
+          - Source commit: ${{ steps.version.outputs.source_commit }}
+          - Trigger commit: $env:GITHUB_SHA
           - Setup SHA-256: ${{ steps.verify.outputs.setup_sha256 }}
           - Portable SHA-256: ${{ steps.verify.outputs.portable_sha256 }}
           - Checksum file SHA-256: ${{ steps.verify.outputs.checksum_sha256 }}
