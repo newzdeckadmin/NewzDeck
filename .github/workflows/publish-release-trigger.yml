@@ -118,18 +118,19 @@ jobs:
           }
 
           $tray = Get-Content -LiteralPath 'src/windows/NewzDeckTray.go' -Raw
-          foreach ($required in @(
-            'argValue("--version", "' + $env:VERSION + '")',
-            'launch_private_sab',
-            'TaskbarCreated',
-            'runtime.LockOSThread()',
-            'tpmReturnCmd',
-            'tpmNonotify',
-            'procSetForegroundWindow',
-            'procPostMessageW',
-            'case wmClose:',
+          $requiredTrayMarkers = [string[]]@(
+            ('argValue("--version", "{0}")' -f $env:VERSION)
+            'launch_private_sab'
+            'TaskbarCreated'
+            'runtime.LockOSThread()'
+            'tpmReturnCmd'
+            'tpmNonotify'
+            'procSetForegroundWindow'
+            'procPostMessageW'
+            'case wmClose:'
             'case "exit":'
-          )) {
+          )
+          foreach ($required in $requiredTrayMarkers) {
             if (-not $tray.Contains($required)) {
               throw "Tray source is missing required behavior '$required'."
             }
