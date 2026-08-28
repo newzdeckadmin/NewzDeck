@@ -234,7 +234,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.1"
+APP_VERSION = "3.6.2"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -632,7 +632,7 @@ def _select_online_update_assets(assets: list[dict[str, Any]], latest_version: s
     """Choose the canonical Setup/checksum pair for a GitHub release.
 
     NewzDeck's public release naming is versioned (for example
-    ``NewzDeck_v3.6.1_Setup.exe`` and ``NewzDeck_v3.6.1_SHA256.txt``).  Keep a
+    ``NewzDeck_v3.6.2_Setup.exe`` and ``NewzDeck_v3.6.2_SHA256.txt``).  Keep a
     conservative legacy fallback for older packages, but never pair a versioned
     installer with a checksum belonging to a different release.
     """
@@ -9308,7 +9308,7 @@ def _probe_local_newzdeck_backend(port: int, timeout: float = 0.35) -> dict[str,
 def _authoritative_runtime_snapshot(current_port: int) -> dict[str, Any]:
     """Prefer the installed background-service backend over a stray desktop peer.
 
-    v3.6.1 recovery proved that a service backend could have the real provider state
+    v3.6.2 recovery proved that a service backend could have the real provider state
     while a same-version desktop backend still owned the Chromium window. Version-only
     handoff cannot detect that split. Scan NewzDeck's bounded localhost port range and
     make a healthy same-version service runtime authoritative.

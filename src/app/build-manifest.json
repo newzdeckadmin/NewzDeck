@@ -1,23 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.1",
-  "base_version": "3.6.0",
-  "release": "Installer Upgrade Reliability",
-  "adapter_version": "3.6.1",
+  "version": "3.6.2",
+  "base_version": "3.6.1",
+  "release": "Tray Upgrade Lock Reliability",
+  "adapter_version": "3.6.2",
   "changes": [
-    "Fixes installed upgrades failing with DeleteFile failed; code 5 (Access is denied) when NewzDeckService.exe remains locked after the background service receives a stop request.",
-    "Replaces the installer's fixed 1.2-second wait after sc stop with the installed NewzDeckService.exe stop helper, which waits for the Windows service to reach STOPPED before Setup overlays files.",
-    "Makes service shutdown a fail-safe pre-install gate: if the installed helper is missing, elevation is denied, or the service cannot stop cleanly, Setup aborts before application files are replaced.",
-    "Adds a real locked-service upgrade smoke test using a deliberately slow-stopping NewzDeckService.exe so future release validation exercises the file-lock condition that caused the v3.6.0 upgrade regression.",
-    "Preserves the accepted v3.6.0 UI/UX Overhaul and all v3.5.x runtime, private SAB, Automation, Smart Import, Discover, provider, tray, and authoritative-runtime behavior."
+    "Fixes installed upgrades failing with DeleteFile failed; code 5 (Access is denied) while replacing NewzDeckTray.exe after the tray window had already disappeared.",
+    "Changes Setup tray shutdown from window-only polling to process-authoritative shutdown: Setup captures the tray process ID/handle before WM_CLOSE and waits for that process to signal exit before overlaying files.",
+    "Adds a bounded forced-termination fallback for an unresponsive process owning the NewzDeck tray window, followed by a second bounded process-exit wait; Setup aborts before overlay if shutdown still cannot be confirmed.",
+    "Strengthens the Windows installer smoke test so NewzDeckTray.exe deliberately remains alive and file-locked for six seconds after its hidden window is destroyed, reproducing the race that escaped v3.6.1.",
+    "Preserves the v3.6.1 confirmed background-service stop gate, the accepted v3.6.0 UI/UX Overhaul, and all established runtime/download/Automation/Smart Import/Discover behavior."
   ],
   "regression_guards": [
+    "v3.6.1 Installer Upgrade Reliability service-stop fix remains preserved.",
     "v3.6.0 UI/UX Overhaul remains preserved without presentation changes.",
     "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
     "v3.5.51 BOM-safe provider loading remains preserved.",
     "v3.5.49 Smooth Post-Processing Motion remains preserved.",
     "v3.5.47 Session 0 SAB Launch Fix remains preserved.",
-    "Private SAB queue/history, Smart Import, Automation, Discover metadata behavior, tray/service runtime behavior, and Metadata Server v0.3.3 compatibility remain unchanged except for version identifiers and installer upgrade coordination."
+    "Private SAB queue/history, Smart Import, Automation, Discover metadata behavior, authoritative runtime behavior, and Metadata Server v0.3.3 compatibility remain unchanged except for version identifiers and installer tray shutdown coordination."
   ],
-  "name": "Installer Upgrade Reliability"
+  "name": "Tray Upgrade Lock Reliability"
 }

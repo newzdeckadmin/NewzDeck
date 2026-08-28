@@ -72,10 +72,25 @@ const
   TrayRunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   TrayRunValue = 'NewzDeckTray';
   WM_CLOSE = $0010;
+  PROCESS_TERMINATE = $0001;
+  SYNCHRONIZE = $00100000;
+  WAIT_OBJECT_0 = 0;
+  WAIT_TIMEOUT = 258;
 
 var
   ServiceWasInstalled: Boolean;
   TrayAutostartWasEnabled: Boolean;
+
+function GetWindowThreadProcessId(hWnd: HWND; var ProcessId: DWORD): DWORD;
+  external 'GetWindowThreadProcessId@user32.dll stdcall';
+function OpenProcess(DesiredAccess: DWORD; InheritHandle: Integer; ProcessId: DWORD): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: DWORD): DWORD;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function TerminateProcess(Handle: THandle; ExitCode: DWORD): Integer;
+  external 'TerminateProcess@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Integer;
+  external 'CloseHandle@kernel32.dll stdcall';
 
 function ServiceInstalled(): Boolean;
 begin
@@ -98,24 +113,85 @@ begin
   Result := '"' + S + '"';
 end;
 
-procedure CloseExistingTray();
+function CloseExistingTrayForUpgrade(): String;
 var
   TrayWindow: HWND;
+  TrayProcess: THandle;
+  TrayPid: DWORD;
+  WaitResult: DWORD;
   Attempt: Integer;
+  Poll: Integer;
 begin
-  { The tray companion owns a hidden top-level window named by class. Restart
-    Manager can detect NewzDeckTray.exe but cannot reliably close this hidden
-    notification-area process. Ask the window itself to close before Inno does
-    file-lock discovery. The old tray also honors WM_CLOSE through DefWindowProc. }
-  for Attempt := 1 to 30 do
+  Result := '';
+
+  { A hidden window can disappear before the owning Go process has finished
+    unwinding and released NewzDeckTray.exe. Capture the process handle BEFORE
+    WM_CLOSE, then wait on the process itself. }
+  for Attempt := 1 to 4 do
   begin
     TrayWindow := FindWindowByClassName('NewzDeckTrayWindow');
     if TrayWindow = 0 then
-      Exit;
+    begin
+      Sleep(250);
+      TrayWindow := FindWindowByClassName('NewzDeckTrayWindow');
+      if TrayWindow = 0 then
+      begin
+        Sleep(300);
+        Exit;
+      end;
+    end;
+
+    TrayPid := 0;
+    GetWindowThreadProcessId(TrayWindow, TrayPid);
+    TrayProcess := 0;
+    if TrayPid <> 0 then
+      TrayProcess := OpenProcess(SYNCHRONIZE or PROCESS_TERMINATE, 0, TrayPid);
 
     PostMessage(TrayWindow, WM_CLOSE, 0, 0);
-    Sleep(100);
+
+    if TrayProcess <> 0 then
+    begin
+      WaitResult := WaitForSingleObject(TrayProcess, 10000);
+      if WaitResult = WAIT_TIMEOUT then
+      begin
+        Log('NewzDeck tray did not exit after WM_CLOSE; using bounded forced termination.');
+        if TerminateProcess(TrayProcess, 0) = 0 then
+        begin
+          CloseHandle(TrayProcess);
+          Result := 'NewzDeck Setup could not close the existing tray companion. Setup stopped before replacing application files. Exit NewzDeck from the notification area or restart Windows, then run Setup again.';
+          Exit;
+        end;
+        WaitResult := WaitForSingleObject(TrayProcess, 5000);
+      end;
+
+      CloseHandle(TrayProcess);
+      if WaitResult <> WAIT_OBJECT_0 then
+      begin
+        Result := 'NewzDeck Setup could not confirm that the existing tray companion exited. Setup stopped before replacing application files. Exit NewzDeck from the notification area or restart Windows, then run Setup again.';
+        Exit;
+      end;
+    end
+    else
+    begin
+      for Poll := 1 to 50 do
+      begin
+        if FindWindowByClassName('NewzDeckTrayWindow') = 0 then
+        begin
+          Sleep(750);
+          Break;
+        end;
+        Sleep(100);
+      end;
+
+      if FindWindowByClassName('NewzDeckTrayWindow') <> 0 then
+      begin
+        Result := 'NewzDeck Setup could not close the existing tray companion. Setup stopped before replacing application files. Exit NewzDeck from the notification area or restart Windows, then run Setup again.';
+        Exit;
+      end;
+    end;
   end;
+
+  Sleep(300);
 end;
 
 procedure InitializeWizard();
@@ -166,9 +242,11 @@ begin
   ServiceWasInstalled := ServiceInstalled();
   TrayAutostartWasEnabled := RegValueExists(HKCU, TrayRunKey, TrayRunValue);
 
-  { Close the signed-in-user tray companion before Inno's Restart Manager
-    application-lock check. This makes ordinary upgrades non-interactive. }
-  CloseExistingTray();
+  { Close the signed-in-user tray companion and wait for the real process to
+    exit before Inno's Restart Manager/file overlay work begins. }
+  Result := CloseExistingTrayForUpgrade();
+  if Result <> '' then
+    Exit;
 
   if ServiceWasInstalled then
   begin

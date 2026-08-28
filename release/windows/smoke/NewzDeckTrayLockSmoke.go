@@ -6,6 +6,7 @@ package main
 import (
     "os"
     "syscall"
+    "time"
     "unsafe"
 )
 
@@ -94,4 +95,9 @@ func main() {
         procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
         procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
     }
+
+    // Reproduce the real-world upgrade race: the hidden window is already gone,
+    // but the process image remains loaded/locked for substantially longer than
+    // the old installer waited. v3.6.2 must wait for PROCESS exit, not HWND exit.
+    time.Sleep(6 * time.Second)
 }

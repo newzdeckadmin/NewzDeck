@@ -406,7 +406,7 @@ jobs:
 
           try { $dummyProcess.Refresh() } catch {}
           if (-not $dummyProcess.HasExited) {
-            throw 'Installer did not close the existing NewzDeckTrayWindow.'
+            throw 'Installer did not wait for the delayed-exit NewzDeckTray.exe process.'
           }
 
           $installedTrayHash = (Get-FileHash -LiteralPath (Join-Path $installDir 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -427,7 +427,7 @@ jobs:
           }
 
           & sc.exe delete NewzDeckService | Out-Null
-          Write-Host 'Installed-upgrade smoke test passed, including slow locked NewzDeckService.exe replacement.'
+          Write-Host 'Installed-upgrade smoke test passed, including slow locked service and delayed-exit tray replacement.'
 
       - name: Publish GitHub Release
         shell: pwsh
