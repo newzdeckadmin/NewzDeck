@@ -1,3 +1,3 @@
 NewzDeck v3.5.52 production release trigger.
-Source commit: 5f48626a9836b4458530405667d799caa92f5ba5
-Retry: workflow-validation-repair-v1
+Source commit: f63808b373b09a4465b653881d599808ba39a007
+Retry: workflow-release-output-repair-v2
