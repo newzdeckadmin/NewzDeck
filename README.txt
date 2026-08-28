@@ -1,11 +1,11 @@
-NewzDeck v3.6.0
-UI/UX Overhaul
+NewzDeck v3.6.1
+Installer Upgrade Reliability
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
-and personal media automation application. v3.6.0 introduces a major interface
-overhaul with clearer navigation, stronger readability, consistent alignment, and
-refined Discover, Automation, Downloads, Settings, and provider workflows.
+and personal media automation application. v3.6.1 preserves the accepted v3.6.0
+UI/UX overhaul and fixes installed upgrades so Setup waits for the Windows
+background service to stop fully before replacing its executable.
 
 WHAT YOU NEED
 
@@ -17,7 +17,7 @@ WHAT YOU NEED
 INSTALLING NEWZDECK
 
 For most users, the recommended download is:
-  NewzDeck_v3.6.0_Setup.exe
+  NewzDeck_v3.6.1_Setup.exe
 
 Run Setup and then start NewzDeck normally from the Start Menu or desktop
 shortcut.

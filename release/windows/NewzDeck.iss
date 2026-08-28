@@ -124,9 +124,43 @@ begin
   WizardForm.FormStyle := fsStayOnTop;
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function StopExistingServiceForUpgrade(): String;
 var
+  Helper: String;
   ResultCode: Integer;
+begin
+  Result := '';
+  if not ServiceWasInstalled then
+    Exit;
+
+  Helper := ExpandConstant('{app}\NewzDeckService.exe');
+  if not FileExists(Helper) then
+  begin
+    Result := 'The existing NewzDeck background service is installed, but its service helper is missing. Setup stopped before replacing any application files. Repair or remove the background service, then run Setup again.';
+    Exit;
+  end;
+
+  { Use the installed helper rather than guessing how long Windows needs after
+    SC STOP. NewzDeckService.exe stop waits for the SCM state to reach STOPPED
+    (bounded by 25 seconds) and also allows the managed backend time to exit. }
+  if not RunElevatedAndWait(Helper, 'stop', ExpandConstant('{app}'), ResultCode) then
+  begin
+    Result := 'Windows did not allow NewzDeck Setup to stop the existing background service. Setup stopped before replacing any application files. Approve the elevation prompt and try again.';
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    Result := 'The existing NewzDeck background service did not stop cleanly (error ' + IntToStr(ResultCode) + '). Setup stopped before replacing any application files. Try again after closing NewzDeck, or restart Windows if the service remains stuck.';
+    Exit;
+  end;
+
+  { The helper process itself has now exited, so its executable handle is gone.
+    Give filesystem filter drivers a brief scheduling turn before file overlay. }
+  Sleep(300);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   ServiceWasInstalled := ServiceInstalled();
@@ -138,11 +172,9 @@ begin
 
   if ServiceWasInstalled then
   begin
-    { Stop the old service before its executable is overlaid. SC returns a
-      non-zero code if the service is already stopped, so failure is tolerated
-      here; Inno's subsequent file-lock handling remains authoritative. }
-    RunElevatedAndWait(ExpandConstant('{sys}\sc.exe'), 'stop NewzDeckService', '', ResultCode);
-    Sleep(1200);
+    Result := StopExistingServiceForUpgrade();
+    if Result <> '' then
+      Exit;
   end;
 end;
 

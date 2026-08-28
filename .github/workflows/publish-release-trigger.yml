@@ -142,7 +142,9 @@ jobs:
             "GetEnv('USERPROFILE')",
             "PathCombine(UserProfile, 'Downloads\NewzDeck')",
             "FindWindowByClassName('NewzDeckTrayWindow')",
-            'PostMessage(TrayWindow, WM_CLOSE, 0, 0)'
+            'PostMessage(TrayWindow, WM_CLOSE, 0, 0)',
+            'StopExistingServiceForUpgrade',
+            "RunElevatedAndWait(Helper, 'stop'"
           )) {
             if (-not $installer.Contains($required)) {
               throw "Installer is missing required upgrade behavior '$required'."
@@ -150,6 +152,9 @@ jobs:
           }
           if ($installer.Contains("ExpandConstant('{userprofile}")) {
             throw 'Installer contains the invalid userprofile constant.'
+          }
+          if ($installer.Contains('Sleep(1200)')) {
+            throw 'Installer still uses the unsafe fixed 1.2-second service stop delay.'
           }
 
           $builder = Get-Content -LiteralPath 'release/windows/build-portable.py' -Raw
@@ -343,21 +348,45 @@ jobs:
           }
 
           & sc.exe delete NewzDeckService | Out-Null
-          Start-Sleep -Milliseconds 250
-
-          $dummyBin = "$env:SystemRoot\System32\cmd.exe /c exit 0"
-          & sc.exe create NewzDeckService binPath= $dummyBin start= demand DisplayName= 'NewzDeck Background Service' | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Could not create installer smoke-test service.'
-          }
-
-          $dummySource = Join-Path $env:GITHUB_WORKSPACE 'release/windows/smoke/NewzDeckTrayLockSmoke.go'
-          $dummyExe = Join-Path $installDir 'NewzDeckTray.exe'
-          $dummyReady = Join-Path $env:RUNNER_TEMP 'newzdeck-tray-lock.ready'
+          Start-Sleep -Milliseconds 500
 
           $env:GOOS='windows'
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
+
+          # Replace the installed service helper with a real Windows service smoke
+          # binary that deliberately remains STOP_PENDING for 2.5 seconds. The old
+          # v3.6.0 installer waited only 1.2 seconds and therefore cannot pass this.
+          $dummyServiceSource = Join-Path $env:GITHUB_WORKSPACE 'release/windows/smoke/NewzDeckServiceLockSmoke.go'
+          $dummyServiceExe = Join-Path $installDir 'NewzDeckService.exe'
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o $dummyServiceExe $dummyServiceSource
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not build locked-service smoke helper.'
+          }
+
+          $dummyServiceBin = '"' + $dummyServiceExe + '" --service'
+          & sc.exe create NewzDeckService binPath= $dummyServiceBin start= demand DisplayName= 'NewzDeck Background Service' | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not create installer locked-service smoke service.'
+          }
+          & sc.exe start NewzDeckService | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not start installer locked-service smoke service.'
+          }
+          $serviceDeadline = [DateTime]::UtcNow.AddSeconds(10)
+          do {
+            $serviceQuery = (& sc.exe query NewzDeckService | Out-String)
+            if ($serviceQuery -match 'RUNNING') { break }
+            Start-Sleep -Milliseconds 100
+          } while ([DateTime]::UtcNow -lt $serviceDeadline)
+          if ($serviceQuery -notmatch 'RUNNING') {
+            throw 'Locked-service smoke service did not reach RUNNING.'
+          }
+
+          # Preserve the existing tray-lock coverage in the same upgrade pass.
+          $dummySource = Join-Path $env:GITHUB_WORKSPACE 'release/windows/smoke/NewzDeckTrayLockSmoke.go'
+          $dummyExe = Join-Path $installDir 'NewzDeckTray.exe'
+          $dummyReady = Join-Path $env:RUNNER_TEMP 'newzdeck-tray-lock.ready'
           go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o $dummyExe $dummySource
           if ($LASTEXITCODE -ne 0) {
             throw 'Could not build tray-lock smoke helper.'
@@ -386,13 +415,19 @@ jobs:
             throw 'Installer did not replace the locked tray executable.'
           }
 
+          $installedServiceHash = (Get-FileHash -LiteralPath (Join-Path $installDir 'NewzDeckService.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $payloadServiceHash = (Get-FileHash -LiteralPath (Join-Path $env:PAYLOAD 'NewzDeckService.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($installedServiceHash -cne $payloadServiceHash) {
+            throw 'Installer did not replace the slow-stopping locked service executable.'
+          }
+
           $qc = (& sc.exe qc NewzDeckService | Out-String)
           if ($qc -notmatch [regex]::Escape((Join-Path $installDir 'NewzDeckService.exe'))) {
             throw 'Installer service repair did not point NewzDeckService to the installed helper.'
           }
 
           & sc.exe delete NewzDeckService | Out-Null
-          Write-Host 'Installed-upgrade smoke test passed.'
+          Write-Host 'Installed-upgrade smoke test passed, including slow locked NewzDeckService.exe replacement.'
 
       - name: Publish GitHub Release
         shell: pwsh

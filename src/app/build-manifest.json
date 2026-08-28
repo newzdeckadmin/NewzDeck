@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.0",
-  "base_version": "3.5.52",
-  "release": "UI/UX Overhaul",
-  "adapter_version": "3.6.0",
+  "version": "3.6.1",
+  "base_version": "3.6.0",
+  "release": "Installer Upgrade Reliability",
+  "adapter_version": "3.6.1",
   "changes": [
-    "Introduces a major application-wide UI/UX overhaul focused on alignment, readability, visual hierarchy, and intuitive navigation while preserving the proven v3.5.52 runtime architecture.",
-    "Reorganizes the sidebar into Browse, Library, and System sections with clearer active-location states, higher-contrast library counters, and improved navigation accessibility.",
-    "Standardizes typography, spacing, control sizing, borders, semantic status colors, focus treatment, panels, dialogs, Settings, Providers, Diagnostics, Discover, Automation, and Downloads for a more consistent desktop experience.",
-    "Improves Discover detail presentation with a seamless full-width backdrop and corrected title-header transition.",
-    "Reworks Automation library cards and item settings so poster metadata, monitoring labels, profile/root controls, Library Name, and Manage actions stay aligned across varied titles and content lengths.",
-    "Corrects Newsgroups All/Bookmarks/Recent tab structure so full labels and count badges remain readable without overlap or truncation across supported desktop widths.",
-    "Aligns the top-right Providers, Settings, and About controls with real icon-and-label content and responsive compact behavior."
+    "Fixes installed upgrades failing with DeleteFile failed; code 5 (Access is denied) when NewzDeckService.exe remains locked after the background service receives a stop request.",
+    "Replaces the installer's fixed 1.2-second wait after sc stop with the installed NewzDeckService.exe stop helper, which waits for the Windows service to reach STOPPED before Setup overlays files.",
+    "Makes service shutdown a fail-safe pre-install gate: if the installed helper is missing, elevation is denied, or the service cannot stop cleanly, Setup aborts before application files are replaced.",
+    "Adds a real locked-service upgrade smoke test using a deliberately slow-stopping NewzDeckService.exe so future release validation exercises the file-lock condition that caused the v3.6.0 upgrade regression.",
+    "Preserves the accepted v3.6.0 UI/UX Overhaul and all v3.5.x runtime, private SAB, Automation, Smart Import, Discover, provider, tray, and authoritative-runtime behavior."
   ],
   "regression_guards": [
+    "v3.6.0 UI/UX Overhaul remains preserved without presentation changes.",
     "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
     "v3.5.51 BOM-safe provider loading remains preserved.",
     "v3.5.49 Smooth Post-Processing Motion remains preserved.",
     "v3.5.47 Session 0 SAB Launch Fix remains preserved.",
-    "Private SAB queue/history, Smart Import, Automation, Discover metadata behavior, tray/service logic, and Metadata Server v0.3.3 compatibility remain unchanged except for version identifiers and accepted UI presentation."
+    "Private SAB queue/history, Smart Import, Automation, Discover metadata behavior, tray/service runtime behavior, and Metadata Server v0.3.3 compatibility remain unchanged except for version identifiers and installer upgrade coordination."
   ],
-  "name": "UI/UX Overhaul"
+  "name": "Installer Upgrade Reliability"
 }
