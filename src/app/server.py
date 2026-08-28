@@ -234,7 +234,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.5.35"
+APP_VERSION = "3.5.52"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -432,9 +432,16 @@ def _sorted_group_view(cached: dict[str, Any], sort: str) -> list[dict[str, Any]
     return groups
 
 def json_read(path: Path, default: Any) -> Any:
+    """Read NewzDeck JSON state, accepting standard UTF-8 and UTF-8 with BOM.
+
+    Windows PowerShell 5.1 writes a UTF-8 BOM when scripts use ``-Encoding UTF8``.
+    User-state files produced or repaired by Windows tooling must therefore be read
+    with ``utf-8-sig`` semantics; it is identical to UTF-8 when no BOM is present
+    and strips a leading BOM when one exists.
+    """
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError, OSError):
         return default
 
 def _atomic_text_write(path: Path, text: str) -> None:
@@ -538,7 +545,7 @@ def migrate_provider_secrets_machine_scope() -> int:
 
 _tray_helper_lock = threading.Lock()
 
-def tray_helper_request(action: str, *, path: str = "", initial: str = "", title: str = "", text: str = "", enabled: bool | None = None, timeout: float = 125.0) -> dict[str, Any]:
+def tray_helper_request(action: str, *, path: str = "", initial: str = "", title: str = "", text: str = "", enabled: bool | None = None, args: list[str] | None = None, working_dir: str = "", log_path: str = "", timeout: float = 125.0) -> dict[str, Any]:
     """Ask the logged-in tray process to perform an interactive desktop action."""
     if sys.platform != "win32":
         raise ValueError("This action is only available on Windows")
@@ -549,7 +556,7 @@ def tray_helper_request(action: str, *, path: str = "", initial: str = "", title
         raise ValueError("The NewzDeck tray helper is not running. Use Settings > Background > Show Tray Icon and try again.")
     req_id = uuid.uuid4().hex
     reply = TRAY_REPLY_DIR / f"{req_id}.json"
-    request = {"id": req_id, "action": action, "path": path, "initial": initial, "title": title, "text": text, "enabled": enabled}
+    request = {"id": req_id, "action": action, "path": path, "initial": initial, "title": title, "text": text, "enabled": enabled, "args": list(args or []), "working_dir": working_dir, "log_path": log_path}
     with _tray_helper_lock:
 
         deadline = time.monotonic() + min(timeout, 10.0)
@@ -625,7 +632,7 @@ def _select_online_update_assets(assets: list[dict[str, Any]], latest_version: s
     """Choose the canonical Setup/checksum pair for a GitHub release.
 
     NewzDeck's public release naming is versioned (for example
-    ``NewzDeck_v3.5.35_Setup.exe`` and ``NewzDeck_v3.5.35_SHA256.txt``).  Keep a
+    ``NewzDeck_v3.5.52_Setup.exe`` and ``NewzDeck_v3.5.52_SHA256.txt``).  Keep a
     conservative legacy fallback for older packages, but never pair a versioned
     installer with a checksum belonging to a different release.
     """
@@ -1087,6 +1094,27 @@ def _provider_file_mtime_ns() -> int:
     except OSError:
         return -1
 
+def _normalize_provider_records(raw: Any) -> tuple[list[dict[str, Any]], bool]:
+    """Accept the canonical provider array plus safe legacy/single-provider shapes.
+
+    A few recovery/older tooling paths could leave a valid single provider object at
+    the JSON root.  Treating that as an empty provider list makes the profile appear
+    deleted even though all credentials are still present on disk.  Normalize only
+    unambiguous shapes and migrate them back to the canonical list format.
+    """
+    migrated = False
+    if isinstance(raw, list):
+        source = raw
+    elif isinstance(raw, dict) and isinstance(raw.get("providers"), list):
+        source = raw.get("providers") or []
+        migrated = True
+    elif isinstance(raw, dict) and str(raw.get("host") or "").strip():
+        source = [raw]
+        migrated = True
+    else:
+        source = []
+    return [dict(p) for p in source if isinstance(p, dict) and str(p.get("host") or "").strip()], migrated
+
 def get_providers() -> list[dict[str, Any]]:
     """Return provider settings without reparsing providers.json on every request."""
     global _PROVIDERS_CACHE_MTIME_NS, _PROVIDERS_CACHE
@@ -1094,7 +1122,15 @@ def get_providers() -> list[dict[str, Any]]:
     with _PROVIDERS_CACHE_LOCK:
         if mtime_ns != _PROVIDERS_CACHE_MTIME_NS:
             raw = json_read(PROVIDERS_FILE, [])
-            _PROVIDERS_CACHE = [dict(p) for p in raw if isinstance(p, dict)] if isinstance(raw, list) else []
+            normalized, migrated = _normalize_provider_records(raw)
+            _PROVIDERS_CACHE = normalized
+            if migrated and normalized:
+                try:
+                    # Canonicalize in place without changing any provider fields or secrets.
+                    json_write(PROVIDERS_FILE, normalized)
+                    mtime_ns = _provider_file_mtime_ns()
+                except Exception:
+                    pass
             _PROVIDERS_CACHE_MTIME_NS = mtime_ns
         return [dict(p) for p in _PROVIDERS_CACHE]
 
@@ -7855,7 +7891,7 @@ class DownloadManager:
 
     def _is_automation_grab_locked(self, collection_id: str, targets: list[dict[str, Any]] | None = None) -> bool:
         context = self._automation_context_locked(collection_id, targets)
-        return str(context.get("source") or "") == "automation_grab"
+        return str(context.get("source") or "") in {"automation_grab", "manual_media_grab"}
 
     def _cleanup_automation_staging(self, collection_id: str, targets: list[dict[str, Any]], parent: Path, destination: str = "") -> bool:
         """Remove a completed Automation NZB staging folder only after verified import.
@@ -8252,7 +8288,7 @@ class DownloadManager:
             context=rec.get('automation_context') if isinstance(rec,dict) else {}
             if not isinstance(context,dict) or not context:
                 context=next((j.get('automation_context') for j in targets if isinstance(j.get('automation_context'),dict) and j.get('automation_context')), {})
-        if not isinstance(context,dict) or str(context.get('source') or '')!='automation_grab':
+        if not isinstance(context,dict) or str(context.get('source') or '') not in {'automation_grab','manual_media_grab'}:
             return None
         last_progress_emit = [0.0, -1]
         def import_progress(percent: float, message: str = "") -> None:
@@ -8690,17 +8726,17 @@ class DownloadManager:
             targets=[j for j in self.jobs if str(j.get('collection_id') or '')==cid]
             if not targets: raise ValueError('Download package was not found')
             context=next((j.get('automation_context') for j in targets if isinstance(j.get('automation_context'),dict) and j.get('automation_context')),None)
-            if not isinstance(context,dict) or str(context.get('source') or '')!='automation_grab': raise ValueError('This package is not an Automation download')
+            if not isinstance(context,dict) or str(context.get('source') or '') not in {'automation_grab','manual_media_grab'}: raise ValueError('This package is not a Smart Import media download')
             if any(str(j.get('status') or '')!='completed' for j in targets if nzb_job_blocks_collection(j)):
                 raise ValueError('The package download is not complete yet')
             for target in targets:
-                target['post_status']=''; target['post_progress']=0; target['post_message']='Retrying preserved Automation import'
+                target['post_status']=''; target['post_progress']=0; target['post_message']='Retrying preserved Smart Import'
             rec=self.collections.get(cid)
             if isinstance(rec,dict):
                 rec['automation_import_retry_ts']=time.time(); rec.pop('automation_import',None)
             self._save()
         self._after_download_completed(targets[0])
-        return {'ok':True,'started':True,'collection_id':cid,'message':'Retrying post-processing/import from the preserved files'}
+        return {'ok':True,'started':True,'collection_id':cid,'message':'Retrying Smart Import from the preserved files'}
 
     def _resume_post_processing(self) -> None:
         seen: set[str] = set()
@@ -9026,6 +9062,24 @@ def _download_dir_snapshot() -> Path:
 if str(os.environ.get("NEWZDECK_DOWNLOAD_ENGINE", "sab") or "sab").strip().casefold() == "legacy":
     DOWNLOAD_MANAGER = DownloadManager()
 else:
+    def _launch_private_sab_in_user_session(exe: Path, args: list[str], cwd: Path, log_path: Path) -> dict[str, Any]:
+        """Launch private SAB through the signed-in tray when the backend is a Windows service.
+
+        SABnzbd's frozen Windows executable treats every Session-0 process as a
+        Windows service and calls StartServiceCtrlDispatcher().  NewzDeck's own
+        background service therefore must not spawn SAB directly from Session 0.
+        The tray helper is already a single-instance signed-in-user companion, so
+        it is the correct broker for this narrowly restricted process launch.
+        """
+        return tray_helper_request(
+            'launch_private_sab',
+            path=str(exe),
+            args=[str(x) for x in args],
+            working_dir=str(cwd),
+            log_path=str(log_path),
+            timeout=8.0,
+        )
+
     # CPython's Windows embeddable runtime uses python312._pth/isolated mode.
     # In that mode the directory containing server.py is not guaranteed to be on
     # sys.path, so a normal sibling import can fail before /api/health starts.
@@ -9046,6 +9100,7 @@ else:
         secret_unprotect=unprotect_secret, parse_nzb=parse_nzb_bytes, diagnostics=DIAGNOSTICS,
         legacy_statistics_file=DOWNLOADS_FILE,
         keep_engine_running=lambda: bool(SERVICE_MODE or service_status_snapshot().get("service_ready")),
+        process_launcher=_launch_private_sab_in_user_session,
         start_threads=False,
     )
 
@@ -9234,6 +9289,67 @@ def _user_safe_error_message(exc: Exception, *, operation: str = "request") -> s
         return "A required local service was temporarily unavailable. Try again in a moment."
     return text or "The operation could not be completed."
 
+
+def _probe_local_newzdeck_backend(port: int, timeout: float = 0.35) -> dict[str, Any] | None:
+    """Probe another localhost NewzDeck backend without trusting the shared port file."""
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{int(port)}/api/health?startup=1", headers={"Connection": "close"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if int(getattr(resp, "status", 0) or 0) != 200:
+                return None
+            data = json.loads(resp.read().decode("utf-8-sig"))
+        if not isinstance(data, dict) or not bool(data.get("ok")):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _authoritative_runtime_snapshot(current_port: int) -> dict[str, Any]:
+    """Prefer the installed background-service backend over a stray desktop peer.
+
+    v3.5.52 recovery proved that a service backend could have the real provider state
+    while a same-version desktop backend still owned the Chromium window. Version-only
+    handoff cannot detect that split. Scan NewzDeck's bounded localhost port range and
+    make a healthy same-version service runtime authoritative.
+    """
+    current_port = int(current_port or 0)
+    current_url = f"http://127.0.0.1:{current_port}" if current_port > 0 else ""
+    if SERVICE_MODE:
+        return {
+            "ok": True, "authoritative": True, "current_port": current_port,
+            "current_service_mode": True, "url": current_url, "reason": "current runtime is the background service",
+        }
+
+    ports = list(range(DEFAULT_PORT, DEFAULT_PORT + 25))
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    # Probe concurrently so a stale/non-NewzDeck listener cannot add seconds to UI startup.
+    with ThreadPoolExecutor(max_workers=8, thread_name_prefix="runtime-authority") as pool:
+        future_map = {pool.submit(_probe_local_newzdeck_backend, port): port for port in ports if port != current_port}
+        for fut, port in [(f, future_map[f]) for f in future_map]:
+            try:
+                data = fut.result(timeout=0.7)
+            except Exception:
+                data = None
+            if not data:
+                continue
+            if str(data.get("version") or "").strip() != APP_VERSION:
+                continue
+            if bool(data.get("service_mode")):
+                candidates.append((port, data))
+    if candidates:
+        # Lowest port is deterministic when more than one stale service listener exists.
+        port, data = sorted(candidates, key=lambda item: item[0])[0]
+        return {
+            "ok": True, "authoritative": False, "current_port": current_port,
+            "current_service_mode": False, "url": f"http://127.0.0.1:{port}",
+            "service_port": port, "reason": "healthy same-version background service is authoritative",
+        }
+    return {
+        "ok": True, "authoritative": True, "current_port": current_port,
+        "current_service_mode": False, "url": current_url, "reason": "no healthy same-version service peer found",
+    }
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = f"NewzDeck/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
@@ -9361,7 +9477,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             if str((health_query.get("startup") or [""])[0]).lower() in {"1", "true", "yes"}:
                 return self._json(200, base_health)
             base_health.update({
-                "data_dir": str(DATA_DIR), "download_dir": str(DOWNLOAD_DIR),
+                "data_dir": str(DATA_DIR), "user_root": str(USER_ROOT), "download_dir": str(DOWNLOAD_DIR),
+                "backend_pid": os.getpid(), "provider_count": len(get_providers()),
                 "background_capable": sys.platform == "win32" and TRAY_HELPER_EXE.exists(),
                 "ffmpeg": bool(_ffmpeg_path()), "sevenzip": bool(_sevenzip_path()),
                 "unrar": bool(_unrar_path()), "unrar_managed": bool(_managed_unrar_path()),
@@ -9395,6 +9512,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 "service_mode": SERVICE_MODE,
                 **online,
             })
+        if parsed.path == "/api/runtime/authoritative":
+            return self._json(200, _authoritative_runtime_snapshot(int(getattr(self.server, "server_port", 0) or 0)))
         if parsed.path == "/api/providers":
             return self._json(200, {"providers": [public_provider(p) for p in get_providers()]})
         if parsed.path == "/api/downloads":

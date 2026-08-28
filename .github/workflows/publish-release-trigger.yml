@@ -1,0 +1,451 @@
+name: Publish Windows release trigger
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.release-trigger/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: newzdeck-production-release
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.12.10'
+  GO_VERSION: '1.23.2'
+
+jobs:
+  release:
+    name: Build, validate, and publish Windows release
+    if: github.repository == 'newzdeckadmin/NewzDeck'
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 3
+
+      - name: Resolve and validate release trigger
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath 'src/app/version.txt' -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Invalid source version '$version'."
+          }
+
+          $trigger = ".release-trigger/$version"
+          if (-not (Test-Path -LiteralPath $trigger -PathType Leaf)) {
+            throw "Release trigger '$trigger' is missing."
+          }
+
+          $changed = @(& git diff-tree --no-commit-id --name-only -r HEAD)
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not inspect the trigger commit.'
+          }
+          if ($changed.Count -ne 1 -or $changed[0] -cne $trigger) {
+            throw "The release-trigger commit must change only '$trigger'. Changed: $($changed -join ', ')"
+          }
+
+          & git diff HEAD^ HEAD --check
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The release-trigger commit contains whitespace errors.'
+          }
+          & git show --check --oneline --no-renames HEAD^ | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The production-source commit contains whitespace errors.'
+          }
+
+          $sourceCommitLine = Get-Content -LiteralPath $trigger | Where-Object { $_ -like 'Source commit:*' } | Select-Object -First 1
+          if (-not $sourceCommitLine) {
+            throw 'Release trigger does not identify the validated source commit.'
+          }
+          $declaredSourceCommit = ($sourceCommitLine -replace '^Source commit:\s*','').Trim()
+          $actualSourceCommit = (& git rev-parse HEAD^).Trim()
+          if ($declaredSourceCommit -cne $actualSourceCommit) {
+            throw "Trigger source commit '$declaredSourceCommit' does not match parent '$actualSourceCommit'."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Set up canonical Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up canonical Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Validate public source and release blockers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $sourceVersion = (Get-Content -LiteralPath 'src/app/version.txt' -Raw).Trim()
+          if ($sourceVersion -cne $env:VERSION) {
+            throw "src/app/version.txt is '$sourceVersion', expected '$env:VERSION'."
+          }
+
+          $server = Get-Content -LiteralPath 'src/app/server.py' -Raw
+          if (-not $server.Contains('APP_VERSION = "' + $env:VERSION + '"')) {
+            throw 'server.py version mismatch.'
+          }
+
+          $ui = Get-Content -LiteralPath 'src/app/static/app.js' -Raw
+          if (-not $ui.Contains("const UI_VERSION = '$($env:VERSION)';")) {
+            throw 'app.js version mismatch.'
+          }
+
+          $buildManifest = Get-Content -LiteralPath 'src/app/build-manifest.json' -Raw | ConvertFrom-Json
+          if ([string]$buildManifest.version -cne $env:VERSION -or [string]$buildManifest.adapter_version -cne $env:VERSION) {
+            throw 'build-manifest.json version mismatch.'
+          }
+
+          $releaseNotes = "release/RELEASE_NOTES_v$env:VERSION.md"
+          if (-not (Test-Path -LiteralPath $releaseNotes -PathType Leaf)) {
+            throw "Release notes are missing: $releaseNotes"
+          }
+
+          $tray = Get-Content -LiteralPath 'src/windows/NewzDeckTray.go' -Raw
+          foreach ($required in @(
+            'argValue("--version", "' + $env:VERSION + '")',
+            'launch_private_sab',
+            'TaskbarCreated',
+            'runtime.LockOSThread()',
+            'tpmReturnCmd',
+            'tpmNonotify',
+            'procSetForegroundWindow',
+            'procPostMessageW',
+            'case wmClose:',
+            'case "exit":'
+          )) {
+            if (-not $tray.Contains($required)) {
+              throw "Tray source is missing required behavior '$required'."
+            }
+          }
+
+          $installer = Get-Content -LiteralPath 'release/windows/NewzDeck.iss' -Raw
+          foreach ($required in @(
+            "GetEnv('USERPROFILE')",
+            "PathCombine(UserProfile, 'Downloads\NewzDeck')",
+            "FindWindowByClassName('NewzDeckTrayWindow')",
+            'PostMessage(TrayWindow, WM_CLOSE, 0, 0)'
+          )) {
+            if (-not $installer.Contains($required)) {
+              throw "Installer is missing required upgrade behavior '$required'."
+            }
+          }
+          if ($installer.Contains("ExpandConstant('{userprofile}")) {
+            throw 'Installer contains the invalid userprofile constant.'
+          }
+
+          $builder = Get-Content -LiteralPath 'release/windows/build-portable.py' -Raw
+          if (-not $builder.Contains('"NewzDeckTray.exe": "NewzDeckTray.go"')) {
+            throw 'Portable builder is not using the canonical tray source.'
+          }
+          if ($builder.Contains('NewzDeckTrayV2.go')) {
+            throw 'Legacy acceptance tray filename remains in the production builder.'
+          }
+
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
+          node --check src/app/static/app.js
+
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o (Join-Path $env:RUNNER_TEMP 'tray-source-smoke.exe') src/windows/NewzDeckTray.go
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Canonical NewzDeckTray.go did not cross-compile.'
+          }
+
+      - name: Build deterministic Portable ZIP
+        id: portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          $portable = Join-Path $output ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
+          python release/windows/build-portable.py --version $env:VERSION --output $portable
+          if (-not (Test-Path -LiteralPath $portable -PathType Leaf)) {
+            throw 'Portable build failed.'
+          }
+          "path=$portable" >> $env:GITHUB_OUTPUT
+          "sha256=$((Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Extract and validate Portable payload
+        id: payload
+        shell: pwsh
+        env:
+          PORTABLE_PATH: ${{ steps.portable.outputs.path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = Join-Path $env:RUNNER_TEMP 'newzdeck-release-payload'
+          New-Item -ItemType Directory -Path $payload -Force | Out-Null
+          Expand-Archive -LiteralPath $env:PORTABLE_PATH -DestinationPath $payload -Force
+
+          $requiredFiles = @(
+            'version.txt','NewzDeck.exe','NewzDeckService.exe','NewzDeckTray.exe','NewzDeckPicker.exe',
+            'NewzDeckThumb.exe','NewzDeckYenc.exe','NewzDeck.ico','server.py','sab_engine.py','automation_engine.py',
+            'static/index.html','static/app.js','static/styles.css','static/tmdb-logo.svg','SOURCE_MANIFEST.json'
+          )
+          foreach ($required in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath (Join-Path $payload $required) -PathType Leaf)) {
+              throw "Portable is missing '$required'."
+            }
+          }
+
+          foreach ($forbidden in @('NewzDeckBootstrap.exe','NewzDeckCore.exe','PORTABLE_TESTING.txt','start.sh')) {
+            if (Test-Path -LiteralPath (Join-Path $payload $forbidden)) {
+              throw "Portable contains forbidden '$forbidden'."
+            }
+          }
+
+          if ((Get-Content -LiteralPath (Join-Path $payload 'version.txt') -Raw).Trim() -cne $env:VERSION) {
+            throw 'Portable version.txt is wrong.'
+          }
+
+          $manifest = Get-Content -LiteralPath (Join-Path $payload 'SOURCE_MANIFEST.json') -Raw | ConvertFrom-Json
+          if ($manifest.version -cne $env:VERSION -or $manifest.license -cne 'GPL-3.0-only') {
+            throw 'SOURCE_MANIFEST version/license mismatch.'
+          }
+          if (@($manifest.newzdeck_owned_binaries).Count -ne 6) {
+            throw 'Expected exactly six NewzDeck-owned Windows binaries.'
+          }
+          $trayEntry = @($manifest.newzdeck_owned_binaries) | Where-Object { $_.binary -ceq 'NewzDeckTray.exe' } | Select-Object -First 1
+          if (-not $trayEntry -or $trayEntry.source -cne 'src/windows/NewzDeckTray.go') {
+            throw 'Tray binary provenance is wrong.'
+          }
+
+          "path=$payload" >> $env:GITHUB_OUTPUT
+
+      - name: Install verified Inno Setup 7.1.0 x64
+        id: inno
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
+          $expected = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
+          $dir = Join-Path $env:RUNNER_TEMP 'inno-setup-7.1.0'
+
+          Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $installer
+          $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne $expected) {
+            throw "Inno Setup hash mismatch. Expected $expected, got $actual."
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne 'Valid') {
+            throw "Inno Setup signature verification failed: $($signature.Status)."
+          }
+
+          $p = Start-Process -FilePath $installer -ArgumentList @(
+            '/PORTABLE=1','/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',"/DIR=$dir"
+          ) -Wait -PassThru -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) {
+            throw "Inno Setup installation failed with exit code $($p.ExitCode)."
+          }
+
+          $compiler = Join-Path $dir 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw 'ISCC.exe was not found.'
+          }
+          "path=$compiler" >> $env:GITHUB_OUTPUT
+
+      - name: Build Setup and checksums
+        shell: pwsh
+        env:
+          PORTABLE_PATH: ${{ steps.portable.outputs.path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          ./release/windows/build-release.ps1 `
+            -PayloadDirectory '${{ steps.payload.outputs.path }}' `
+            -PortableArchive $env:PORTABLE_PATH `
+            -OutputDirectory $output `
+            -Version $env:VERSION `
+            -IsccPath '${{ steps.inno.outputs.path }}'
+
+      - name: Verify final release artifacts
+        id: verify
+        shell: pwsh
+        env:
+          PORTABLE_SHA256: ${{ steps.portable.outputs.sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          $setup = Join-Path $output ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
+          $portable = Join-Path $output ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
+          $checksum = Join-Path $output ("NewzDeck_v{0}_SHA256.txt" -f $env:VERSION)
+
+          foreach ($path in @($setup,$portable,$checksum)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing $(Split-Path -Leaf $path)."
+            }
+          }
+
+          foreach ($line in Get-Content -LiteralPath $checksum) {
+            if ($line -notmatch '^([a-f0-9]{64})  (.+)$') {
+              throw "Invalid checksum line: $line"
+            }
+            $actual = (Get-FileHash -LiteralPath (Join-Path $output $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -cne $Matches[1]) {
+              throw "Checksum mismatch for $($Matches[2])."
+            }
+          }
+
+          $rebuiltPortableHash = (Get-FileHash -LiteralPath $portable -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($rebuiltPortableHash -cne $env:PORTABLE_SHA256) {
+            throw 'Portable changed after source validation.'
+          }
+
+          "setup_sha256=$((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "portable_sha256=$rebuiltPortableHash" >> $env:GITHUB_OUTPUT
+          "checksum_sha256=$((Get-FileHash -LiteralPath $checksum -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Runtime smoke-test installed upgrade path
+        shell: pwsh
+        env:
+          PAYLOAD: ${{ steps.payload.outputs.path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          $setup = Join-Path $output ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-smoke-install'
+          New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+          function Run-Setup([string]$Label) {
+            $args = @(
+              '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir"
+            )
+            $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+            if ($p.ExitCode -ne 0) {
+              throw "$Label installer smoke test failed with exit code $($p.ExitCode)."
+            }
+          }
+
+          Run-Setup 'Clean install'
+          if ((Get-Content -LiteralPath (Join-Path $installDir 'version.txt') -Raw).Trim() -cne $env:VERSION) {
+            throw 'Clean install version is wrong.'
+          }
+
+          & sc.exe delete NewzDeckService | Out-Null
+          Start-Sleep -Milliseconds 250
+
+          $dummyBin = "$env:SystemRoot\System32\cmd.exe /c exit 0"
+          & sc.exe create NewzDeckService binPath= $dummyBin start= demand DisplayName= 'NewzDeck Background Service' | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not create installer smoke-test service.'
+          }
+
+          $dummySource = Join-Path $env:GITHUB_WORKSPACE 'release/windows/smoke/NewzDeckTrayLockSmoke.go'
+          $dummyExe = Join-Path $installDir 'NewzDeckTray.exe'
+          $dummyReady = Join-Path $env:RUNNER_TEMP 'newzdeck-tray-lock.ready'
+
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o $dummyExe $dummySource
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not build tray-lock smoke helper.'
+          }
+
+          Remove-Item -LiteralPath $dummyReady -Force -ErrorAction SilentlyContinue
+          $dummyProcess = Start-Process -FilePath $dummyExe -ArgumentList @($dummyReady) -PassThru
+          $deadline = [DateTime]::UtcNow.AddSeconds(10)
+          while (-not (Test-Path -LiteralPath $dummyReady) -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 100
+          }
+          if (-not (Test-Path -LiteralPath $dummyReady)) {
+            throw 'Tray-lock smoke helper did not become ready.'
+          }
+
+          Run-Setup 'Installed upgrade'
+
+          try { $dummyProcess.Refresh() } catch {}
+          if (-not $dummyProcess.HasExited) {
+            throw 'Installer did not close the existing NewzDeckTrayWindow.'
+          }
+
+          $installedTrayHash = (Get-FileHash -LiteralPath (Join-Path $installDir 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $payloadTrayHash = (Get-FileHash -LiteralPath (Join-Path $env:PAYLOAD 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($installedTrayHash -cne $payloadTrayHash) {
+            throw 'Installer did not replace the locked tray executable.'
+          }
+
+          $qc = (& sc.exe qc NewzDeckService | Out-String)
+          if ($qc -notmatch [regex]::Escape((Join-Path $installDir 'NewzDeckService.exe'))) {
+            throw 'Installer service repair did not point NewzDeckService to the installed helper.'
+          }
+
+          & sc.exe delete NewzDeckService | Out-Null
+          Write-Host 'Installed-upgrade smoke test passed.'
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
+
+          $tag = "v$env:VERSION"
+          & gh release view $tag --json tagName *> $null
+          $viewCode = $LASTEXITCODE
+          if ($viewCode -eq 0) {
+            throw "Release $tag already exists; refusing to replace public assets."
+          }
+          if ($viewCode -ne 1) {
+            throw "Could not safely check whether $tag already exists (gh exit code $viewCode)."
+          }
+
+          $output = Join-Path $env:RUNNER_TEMP 'newzdeck-release'
+          $setup = Join-Path $output ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
+          $portable = Join-Path $output ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
+          $checksum = Join-Path $output ("NewzDeck_v{0}_SHA256.txt" -f $env:VERSION)
+
+          & gh release create $tag $setup $portable $checksum `
+            --target $env:GITHUB_SHA `
+            --title "NewzDeck v$env:VERSION" `
+            --notes-file "release/RELEASE_NOTES_v$env:VERSION.md" `
+            --latest
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh release create failed with exit code $LASTEXITCODE."
+          }
+
+          & gh release view $tag --json tagName,url
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Published release could not be verified.'
+          }
+
+      - name: Upload CI build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: NewzDeck-v${{ steps.version.outputs.version }}-windows-release
+          path: ${{ runner.temp }}/newzdeck-release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Release summary
+        shell: pwsh
+        run: |
+          @"
+          ## NewzDeck v$env:VERSION
+          - Commit: $env:GITHUB_SHA
+          - Setup SHA-256: ${{ steps.verify.outputs.setup_sha256 }}
+          - Portable SHA-256: ${{ steps.verify.outputs.portable_sha256 }}
+          - Checksum file SHA-256: ${{ steps.verify.outputs.checksum_sha256 }}
+          "@ >> $env:GITHUB_STEP_SUMMARY

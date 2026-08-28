@@ -241,6 +241,11 @@ def parse_release(title: str) -> dict[str, Any]:
         'is_multi_episode':is_multi_episode, 'is_season_pack':is_season_pack,
     }
 
+SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
+
+def _is_smart_import_context(context: dict[str, Any] | None) -> bool:
+    return isinstance(context, dict) and str(context.get("source") or "") in SMART_IMPORT_SOURCES
+
 INDEXER_PRIMARY_TIMEOUT = 7.0
 INDEXER_FALLBACK_TIMEOUT = 7.0
 INDEXER_SEARCH_MARGIN = 2.0
@@ -266,7 +271,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.5.35'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.5.52'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -299,6 +304,11 @@ class MediaAutomationEngine:
         self.discover_home_cache_lock = threading.RLock()
         self.discover_home_cache: dict[str,Any]|None = None
         self.discover_home_cache_ts = 0.0
+        # Title detail responses are relatively expensive (cast, crew, video,
+        # recommendations and similar titles). Keep the raw TMDB aggregate warm for
+        # a short window and re-decorate library state on every request.
+        self.discover_detail_cache_lock = threading.RLock()
+        self.discover_detail_cache: dict[str, tuple[float, dict[str,Any]]] = {}
         # Discover uses stale-while-revalidate rather than making the UI wait on a
         # cold/slow TMDB aggregate every time the Home or For You tab is opened.
         # Refresh work is single-flight inside this process and additionally guarded
@@ -2629,7 +2639,20 @@ class MediaAutomationEngine:
             exact=[x for x in matches if _norm(x.get('title'))==_norm(title) and (not year or not x.get('year') or int(x.get('year'))==year)]
             if not exact: raise ValueError('TMDB title could not be resolved')
             ident=str(exact[0].get('tmdb_id') or '')
-        row=self._metadata_api(f'/v1/{kind}/{int(ident)}',timeout=18); item=self._discover_proxy_detail(row,kind); decorated=self._discover_decorate([item]); item=decorated[0] if decorated else item
+        detail_key=f'{kind}:{int(ident)}'; row=None; now=time.monotonic()
+        with self.discover_detail_cache_lock:
+            cached=self.discover_detail_cache.get(detail_key)
+            if cached and now-float(cached[0])<600:
+                row=copy.deepcopy(cached[1])
+        if row is None:
+            row=self._metadata_api(f'/v1/{kind}/{int(ident)}',timeout=18)
+            if isinstance(row,dict):
+                with self.discover_detail_cache_lock:
+                    self.discover_detail_cache[detail_key]=(time.monotonic(),copy.deepcopy(row))
+                    if len(self.discover_detail_cache)>80:
+                        oldest=sorted(self.discover_detail_cache.items(),key=lambda kv:kv[1][0])[:20]
+                        for key,_ in oldest:self.discover_detail_cache.pop(key,None)
+        item=self._discover_proxy_detail(row,kind); decorated=self._discover_decorate([item]); item=decorated[0] if decorated else item
         st=self._discover_state(); st['viewed'][self._discover_key(item)]={'ts':time.time(),'provider':'tmdb','metadata_id':str(item.get('metadata_id') or ''),'kind':kind,'title':item.get('title'),'year':item.get('year')}; self._save_discover_state(st)
         return {'item':item,'sources':self.discover_sources()}
 
@@ -2662,7 +2685,12 @@ class MediaAutomationEngine:
     def discover_search_releases(self,data:dict[str,Any]):
         kind='tv' if str(data.get('kind') or '').lower()=='tv' else 'movie'; title=str(data.get('title') or '').strip()
         if not title:raise ValueError('A title is required')
-        year=int(data.get('year') or 0) if str(data.get('year') or '').isdigit() else None;profile=self._profiles()[0];temp={'kind':kind,'title':title,'year':year}
+        year=int(data.get('year') or 0) if str(data.get('year') or '').isdigit() else None
+        tmdb_id=int(data.get('tmdb_id') or data.get('metadata_id') or 0) if str(data.get('tmdb_id') or data.get('metadata_id') or '').isdigit() else None
+        provider=str(data.get('provider') or ('tmdb' if tmdb_id else '')).strip().lower()
+        requested_profile=str(data.get('quality_profile_id') or '').strip(); profiles=self._profiles(); profile=next((p for p in profiles if str(p.get('id') or '')==requested_profile),profiles[0])
+        requested_root=str(data.get('root_folder') or '').strip()
+        temp={'kind':kind,'title':title,'year':year,'tmdb_id':tmdb_id,'metadata_id':tmdb_id,'provider':provider,'root_folder':requested_root,'quality_profile_id':str(profile.get('id') or '')}
         releases=[];errors=[];enabled=[idx for idx in self._indexers() if idx.get('enabled',True)]
         if enabled:
             pool=ThreadPoolExecutor(max_workers=min(12,len(enabled)),thread_name_prefix='newznab-discover')
@@ -2674,7 +2702,8 @@ class MediaAutomationEngine:
                     for r in fut.result():
                         if not _slug_match(str(r.get('title') or ''),title,year if kind=='movie' else None):
                             continue
-                        score,info,reasons,accepted=self._score_release(r['title'],r['size'],profile);r.update({'score':score,'parsed':info,'reasons':reasons,'accepted':accepted,'item_id':'','media_kind':kind,'season':None,'episode':None,'episode_title':''});releases.append(r)
+                        score,info,reasons,accepted=self._score_release(r['title'],r['size'],profile)
+                        r.update({'score':score,'parsed':info,'reasons':reasons,'accepted':accepted,'item_id':'','media_kind':kind,'media_title':title,'media_year':year,'media_tmdb_id':tmdb_id,'media_provider':provider,'media_root_folder':requested_root,'media_quality_profile_id':str(profile.get('id') or ''),'season':info.get('season'),'episode':info.get('episode'),'season_pack':bool(info.get('is_season_pack')),'episode_title':''});releases.append(r)
                 except Exception as exc:errors.append({'indexer':idx.get('name'),'error':str(exc)})
             for fut in pending:
                 idx=jobs[fut]; fut.cancel(); errors.append({'indexer':idx.get('name'),'error':f'Timed out after {_indexer_search_wall_timeout():g} seconds; other indexer results were returned without waiting.'})
@@ -3563,15 +3592,99 @@ class MediaAutomationEngine:
                 except OSError: pass
             raise
 
+    def _one_time_import_item(self, context:dict[str,Any], root:Path, profile:dict[str,Any]) -> dict[str,Any]:
+        """Build a non-persistent media item for a one-time Discover grab.
+
+        The item intentionally resembles an Automation library row closely enough to
+        reuse Smart Import naming/quality logic, but it is never added to the library.
+        """
+        kind='tv' if str(context.get('kind') or '').lower()=='tv' else 'movie'
+        title=str(context.get('title') or '').strip() or ('TV Show' if kind=='tv' else 'Movie')
+        year=int(context.get('year')) if str(context.get('year') or '').isdigit() else None
+        item={'id':'','kind':kind,'title':title,'year':year,
+              'quality_profile_id':str(context.get('quality_profile_id') or profile.get('id') or ''),
+              'root_folder':str(root),'movie_file':None,'seasons':[],'monitored':False,'monitor_mode':'none'}
+        if kind=='tv':
+            season=int(context.get('season') or 0) if context.get('season') is not None else 0
+            episode=int(context.get('episode') or 0) if context.get('episode') is not None else 0
+            known=[]
+            for raw in context.get('manual_episodes') or []:
+                if not isinstance(raw,dict): continue
+                try: sn=int(raw.get('season') if raw.get('season') is not None else season); en=int(raw.get('episode'))
+                except (TypeError,ValueError): continue
+                if sn<=0 or en<=0: continue
+                known.append((sn,en,str(raw.get('name') or f'Episode {en}')))
+            if episode>0 and not any(sn==season and en==episode for sn,en,_ in known):
+                known.append((season,episode,str(context.get('episode_title') or f'Episode {episode}')))
+            by_season={}
+            for sn,en,name in known:
+                by_season.setdefault(sn,[]).append({'episode_number':en,'name':name,'monitored':True,'has_file':False,'file_path':'','file_quality':'','file_size':0,'cutoff_met':False})
+            item['seasons']=[{'season_number':sn,'monitored':True,'episodes':sorted(rows,key=lambda x:int(x.get('episode_number') or 0))} for sn,rows in sorted(by_season.items())]
+        return item
+
+    def _hydrate_one_time_existing_media(self, item:dict[str,Any], context:dict[str,Any], root:Path, profile:dict[str,Any]) -> None:
+        """Populate existing-media state without creating an Automation library row."""
+        try:
+            candidates=[]
+            for f in root.rglob('*'):
+                if not f.is_file() or f.suffix.casefold() not in VIDEO_EXTS: continue
+                if not _slug_match(str(f.parent)+' '+f.name,str(item.get('title') or ''),item.get('year')): continue
+                candidates.append(f)
+                if len(candidates)>=5000: break
+        except OSError:
+            return
+        if item.get('kind')=='movie':
+            ranked=[]
+            for f in candidates:
+                q=str(parse_release(f.name).get('quality') or 'Unknown')
+                try: size=int(f.stat().st_size)
+                except OSError: size=0
+                ranked.append((self._quality_rank(q,profile),-size,f,q))
+            if ranked:
+                _,neg_size,f,q=min(ranked,key=lambda x:x[:2])
+                item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}
+            return
+        refs={}
+        for sr in item.get('seasons') or []:
+            sn=int(sr.get('season_number') or 0)
+            for ep in sr.get('episodes') or []: refs[(sn,int(ep.get('episode_number') or 0))]=ep
+        for f in candidates:
+            sn,en,_=self._tv_episode_from_filename(f,expected_season=None)
+            ep=refs.get((int(sn or 0),int(en or 0)))
+            if ep is None: continue
+            q=str(parse_release(f.name).get('quality') or 'Unknown')
+            try: size=int(f.stat().st_size)
+            except OSError: size=0
+            current=str(ep.get('file_quality') or '')
+            if ep.get('has_file') and current and self._quality_rank(current,profile)<=self._quality_rank(q,profile): continue
+            ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)})
+
     def import_completed_download(self, context: dict[str,Any], candidates: list[str|Path], *, staging_dir: str|Path|None=None, progress_callback:Callable[[float,str],None]|None=None) -> dict[str,Any]:
-        """Inspect, transactionally import, and reconcile a completed Automation grab."""
-        if not isinstance(context,dict) or str(context.get('source') or '')!='automation_grab': return {'ok':False,'skipped':True,'reason':'Not an Automation grab'}
+        """Inspect, transactionally import, and reconcile a completed media grab.
+
+        Automation grabs update the monitored library. Discover one-time media grabs
+        reuse the same verified rename/move transaction without creating Automation
+        monitoring state.
+        """
+        if not _is_smart_import_context(context): return {'ok':False,'skipped':True,'reason':'Not a Smart Import media grab'}
         cfg=self._config()
-        if not bool(cfg.get('plex_organize_enabled',True)): return {'ok':False,'skipped':True,'reason':'Plex organization is disabled'}
+        if not bool(cfg.get('plex_organize_enabled',True)): return {'ok':False,'skipped':True,'reason':'Smart Import organization is disabled'}
+        one_time=str(context.get('source') or '')=='manual_media_grab'
         with self.lock:
-            lib=self._library(); item=next((x for x in lib if str(x.get('id'))==str(context.get('item_id') or '')),None)
-            if not item: return {'ok':False,'skipped':True,'reason':'Automation library item no longer exists'}
-            planned=str(context.get('planned_root_folder') or '').strip(); root=Path(planned).expanduser() if planned else self._resolve_root(item)
+            lib=self._library()
+            item=next((x for x in lib if str(x.get('id'))==str(context.get('item_id') or '')),None) if not one_time else None
+            planned=str(context.get('planned_root_folder') or '').strip()
+            if one_time:
+                profiles=self._profiles(); profile=next((p for p in profiles if str(p.get('id'))==str(context.get('quality_profile_id') or '')),profiles[0])
+                provisional={'kind':str(context.get('kind') or 'movie'),'title':str(context.get('title') or ''),'year':context.get('year'),'root_folder':planned}
+                root=Path(planned).expanduser() if planned else self._resolve_root(provisional)
+                if not root: return {'ok':False,'needs_root':True,'reason':f"Add a {'TV' if provisional.get('kind')=='tv' else 'Movie'} root folder in Automation Setup before using one-time media import"}
+                item=self._one_time_import_item(context,root,profile)
+                self._hydrate_one_time_existing_media(item,context,root,profile)
+            else:
+                if not item: return {'ok':False,'skipped':True,'reason':'Automation library item no longer exists'}
+                root=Path(planned).expanduser() if planned else self._resolve_root(item)
+                profile=next((p for p in self._profiles() if str(p.get('id'))==str(item.get('quality_profile_id'))),self._profiles()[0])
             if not root: return {'ok':False,'needs_root':True,'reason':f"Add a {'TV' if item.get('kind')=='tv' else 'Movie'} root folder in Automation Setup"}
             if not root.exists() or not root.is_dir(): return {'ok':False,'needs_root':True,'reason':f'Configured Root Folder is unavailable: {root}'}
             files=[]
@@ -3592,14 +3705,13 @@ class MediaAutomationEngine:
                     'ok':False,'skipped':False,'retryable':True,
                     'reason':'Completed download is still settling in the SAB output folder; Smart Import will retry automatically.'
                 }
-            profile=next((p for p in self._profiles() if str(p.get('id'))==str(item.get('quality_profile_id'))),self._profiles()[0])
             plan=self._build_import_plan(item,context,files,root,profile)
             if plan.get('error'): return {'ok':False,'needs_attention':True,'reason':str(plan.get('error')),'inspection':plan.get('inspections') or []}
             entries=list(plan.get('entries') or []); inspections=list(plan.get('inspections') or [])
             attention=[x for x in inspections if x.get('action')=='NEEDS_ATTENTION']
             if not entries:
                 self._event('import-inspection',f"Import Inspector found no safe target for {item.get('title')}",item_id=item.get('id'),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),inspections=inspections[:80],needs_attention=max(1,len(attention)),imported=0)
-                return {'ok':False,'needs_attention':True,'reason':'No completed media matched the requested Automation target. The downloaded/extracted files were preserved for review.','inspection':inspections}
+                return {'ok':False,'needs_attention':True,'reason':'No completed media matched the requested media target. The downloaded/extracted files were preserved for review.','inspection':inspections}
             if attention and not any(e.get('action') in {'IMPORT','UPGRADE','DUPLICATE','KEEP_EXISTING'} for e in entries):
                 self._event('import-inspection',f"Import Inspector needs attention for {item.get('title')}",item_id=item.get('id'),season=context.get('season'),season_pack=bool(context.get('season_pack')),inspections=inspections[:80],needs_attention=len(attention),imported=0)
                 return {'ok':False,'needs_attention':True,'reason':'Import Inspector could not safely identify the completed media. Review the filenames before retrying.','inspection':inspections}
@@ -3630,12 +3742,35 @@ class MediaAutomationEngine:
                 except OSError:
                     pass
 
-            imported=[]
+            imported=[]; kept_existing_files=[]
             for e in entries:
                 action=str(e.get('action') or '')
                 if action not in {'IMPORT','UPGRADE','DUPLICATE','KEEP_EXISTING'}: continue
                 dest=Path(e['dest']); quality=str(e.get('quality') or 'Unknown')
                 if action in {'DUPLICATE','KEEP_EXISTING'}:
+                    # v3.5.39: a duplicate/equal-or-better library match is a real
+                    # successful Smart Import outcome. Reconcile the Automation
+                    # library record immediately instead of waiting for the next
+                    # periodic library scan. This is especially important for Movies:
+                    # leaving movie_file unset made a completed duplicate look Missing
+                    # again and could trigger another download of the same title.
+                    existing_raw=str(e.get('existing_path') or '').strip()
+                    existing=Path(existing_raw) if existing_raw else None
+                    if existing is not None and existing.exists():
+                        existing_quality=str(e.get('old_quality') or '')
+                        if not existing_quality or existing_quality=='Unknown':
+                            existing_quality=quality if action=='DUPLICATE' else (existing_quality or 'Unknown')
+                        fp=self._media_fingerprint(existing)
+                        cutoff=self._quality_cutoff_met(existing_quality,profile)
+                        media_bytes=int(existing.stat().st_size)
+                        record={'path':str(existing),'quality':existing_quality,'size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':self._probe_media_traits(existing),'cutoff_met':cutoff}
+                        if item.get('kind')=='tv':
+                            ep=e.get('episode_ref')
+                            if isinstance(ep,dict): ep.update({'has_file':True,'file_path':str(existing),'file_quality':existing_quality,'file_size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':record['media_info'],'cutoff_met':cutoff})
+                        else:
+                            item['movie_file']=record
+                        kept_existing_files.append({'destination':str(existing),'quality':existing_quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':existing.name})
+                        self._event('import-existing',f"Kept existing library file {existing.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(existing),final_filename=existing.name,final_folder=str(existing.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=str(context.get('release_title') or ''),quality=existing_quality,season=e.get('season'),episode=e.get('episode'),season_pack=bool(context.get('season_pack')),verified=True,decision=action)
                     continue
                 fp=self._remember_media_quality(dest,quality,str(context.get('release_title') or ''))
                 cutoff=self._quality_cutoff_met(quality,profile)
@@ -3647,15 +3782,19 @@ class MediaAutomationEngine:
                 media_bytes=int(dest.stat().st_size)
                 imported.append({'destination':str(dest),'quality':quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':dest.name})
                 self._event('upgrade-import' if action=='UPGRADE' else 'import',f"{'Upgraded' if action=='UPGRADE' else 'Imported'} {dest.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(dest),final_filename=dest.name,final_folder=str(dest.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=str(context.get('release_title') or ''),release_size=int(context.get('release_size') or 0),quality=quality,from_quality=str(e.get('old_quality') or ''),to_quality=quality,indexer=str(context.get('indexer') or ''),season=e.get('season'),episode=e.get('episode'),episode_title=str(e.get('episode_title') or ''),season_pack=bool(context.get('season_pack')),verified=True)
-            item['last_scan_at']=_now(); item['updated_at']=_now(); item['library_root_status']='online'; self._save_library(lib)
-            self._event('import-inspection',f"Import Inspector processed {len(files)} video file(s) for {item.get('title')}",item_id=item.get('id'),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),inspections=inspections[:80],imported=len(imported),ignored=sum(1 for x in inspections if x.get('action')=='IGNORE'),needs_attention=len(attention))
-            try:
-                rt=self._auto_runtime(); key=str(context.get('target_key') or self._auto_target_key(context=context)); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets; rec=targets.setdefault(key,{}) if key else {}
-                if key:
-                    message=f"Imported {len(imported)} episode(s) from season pack" if context.get('season_pack') else (f"Imported {Path(imported[0]['destination']).name}" if imported else 'Import complete; existing library file kept')
-                    rec.update({'status':'imported','message':message,'updated_ts':time.time(),'imported_path':str(imported[0]['destination'] if imported else ''),'imported_quality':str(imported[0]['quality'] if imported else ''),'imported_count':len(imported),'season_pack':bool(context.get('season_pack'))})
-                    self._record_indexer_outcome(rt,str(context.get('indexer') or rec.get('last_indexer') or ''),success=True); self._save_auto_runtime(rt)
-            except Exception: pass
+            item['last_scan_at']=_now(); item['updated_at']=_now(); item['library_root_status']='online'
+            if not one_time:
+                self._save_library(lib)
+            self._event('import-inspection',f"Import Inspector processed {len(files)} video file(s) for {item.get('title')}",item_id=item.get('id'),source=str(context.get('source') or ''),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),inspections=inspections[:80],imported=len(imported),ignored=sum(1 for x in inspections if x.get('action')=='IGNORE'),needs_attention=len(attention))
+            if not one_time:
+                try:
+                    rt=self._auto_runtime(); key=str(context.get('target_key') or self._auto_target_key(context=context)); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets; rec=targets.setdefault(key,{}) if key else {}
+                    if key:
+                        primary_row=(imported[0] if imported else (kept_existing_files[0] if kept_existing_files else {}))
+                        message=f"Imported {len(imported)} episode(s) from season pack" if context.get('season_pack') else (f"Imported {Path(imported[0]['destination']).name}" if imported else (f"Import complete; existing library file kept • {Path(primary_row.get('destination') or '').name}" if primary_row.get('destination') else 'Import complete; existing library file kept'))
+                        rec.update({'status':'imported','message':message,'updated_ts':time.time(),'imported_path':str(primary_row.get('destination') or ''),'imported_quality':str(primary_row.get('quality') or ''),'imported_count':len(imported),'kept_existing_count':len(kept_existing_files),'season_pack':bool(context.get('season_pack'))})
+                        self._record_indexer_outcome(rt,str(context.get('indexer') or rec.get('last_indexer') or ''),success=True); self._save_auto_runtime(rt)
+                except Exception: pass
         if bool(cfg.get('plex_cleanup_staging',True)) and staging_dir:
             try:
                 sd=Path(staging_dir)
@@ -3665,14 +3804,15 @@ class MediaAutomationEngine:
                 try: sd.rmdir()
                 except OSError: pass
             except OSError: pass
-        primary=str(imported[0]['destination']) if imported else ''
+        primary=str(imported[0]['destination']) if imported else (str(kept_existing_files[0]['destination']) if kept_existing_files else '')
         if item.get('kind')=='tv' and context.get('season') is not None and context.get('episode') is not None:
             target_label=f"{item.get('title') or 'TV'} • S{int(context.get('season') or 0):02d}E{int(context.get('episode') or 0):02d}" + (f" • {context.get('episode_title')}" if context.get('episode_title') else '')
         elif item.get('kind')=='tv' and context.get('season') is not None:
             target_label=f"{item.get('title') or 'TV'} • Season {int(context.get('season') or 0)}"
         else:
             target_label=str(item.get('title') or 'Movie')
-        return {'ok':True,'destination':primary,'destinations':[x['destination'] for x in imported],'files':imported,'quality':str(imported[0]['quality'] if imported else context.get('release_quality') or 'Unknown'),'kind':item.get('kind'),'item_id':item.get('id'),'target_label':target_label,'release_title':str(context.get('release_title') or ''),'release_size':int(context.get('release_size') or 0),'verified':True,'imported_count':len(imported),'season_pack':bool(context.get('season_pack')),'inspection':inspections,'needs_attention_count':len(attention),'kept_existing':sum(1 for e in entries if e.get('action') in {'DUPLICATE','KEEP_EXISTING'})}
+        all_final=imported+kept_existing_files
+        return {'ok':True,'destination':primary,'destinations':[x['destination'] for x in all_final],'files':imported,'kept_files':kept_existing_files,'quality':str((all_final[0].get('quality') if all_final else context.get('release_quality')) or 'Unknown'),'kind':item.get('kind'),'item_id':'' if one_time else item.get('id'),'one_time':one_time,'target_label':target_label,'release_title':str(context.get('release_title') or ''),'release_size':int(context.get('release_size') or 0),'verified':True,'imported_count':len(imported),'season_pack':bool(context.get('season_pack')),'inspection':inspections,'needs_attention_count':len(attention),'cleanup_safe':len(attention)==0,'kept_existing':sum(1 for e in entries if e.get('action') in {'DUPLICATE','KEEP_EXISTING'})}
 
     def _aired(self,d:str):
         if not d: return False
@@ -4280,7 +4420,19 @@ class MediaAutomationEngine:
 
         item_id=str(data.get('item_id') or '').strip()
         item=next((x for x in self._library() if str(x.get('id'))==item_id),None) if item_id else None
-        storage=self.release_storage_plan(item,int(data.get('size') or 0)) if item else None
+        parsed=data.get('parsed') if isinstance(data.get('parsed'),dict) else parse_release(title)
+        manual_kind='tv' if str(data.get('media_kind') or '').lower()=='tv' else ('movie' if str(data.get('media_kind') or '').lower()=='movie' else '')
+        manual_title=str(data.get('media_title') or '').strip()
+        manual_year=int(data.get('media_year')) if str(data.get('media_year') or '').isdigit() else None
+        manual_tmdb=int(data.get('media_tmdb_id') or 0) if str(data.get('media_tmdb_id') or '').isdigit() else None
+        manual_item=None
+        if not item and manual_kind and manual_title:
+            profiles=self._profiles(); requested_profile=str(data.get('media_quality_profile_id') or '').strip(); profile=next((p for p in profiles if str(p.get('id') or '')==requested_profile),profiles[0])
+            manual_item={'id':'','kind':manual_kind,'title':manual_title,'year':manual_year,'tmdb_id':manual_tmdb,
+                         'quality_profile_id':str(profile.get('id') or ''),'root_folder':str(data.get('media_root_folder') or '').strip(),'movie_file':None,'seasons':[]}
+        storage=self.release_storage_plan(item or manual_item,int(data.get('size') or 0)) if (item or manual_item) else None
+        if (item or manual_item) and (not storage or not str((storage or {}).get('root') or '').strip()):
+            raise ValueError(f"Add a {'TV' if (item or manual_item).get('kind')=='tv' else 'Movie'} root folder in Automation Setup before grabbing this media")
         if storage and not storage.get('ok_root'):
             raise ValueError(f"Not enough free space in the selected Root Folder for this release (free {storage.get('root_free',0)/1024**3:.1f} GB; requires about {storage.get('root_required',0)/1024**3:.1f} GB including reserve)")
         if storage and not storage.get('ok_staging'):
@@ -4289,7 +4441,6 @@ class MediaAutomationEngine:
         context={}
         if item:
             season=data.get('season'); episode=data.get('episode')
-            parsed=data.get('parsed') if isinstance(data.get('parsed'),dict) else parse_release(title)
             context={
                 'source':'automation_grab','item_id':item_id,'kind':str(item.get('kind') or ''),
                 'title':str(item.get('title') or ''),'year':item.get('year'),
@@ -4315,6 +4466,47 @@ class MediaAutomationEngine:
                     'season_pack':bool(data.get('season_pack'))
                 })),
             }
+        elif manual_item:
+            season=data.get('season') if data.get('season') is not None else parsed.get('season')
+            episode=data.get('episode') if data.get('episode') is not None else parsed.get('episode')
+            season_pack=bool(data.get('season_pack') or parsed.get('is_season_pack'))
+            episodes=[]; episode_title=str(data.get('episode_title') or '')
+            if manual_kind=='tv':
+                if season is None:
+                    raise ValueError('This TV release does not identify a season or episode clearly enough for one-time Smart Import. Add the show to Automation for an ambiguous release.')
+                try:
+                    if manual_tmdb:
+                        bundle=self._metadata_tv_bundle(manual_tmdb)
+                        for sr in list((bundle or {}).get('seasons') or []):
+                            if int(sr.get('season_number') or 0)!=int(season or 0): continue
+                            for ep in list(sr.get('episodes') or []):
+                                en=int(ep.get('episode_number') or 0)
+                                if en>0: episodes.append({'season':int(season),'episode':en,'name':str(ep.get('name') or f'Episode {en}')})
+                        if episode is not None:
+                            hit=next((x for x in episodes if int(x.get('episode') or 0)==int(episode)),None)
+                            if hit: episode_title=str(hit.get('name') or episode_title)
+                except Exception:
+                    episodes=[]
+                if episode is not None and not episodes:
+                    episodes=[{'season':int(season),'episode':int(episode),'name':episode_title or f'Episode {int(episode)}'}]
+                if season_pack and not episodes:
+                    raise ValueError('This season pack could not be matched to episode metadata safely. Add the show to Automation before grabbing the pack.')
+            manual_key=f"manual:{manual_kind}:{manual_tmdb or (_norm(manual_title)+'-'+str(manual_year or ''))}"
+            if manual_kind=='tv': manual_key+=f":s{int(season or 0):02d}" + (f":e{int(episode):03d}" if episode is not None else ':pack')
+            context={
+                'source':'manual_media_grab','one_time':True,'item_id':'','manual_item_id':manual_key,
+                'kind':manual_kind,'title':manual_title,'year':manual_year,'tmdb_id':manual_tmdb,
+                'metadata_provider':str(data.get('media_provider') or ('tmdb' if manual_tmdb else '')),
+                'season':int(season) if season is not None else None,'episode':int(episode) if episode is not None else None,
+                'season_pack':season_pack,'manual_episodes':episodes,'episode_title':episode_title,
+                'quality_profile_id':str(manual_item.get('quality_profile_id') or ''),
+                'release_title':title,'release_quality':str(parsed.get('quality') or 'Unknown'),
+                'release_group':str(parsed.get('release_group') or ''),'indexer':str(data.get('indexer') or ''),
+                'release_guid':str(data.get('guid') or data.get('download_url') or ''),
+                'release_score':int(data.get('score') or 0),'planned_root_folder':str((storage or {}).get('root') or ''),
+                'release_size':int(data.get('size') or 0),'automatic':False,'auto_type':'one_time',
+                'target_key':manual_key,
+            }
 
         target_key=str(context.get('target_key') or '')
         if target_key:
@@ -4331,7 +4523,7 @@ class MediaAutomationEngine:
                             'ok':True,'already_queued':True,
                             'collection_id':str(job.get('collection_id') or job.get('id') or ''),
                             'collection_name':str(job.get('collection_name') or title),
-                            'reason':'This Automation target is already downloading or being imported.'
+                            'reason':'This media target is already downloading or being imported.'
                         }
             except Exception:
                 pass
@@ -4344,7 +4536,7 @@ class MediaAutomationEngine:
                     'ok':True,'already_queued':True,
                     'collection_id':str((reservation_payload or {}).get('collection_id') or ''),
                     'collection_name':title,
-                    'reason':'Another NewzDeck runtime is already queueing this Automation target.'
+                    'reason':'Another NewzDeck runtime is already queueing this media target.'
                 }
 
         try:
@@ -4353,7 +4545,7 @@ class MediaAutomationEngine:
             try:
                 raw=self._fetch_release_nzb(data)
             except ReleaseFetchError as exc:
-                if context and exc.blacklist:
+                if str(context.get('source') or '')=='automation_grab' and exc.blacklist:
                     self.record_release_failure(context,str(exc),error_code=exc.error_code)
                     raise ValueError(f"This release could not be retrieved from {str(data.get('indexer') or 'the indexer')} and has been marked FAILED for this target. Choose a different post. Details: {exc}") from exc
                 raise ValueError(str(exc)) from exc
@@ -4361,7 +4553,11 @@ class MediaAutomationEngine:
             # Submission/control-plane errors are not proof that the release itself
             # is bad. Only SAB's terminal history state may blacklist after queueing.
             try:
-                result=self.download_manager.add_nzb(str(providers[0].get('id')),title+'.nzb',raw,automation_context=context or None)
+                queue_submit=getattr(self.download_manager,'queue_nzb',None)
+                if callable(queue_submit):
+                    result=queue_submit(str(providers[0].get('id')),title+'.nzb',raw,automation_context=context or None)
+                else:
+                    result=self.download_manager.add_nzb(str(providers[0].get('id')),title+'.nzb',raw,automation_context=context or None)
             except Exception as exc:
                 # Never surface raw Windows socket/control-channel exceptions in the
                 # Grab toast. They describe the private localhost SAB control path,
@@ -4373,10 +4569,11 @@ class MediaAutomationEngine:
                 raise
             if target_key:
                 self._finish_grab_reservation(reservation_path,reservation_payload,str(result.get('collection_id') or ''))
-            self._event('grab',f"{'Automatically grabbed' if data.get('automatic') else 'Grabbed'} {title}",
+            event_message=(f"One-time media grab {title}" if str(context.get('source') or '')=='manual_media_grab' else f"{'Automatically grabbed' if data.get('automatic') else 'Grabbed'} {title}")
+            self._event('grab',event_message,
                         collection=result.get('collection_name'),collection_id=result.get('collection_id'),
                         target_key=target_key,indexer=data.get('indexer'),item_id=item_id,
-                        automatic=bool(data.get('automatic',False)))
+                        source=str(context.get('source') or ''),automatic=bool(data.get('automatic',False)))
             return result
         except Exception as exc:
             if target_key:

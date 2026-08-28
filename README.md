@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.5.35** for 64-bit Windows.
+The current stable release is **NewzDeck v3.5.52** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.5.35_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.5.52_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -27,11 +27,27 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 ## What NewzDeck does
 
 - **Browse newsgroups visually** with gallery and list views, image/video previews, grouping, tabs, bookmarks, filtering, and search.
-- **Download at high speed** with queue controls, retries, provider-aware transfers, PAR2 verification/repair, unpacking, and post-processing.
-- **Discover movies and TV** with TMDB-powered posters, backdrops, metadata, cast/crew, trending titles, new releases, recommendations, and filtering.
+- **Download at high speed** through the bundled private SABnzbd engine with queue controls, retries, provider-aware transfers, PAR2 verification/repair, unpacking, and post-processing.
+- **See downloads live** with near-real-time transfer state, stable Active cards, and live Verify, Repair, Unpack, and Smart Import progress.
+- **Discover movies and TV** with TMDB-powered posters, backdrops, metadata, cast/crew, trending titles, new releases, recommendations, filtering, and responsive title details.
 - **Automate TV and movies** with monitored libraries, quality profiles, Wanted items, calendar, history, root folders, and Newznab-compatible indexers.
-- **Organize completed media** with Smart Import, including identification, renaming, and moving into your library folders.
+- **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
+- **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
+
+## v3.5.52 highlights
+
+v3.5.52 is the cumulative production release from the v3.5.36–v3.5.52 acceptance cycle. Highlights include:
+
+- resilient tray/context-menu behavior across long idle periods and Explorer/taskbar recreation;
+- near-real-time Downloads updates without transient Active-card disappearance;
+- Smart Import finalization and cleanup for Movies and TV, including existing-media reconciliation;
+- one-time Movie/TV organization for manual Discover grabs;
+- faster Discover title opening and corrected Interactive Search sizing;
+- durable immediate Grab queueing that is independent of SAB startup timing;
+- corrected private SAB launch from the Windows background-service environment;
+- live and smooth post-processing progress;
+- BOM-safe provider-state loading and authoritative service-runtime handoff so the desktop UI and background service use the same provider state.
 
 ## Requirements
 
@@ -48,13 +64,13 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 4. Browse or search newsgroups and start downloading.
 5. If you want TV/movie automation, add your media root folders and configure a compatible indexer.
 
-Your NewzDeck settings, history, queue state, and other persistent data are stored separately from the program files under `%LOCALAPPDATA%\NewzDeck`, so normal application updates preserve your data.
+Your NewzDeck settings, history, queue state, provider configuration, and other persistent data are stored separately from the program files under `%LOCALAPPDATA%\NewzDeck`, so normal application updates preserve your data.
 
 ## Windows SmartScreen
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.5.35_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.5.52_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

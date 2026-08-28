@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,6 +36,7 @@ const (
 	nimAdd        = 0
 	nimModify     = 1
 	nimDelete     = 2
+	nimSetFocus   = 3
 	nimSetVersion = 4
 
 	nifMessage = 0x1
@@ -55,6 +57,8 @@ const (
 	tpmNonotify    = 0x0080
 	tpmReturnCmd   = 0x0100
 	tpmBottomAlign = 0x0020
+
+	monitorDefaultToNearest = 0x00000002
 
 	swShownormal = 1
 
@@ -99,6 +103,15 @@ type wndClassEx struct {
 }
 
 type point struct{ X, Y int32 }
+type rect struct {
+	Left, Top, Right, Bottom int32
+}
+type monitorInfo struct {
+	CbSize    uint32
+	RcMonitor rect
+	RcWork    rect
+	DwFlags   uint32
+}
 type msg struct {
 	HWnd           uintptr
 	Message        uint32
@@ -109,13 +122,16 @@ type msg struct {
 }
 
 type request struct {
-	ID      string `json:"id"`
-	Action  string `json:"action"`
-	Path    string `json:"path"`
-	Initial string `json:"initial"`
-	Title   string `json:"title"`
-	Text    string `json:"text"`
-	Enabled *bool  `json:"enabled"`
+	ID         string   `json:"id"`
+	Action     string   `json:"action"`
+	Path       string   `json:"path"`
+	Initial    string   `json:"initial"`
+	Title      string   `json:"title"`
+	Text       string   `json:"text"`
+	Enabled    *bool    `json:"enabled"`
+	Args       []string `json:"args"`
+	WorkingDir string   `json:"working_dir"`
+	LogPath    string   `json:"log_path"`
 }
 
 type app struct {
@@ -123,38 +139,43 @@ type app struct {
 	icon                      uintptr
 	appDir, userRoot, version string
 	paused                    bool
+	lastIconHealthCheck       time.Time
 }
 
 var a app
+var taskbarCreatedMessage uint32
 
 var (
-	user32                  = syscall.NewLazyDLL("user32.dll")
-	shell32                 = syscall.NewLazyDLL("shell32.dll")
-	kernel32                = syscall.NewLazyDLL("kernel32.dll")
-	procRegisterClassExW    = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW     = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW      = user32.NewProc("DefWindowProcW")
-	procDestroyWindow       = user32.NewProc("DestroyWindow")
-	procPostQuitMessage     = user32.NewProc("PostQuitMessage")
-	procPostMessageW        = user32.NewProc("PostMessageW")
-	procGetMessageW         = user32.NewProc("GetMessageW")
-	procTranslateMessage    = user32.NewProc("TranslateMessage")
-	procDispatchMessageW    = user32.NewProc("DispatchMessageW")
-	procSetTimer            = user32.NewProc("SetTimer")
-	procKillTimer           = user32.NewProc("KillTimer")
-	procLoadImageW          = user32.NewProc("LoadImageW")
-	procDestroyIcon         = user32.NewProc("DestroyIcon")
-	procCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
-	procAppendMenuW         = user32.NewProc("AppendMenuW")
-	procTrackPopupMenu      = user32.NewProc("TrackPopupMenu")
-	procDestroyMenu         = user32.NewProc("DestroyMenu")
-	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
-	procGetCursorPos        = user32.NewProc("GetCursorPos")
-	procShellNotifyIconW    = shell32.NewProc("Shell_NotifyIconW")
-	procShellExecuteW       = shell32.NewProc("ShellExecuteW")
-	procGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
-	procCreateMutexW        = kernel32.NewProc("CreateMutexW")
-	procCloseHandle         = kernel32.NewProc("CloseHandle")
+	user32                     = syscall.NewLazyDLL("user32.dll")
+	shell32                    = syscall.NewLazyDLL("shell32.dll")
+	kernel32                   = syscall.NewLazyDLL("kernel32.dll")
+	procRegisterClassExW       = user32.NewProc("RegisterClassExW")
+	procRegisterWindowMessageW = user32.NewProc("RegisterWindowMessageW")
+	procCreateWindowExW        = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW         = user32.NewProc("DefWindowProcW")
+	procDestroyWindow          = user32.NewProc("DestroyWindow")
+	procPostQuitMessage        = user32.NewProc("PostQuitMessage")
+	procPostMessageW           = user32.NewProc("PostMessageW")
+	procGetMessageW            = user32.NewProc("GetMessageW")
+	procTranslateMessage       = user32.NewProc("TranslateMessage")
+	procDispatchMessageW       = user32.NewProc("DispatchMessageW")
+	procSetTimer               = user32.NewProc("SetTimer")
+	procKillTimer              = user32.NewProc("KillTimer")
+	procLoadImageW             = user32.NewProc("LoadImageW")
+	procDestroyIcon            = user32.NewProc("DestroyIcon")
+	procCreatePopupMenu        = user32.NewProc("CreatePopupMenu")
+	procAppendMenuW            = user32.NewProc("AppendMenuW")
+	procTrackPopupMenu         = user32.NewProc("TrackPopupMenu")
+	procDestroyMenu            = user32.NewProc("DestroyMenu")
+	procSetForegroundWindow    = user32.NewProc("SetForegroundWindow")
+	procGetCursorPos           = user32.NewProc("GetCursorPos")
+	procMonitorFromPoint       = user32.NewProc("MonitorFromPoint")
+	procGetMonitorInfoW        = user32.NewProc("GetMonitorInfoW")
+	procShellNotifyIconW       = shell32.NewProc("Shell_NotifyIconW")
+	procShellExecuteW          = shell32.NewProc("ShellExecuteW")
+	procGetModuleHandleW       = kernel32.NewProc("GetModuleHandleW")
+	procCreateMutexW           = kernel32.NewProc("CreateMutexW")
+	procCloseHandle            = kernel32.NewProc("CloseHandle")
 )
 
 func p16(s string) *uint16 { p, _ := syscall.UTF16PtrFromString(s); return p }
@@ -325,21 +346,72 @@ func setAutostart(enabled bool) error {
 
 func autostartEnabled() bool { _, err := os.Stat(autoMarker()); return err == nil }
 
-func addIcon() bool {
-	nid := notifyIconData{CbSize: uint32(unsafe.Sizeof(notifyIconData{})), HWnd: a.hwnd, UID: 1, UFlags: nifMessage | nifIcon | nifTip, UCallbackMessage: trayMessage, HIcon: a.icon}
+func iconData(flags uint32) notifyIconData {
+	nid := notifyIconData{
+		CbSize:           uint32(unsafe.Sizeof(notifyIconData{})),
+		HWnd:             a.hwnd,
+		UID:              1,
+		UFlags:           flags,
+		UCallbackMessage: trayMessage,
+		HIcon:            a.icon,
+	}
 	putUTF16(nid.SzTip[:], "NewzDeck "+a.version)
+	return nid
+}
+
+func setIconVersion(nid *notifyIconData) {
+	nid.UVersion = 4
+	procShellNotifyIconW.Call(nimSetVersion, uintptr(unsafe.Pointer(nid)))
+}
+
+func addIcon() bool {
+	nid := iconData(nifMessage | nifIcon | nifTip)
 	r, _, _ := procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
 	if r == 0 {
 		return false
 	}
-	nid.UVersion = 4
-	procShellNotifyIconW.Call(nimSetVersion, uintptr(unsafe.Pointer(&nid)))
+	setIconVersion(&nid)
+	a.lastIconHealthCheck = time.Now()
 	return true
 }
 
 func removeIcon() {
 	nid := notifyIconData{CbSize: uint32(unsafe.Sizeof(notifyIconData{})), HWnd: a.hwnd, UID: 1}
 	procShellNotifyIconW.Call(nimDelete, uintptr(unsafe.Pointer(&nid)))
+}
+
+func restoreIcon() bool {
+	// Explorer discards notification-area registrations when its taskbar is
+	// recreated. Delete is harmless if the old registration is already gone.
+	removeIcon()
+	if addIcon() {
+		return true
+	}
+	// If Explorer is still finishing taskbar startup, let the one-second timer
+	// retry immediately instead of waiting for the normal 30-second health pass.
+	a.lastIconHealthCheck = time.Time{}
+	return false
+}
+
+func ensureIcon() {
+	// Keep this check cheap and independent of the backend. NIM_MODIFY returns
+	// FALSE if Explorer no longer knows this icon, in which case recreate it.
+	if !a.lastIconHealthCheck.IsZero() && time.Since(a.lastIconHealthCheck) < 30*time.Second {
+		return
+	}
+	a.lastIconHealthCheck = time.Now()
+	nid := iconData(nifMessage | nifIcon | nifTip)
+	r, _, _ := procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+	if r == 0 {
+		restoreIcon()
+		return
+	}
+	setIconVersion(&nid)
+}
+
+func returnTrayFocus() {
+	nid := notifyIconData{CbSize: uint32(unsafe.Sizeof(notifyIconData{})), HWnd: a.hwnd, UID: 1}
+	procShellNotifyIconW.Call(nimSetFocus, uintptr(unsafe.Pointer(&nid)))
 }
 
 func notify(title, text string) {
@@ -356,6 +428,70 @@ func reply(id string, value map[string]any) {
 	value["id"] = id
 	b, _ := json.Marshal(value)
 	_ = writeAtomic(filepath.Join(replyDir(), id+".json"), b)
+}
+
+func isPathWithin(root, candidate string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, candidateAbs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func launchPrivateSAB(r request) (int, error) {
+	exe := filepath.Clean(strings.TrimSpace(r.Path))
+	if exe == "" || !isPathWithin(filepath.Join(a.userRoot, "sab-engine"), exe) {
+		return 0, fmt.Errorf("private SAB executable is outside the NewzDeck engine directory")
+	}
+	base := strings.ToLower(filepath.Base(exe))
+	if base != "sabnzbd.exe" && base != "sabnzbd-console.exe" {
+		return 0, fmt.Errorf("only the private SAB executable may be launched")
+	}
+	if st, err := os.Stat(exe); err != nil || st.IsDir() {
+		return 0, fmt.Errorf("private SAB executable was not found")
+	}
+	workingDir := filepath.Clean(strings.TrimSpace(r.WorkingDir))
+	if workingDir == "." || workingDir == "" {
+		workingDir = filepath.Dir(exe)
+	}
+	if !isPathWithin(filepath.Dir(exe), workingDir) {
+		return 0, fmt.Errorf("private SAB working directory is invalid")
+	}
+	logPath := filepath.Clean(strings.TrimSpace(r.LogPath))
+	if logPath == "." || logPath == "" {
+		logPath = filepath.Join(a.userRoot, "sab-engine", "sab-startup.log")
+	}
+	if !isPathWithin(filepath.Join(a.userRoot, "sab-engine"), logPath) {
+		return 0, fmt.Errorf("private SAB log path is invalid")
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return 0, err
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return 0, err
+	}
+	defer logFile.Close()
+	cmd := exec.Command(exe, r.Args...)
+	cmd.Dir = workingDir
+	cmd.Stdin = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000200}
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Release()
+	return pid, nil
 }
 
 func processRequest() {
@@ -386,6 +522,14 @@ func processRequest() {
 			result["ok"] = false
 			result["error"] = err.Error()
 		}
+	case "launch_private_sab":
+		pid, err := launchPrivateSAB(r)
+		if err != nil {
+			result["ok"] = false
+			result["error"] = err.Error()
+		} else {
+			result["pid"] = pid
+		}
 	case "exit":
 		procPostMessageW.Call(a.hwnd, wmClose, 0, 0)
 	default:
@@ -408,6 +552,50 @@ func handleCommand(id int) {
 	case idExit:
 		procPostMessageW.Call(a.hwnd, wmClose, 0, 0)
 	}
+}
+
+func menuAnchor(pt point) (point, uintptr) {
+	flags := uintptr(tpmRightButton | tpmReturnCmd | tpmNonotify)
+	anchor := pt
+
+	// POINT is passed by value to MonitorFromPoint. The v3.5.36 Windows build
+	// is x64, where the two signed 32-bit coordinates occupy one 64-bit value.
+	packedPoint := uintptr(uint64(uint32(pt.X)) | uint64(uint32(pt.Y))<<32)
+	monitor, _, _ := procMonitorFromPoint.Call(packedPoint, monitorDefaultToNearest)
+	if monitor == 0 {
+		// Preserve the proven v3.5.35 behavior if Windows cannot resolve a monitor.
+		return anchor, flags | tpmBottomAlign
+	}
+
+	info := monitorInfo{CbSize: uint32(unsafe.Sizeof(monitorInfo{}))}
+	if r, _, _ := procGetMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&info))); r == 0 {
+		return anchor, flags | tpmBottomAlign
+	}
+
+	work := info.RcWork
+	if anchor.X < work.Left {
+		anchor.X = work.Left
+	} else if anchor.X >= work.Right {
+		anchor.X = work.Right - 1
+	}
+
+	if pt.Y >= work.Bottom {
+		// Bottom taskbar: put the popup's bottom edge exactly at the top of it.
+		anchor.Y = work.Bottom
+		flags |= tpmBottomAlign
+	} else if pt.Y < work.Top {
+		// Top taskbar: TPM_TOPALIGN is zero, so the popup begins at rcWork.Top.
+		anchor.Y = work.Top
+	} else {
+		// Side taskbar or ordinary invocation. Keep the pointer-adjacent Y
+		// coordinate, but open upward when it is in the lower half of the work area.
+		anchor.Y = pt.Y
+		if pt.Y > work.Top+(work.Bottom-work.Top)/2 {
+			flags |= tpmBottomAlign
+		}
+	}
+
+	return anchor, flags
 }
 
 func showMenu() {
@@ -438,28 +626,45 @@ func showMenu() {
 		return
 	}
 
+	// Anchor the popup to the monitor work area, not the raw cursor position.
+	// A notification-area cursor is physically inside the taskbar; using its Y
+	// coordinate with TPM_BOTTOMALIGN can therefore place the last menu row
+	// underneath the always-on-top taskbar. Clamp to rcWork and choose the
+	// vertical edge nearest the notification area.
+	menuPoint, menuFlags := menuAnchor(pt)
+
 	// Windows requires the notification icon owner to be foreground for a
 	// reliable context menu. TPM_RETURNCMD avoids depending on a later
 	// WM_COMMAND delivery to this hidden window.
 	procSetForegroundWindow.Call(a.hwnd)
 	selected, _, _ := procTrackPopupMenu.Call(
 		menu,
-		tpmRightButton|tpmBottomAlign|tpmReturnCmd|tpmNonotify,
-		uintptr(pt.X), uintptr(pt.Y), 0, a.hwnd, 0,
+		menuFlags,
+		uintptr(int64(menuPoint.X)), uintptr(int64(menuPoint.Y)), 0, a.hwnd, 0,
 	)
 	// Standard notification-area workaround so subsequent context menus are
-	// dismissed/activated correctly.
+	// dismissed/activated correctly. NIM_SETFOCUS returns keyboard focus to the
+	// notification area before a selected command opens its destination.
 	procPostMessageW.Call(a.hwnd, wmNull, 0, 0)
+	returnTrayFocus()
 	if selected != 0 {
 		handleCommand(int(selected))
 	}
 }
 
 func wndProc(hwnd uintptr, m uint32, w, l uintptr) uintptr {
+	if taskbarCreatedMessage != 0 && m == taskbarCreatedMessage {
+		// Explorer/taskbar restart: Shell_NotifyIcon registrations are lost and
+		// must be re-added by the owning process.
+		restoreIcon()
+		return 0
+	}
+
 	switch m {
 	case wmTimer:
 		writeHeartbeat()
 		processRequest()
+		ensureIcon()
 		return 0
 	case trayMessage:
 		event := uint32(l & 0xffff)
@@ -501,13 +706,19 @@ func acquireMutex() (uintptr, bool) {
 }
 
 func main() {
+	// The hidden Win32 window and its message queue are thread-affine. Keep the
+	// entire tray UI lifetime on one Windows thread so long idle/session changes
+	// cannot resume the goroutine on a different OS thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	a.appDir = argValue("--app-dir", "")
 	if a.appDir == "" {
 		executable, _ := os.Executable()
 		a.appDir = filepath.Dir(executable)
 	}
 	a.userRoot = argValue("--user-root", filepath.Join(os.Getenv("LOCALAPPDATA"), "NewzDeck"))
-	a.version = argValue("--version", "3.5.35")
+	a.version = argValue("--version", "3.5.52")
 	_ = os.MkdirAll(replyDir(), 0755)
 
 	mutex, ok := acquireMutex()
@@ -515,6 +726,11 @@ func main() {
 		return
 	}
 	defer procCloseHandle.Call(mutex)
+
+	// Explorer broadcasts this registered message whenever it recreates the
+	// taskbar. Notification-area applications must add their icons again.
+	registered, _, _ := procRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(p16("TaskbarCreated"))))
+	taskbarCreatedMessage = uint32(registered)
 
 	instance, _, _ := procGetModuleHandleW.Call(0)
 	iconPath := filepath.Join(a.appDir, "NewzDeck.ico")

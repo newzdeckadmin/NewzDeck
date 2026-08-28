@@ -996,3 +996,65 @@ input:not([type=checkbox]):not([type=radio]),select,textarea{min-height:38px;bor
 @media(max-width:1320px) and (min-width:1051px){
   .download-package-head{grid-template-columns:30px minmax(300px,1.55fr) minmax(120px,.62fr) minmax(225px,1fr) 68px!important}
 }
+
+
+/* v3.5.42 Interactive Search viewport integrity + Discover responsiveness */
+.release-modal-card{
+  width:min(1240px,calc(100vw - 24px));
+  max-width:calc(100vw - 24px);
+  max-height:calc(100vh - 24px);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+.release-modal-card>.modal-head{flex:0 0 auto}
+.release-search-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  overflow-x:hidden;
+  padding:0 14px 16px;
+  scrollbar-gutter:stable;
+}
+.release-table{min-width:0;width:100%}
+.release-row{
+  width:100%;
+  min-width:0;
+  grid-template-columns:minmax(260px,1fr) minmax(118px,145px) 78px 56px 66px 138px;
+  gap:8px;
+}
+.release-row>span{min-width:0;overflow:hidden}
+.release-row>span:first-child strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.release-row>span:first-child small{overflow-wrap:anywhere}
+.release-row>span:last-child{overflow:visible}
+.release-row>span:last-child .primary-btn,
+.release-actions .primary-btn,
+.release-actions .secondary-btn{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  white-space:nowrap;
+  padding-left:8px;
+  padding-right:8px;
+}
+@media(max-width:1100px){
+  .release-row{grid-template-columns:minmax(220px,1fr) 125px 72px 54px 62px 128px}
+  .release-actions{grid-column:auto!important}
+  .release-row.header>span:last-child{grid-column:auto!important}
+}
+@media(max-width:900px){
+  .release-modal-card{width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100vh - 16px)}
+  .release-search-body{padding:0 10px 12px}
+  .release-row{grid-template-columns:1fr;padding:12px 10px;gap:6px;border:1px solid rgba(80,111,139,.18);border-radius:10px;margin:7px 0;background:#0d1621}
+  .release-row.header{display:none}
+  .release-row>span:last-child,.release-actions{display:flex!important;flex-direction:row!important;gap:7px;overflow:visible}
+  .release-row>span:last-child .primary-btn,.release-actions .primary-btn,.release-actions .secondary-btn{width:auto;flex:1 1 0}
+}
+.discover-card{will-change:auto}
+.discover-detail-card{contain:layout style}
+
+/* v3.5.52 — smooth live post-processing motion */
+.download-progress-track.indeterminate .download-progress-fill{width:30%!important;min-width:58px;transition:none!important;transform:translate3d(-120%,0,0);animation:postProcessIndeterminate 1.35s linear infinite;will-change:transform}
+.download-progress-track.indeterminate .download-progress-fill:after{display:none}
+@keyframes postProcessIndeterminate{0%{transform:translate3d(-120%,0,0)}100%{transform:translate3d(440%,0,0)}}
+@media(prefers-reduced-motion:reduce){.download-progress-track.indeterminate .download-progress-fill{animation:none!important;transform:translateX(90%)}}

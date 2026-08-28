@@ -1,0 +1,28 @@
+{
+  "product": "NewzDeck",
+  "version": "3.5.52",
+  "tag": "v3.5.52",
+  "license": "GPL-3.0-only",
+  "source_complete": true,
+  "windows_owned_binaries": {
+    "NewzDeck.exe": "src/windows/NewzDeckLauncher.go",
+    "NewzDeckService.exe": "src/windows/NewzDeckService.go",
+    "NewzDeckTray.exe": "src/windows/NewzDeckTray.go",
+    "NewzDeckPicker.exe": "src/windows/NewzDeckPicker.go",
+    "NewzDeckThumb.exe": "src/windows/NewzDeckThumb.go",
+    "NewzDeckYenc.exe": "src/windows/NewzDeckYenc.go"
+  },
+  "application_source": [
+    "src/app/server.py",
+    "src/app/sab_engine.py",
+    "src/app/automation_engine.py",
+    "src/app/static/app.js",
+    "src/app/static/index.html",
+    "src/app/static/styles.css"
+  ],
+  "build_toolchain": {
+    "python": "3.12.10",
+    "go": "1.23.2",
+    "inno_setup": "7.1.0 x64"
+  }
+}

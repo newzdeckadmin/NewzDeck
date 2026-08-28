@@ -1,4 +1,4 @@
-NewzDeck v3.5.35
+NewzDeck v3.5.52
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
@@ -14,7 +14,7 @@ WHAT YOU NEED
 INSTALLING NEWZDECK
 
 For most users, the recommended download is:
-  NewzDeck_v3.5.35_Setup.exe
+  NewzDeck_v3.5.52_Setup.exe
 
 Run Setup and then start NewzDeck normally from the Start Menu or desktop
 shortcut.
@@ -34,17 +34,25 @@ FIRST START
 3. Save the provider and confirm it connects.
 4. Browse newsgroups, search, preview, and download.
 
+DOWNLOADS AND POST-PROCESSING
+
+NewzDeck uses its bundled private SABnzbd engine for high-throughput downloads.
+The Downloads page shows near-real-time transfer state and live Verify, Repair,
+Unpack, and Smart Import progress. Completed media can be renamed and moved into
+your configured TV or Movie library automatically.
+
 TV AND MOVIE AUTOMATION
 
-Automation is optional. To use it, configure your media root folders and a
-compatible Newznab indexer. You can then add TV shows and movies, choose
-monitoring and quality settings, use Wanted and Calendar views, and let
-NewzDeck import completed media into your library.
+Automation is optional. Configure media root folders and a compatible Newznab
+indexer to monitor TV shows and movies, manage Wanted items and Calendar, and
+import completed media. Movies and safely identifiable TV releases grabbed
+manually from Discover can also be organized once without being added to
+Automation.
 
 BACKGROUND DOWNLOADS
 
 NewzDeck can use its Windows background service and system tray companion so
-downloads can continue after the main window closes.
+downloads and Automation continue after the main window closes.
 
 UPDATES AND DATA
 

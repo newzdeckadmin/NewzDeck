@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -24,6 +25,82 @@ SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 1
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
+
+SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
+
+def _sab_text(value: Any) -> str:
+    """Return the most useful human-readable string from a SAB API field."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        for item in reversed(value):
+            text = _sab_text(item)
+            if text:
+                return text
+        return ""
+    if isinstance(value, dict):
+        for key in ("text", "message", "detail", "status"):
+            text = _sab_text(value.get(key))
+            if text:
+                return text
+        return ""
+    return str(value).strip() if value is not None else ""
+
+def _sab_post_progress(slot: dict[str, Any], fallback_stage: str = "") -> tuple[str, int, bool, str]:
+    """Translate SAB's live action_line into NewzDeck post-processing progress.
+
+    SAB 5.x intentionally exposes current post-processing work through ``action_line``
+    (for example ``Verifying: 03/12`` or ``Unpacking: 04/18 00:31``) rather
+    than a dedicated percentage field.  Parse only explicit percentages/fractions;
+    stages without measurable counters stay indeterminate rather than inventing progress.
+    """
+    raw = _sab_text(slot.get("action_line"))
+    action = ""
+    detail = ""
+    if raw:
+        if ":" in raw:
+            action, detail = (part.strip() for part in raw.split(":", 1))
+        else:
+            detail = raw.strip()
+    low_action = action.casefold()
+    low_detail = detail.casefold()
+    stage = str(fallback_stage or "").strip()
+    if "direct unpack" in low_action or "unpack" in low_action or "extract" in low_action:
+        stage = "extracting"
+    elif "verifying repair" in low_action:
+        stage = "repairing"
+    elif "repair" in low_action:
+        stage = "verifying" if "quick check" in low_detail else "repairing"
+    elif "fetching" in low_action:
+        stage = "repairing"
+    elif "verify" in low_action or "checking" in low_action:
+        stage = "verifying"
+    elif "moving" in low_action or "running script" in low_action:
+        stage = "importing"
+
+    progress = 0
+    known = False
+    source = detail or raw
+    if source:
+        percent = re.search(r"(?<!\d)(\d{1,3}(?:\.\d+)?)\s*%", source)
+        if percent:
+            progress = max(0, min(100, int(round(float(percent.group(1))))))
+            known = True
+        else:
+            fraction = re.search(r"(?<!\d)(\d+)\s*/\s*(\d+)", source)
+            if fraction:
+                current, total = int(fraction.group(1)), int(fraction.group(2))
+                if total > 0:
+                    progress = max(0, min(100, int(round(current * 100.0 / total))))
+                    known = True
+    if source.casefold() == "completed":
+        progress, known = 100, True
+
+    message = raw or _sab_text(slot.get("stage_log")) or _sab_text(slot.get("status"))
+    return stage, progress, known, message
+
+def _is_smart_import_context(context: dict[str, Any] | None) -> bool:
+    return isinstance(context, dict) and str(context.get("source") or "") in SMART_IMPORT_SOURCES
 
 
 def _atomic_json_write(path: Path, value: Any) -> None:
@@ -145,7 +222,7 @@ def _automation_identity(context: dict[str, Any] | None) -> tuple[str, str, str]
     never from the payload filename alone.
     """
     ctx = context if isinstance(context, dict) else {}
-    if str(ctx.get("source") or "") != "automation_grab":
+    if not _is_smart_import_context(ctx):
         return "", "", ""
     title = str(ctx.get("title") or "TV/Movies").strip() or "TV/Movies"
     kind = str(ctx.get("kind") or "")
@@ -229,6 +306,76 @@ def build_nzb_bytes(name: str, entries: list[dict[str, Any]], password: str = ""
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
+
+class _ExternalWindowsProcess:
+    """Minimal Popen-like reference for a process brokered into the user session."""
+    STILL_ACTIVE = 259
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    PROCESS_TERMINATE = 0x0001
+
+    def __init__(self, pid: int):
+        self.pid = int(pid)
+        self.returncode = None
+
+    @staticmethod
+    def _kernel32():
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        k32.GetExitCodeProcess.restype = wintypes.BOOL
+        k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k32.TerminateProcess.restype = wintypes.BOOL
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        k32.CloseHandle.restype = wintypes.BOOL
+        return k32
+
+    def poll(self):
+        if os.name != "nt":
+            return self.returncode
+        import ctypes
+        k32 = self._kernel32()
+        handle = k32.OpenProcess(self.PROCESS_QUERY_LIMITED_INFORMATION, False, self.pid)
+        if not handle:
+            self.returncode = 0
+            return self.returncode
+        try:
+            from ctypes import wintypes
+            code = wintypes.DWORD()
+            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return None
+            if int(code.value) == self.STILL_ACTIVE:
+                return None
+            self.returncode = int(code.value)
+            return self.returncode
+        finally:
+            k32.CloseHandle(handle)
+
+    def terminate(self):
+        if os.name != "nt":
+            return
+        k32 = self._kernel32()
+        handle = k32.OpenProcess(self.PROCESS_TERMINATE, False, self.pid)
+        if handle:
+            try:
+                k32.TerminateProcess(handle, 1)
+            finally:
+                k32.CloseHandle(handle)
+
+    kill = terminate
+
+    def wait(self, timeout=None):
+        deadline = None if timeout is None else time.monotonic() + float(timeout)
+        while True:
+            rc = self.poll()
+            if rc is not None:
+                return rc
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(str(self.pid), timeout)
+            time.sleep(0.05)
+
 class SabDownloadManager:
     """NewzDeck Download Engine v2 adapter around a private SABnzbd instance.
 
@@ -241,7 +388,8 @@ class SabDownloadManager:
                  settings_getter: Callable[[], dict[str, Any]], providers_getter: Callable[[], list[dict[str, Any]]],
                  secret_unprotect: Callable[[str], str], parse_nzb: Callable[[bytes, str], dict[str, Any]],
                  diagnostics: Any = None, legacy_statistics_file: Path | None = None, start_threads: bool = True,
-                 keep_engine_running: Callable[[], bool] | None = None):
+                 keep_engine_running: Callable[[], bool] | None = None,
+                 process_launcher: Callable[[Path, list[str], Path, Path], dict[str, Any]] | None = None):
         self.user_root = Path(user_root)
         self.app_dir = Path(app_dir)
         self.download_dir_getter = download_dir_getter
@@ -254,6 +402,7 @@ class SabDownloadManager:
         legacy_raw = _json_read(legacy_statistics_file, {}) if legacy_statistics_file else {}
         self.legacy_statistics = dict(legacy_raw.get("statistics") or {}) if isinstance(legacy_raw, dict) and isinstance(legacy_raw.get("statistics"), dict) else {}
         self.keep_engine_running = keep_engine_running or (lambda: False)
+        self.process_launcher = process_launcher
 
         self.root = self.user_root / "sab-engine"
         self.engine_dir = self.root / SAB_VERSION
@@ -291,7 +440,7 @@ class SabDownloadManager:
         self.shutdown_event = threading.Event()
         self.sync_event = threading.Event()
         self.media_automation = None
-        self._process: subprocess.Popen | None = None
+        self._process: subprocess.Popen | _ExternalWindowsProcess | None = None
         self._last_error = ""
         self._last_ready_ts = 0.0
         # v3.5.11: a single slow localhost heartbeat must never remap a finished
@@ -300,8 +449,27 @@ class SabDownloadManager:
         # API also times out, snapshot() simply returns the last coherent view.
         self._engine_unready_since = 0.0
         self._engine_probe_grace_seconds = 8.0
+        # The Downloads live path already probes SAB Queue frequently. Cache the
+        # heavier identity/auth heartbeat so 250 ms UI refreshes do not perform
+        # redundant version/auth requests four times per second.
+        self._engine_status_cache: dict[str, Any] = {}
+        self._engine_status_ts = 0.0
         self._last_snapshot: dict[str, Any] | None = None
         self._last_snapshot_ts = 0.0
+        # v3.5.37 Live Downloads: serialize snapshot generation so fast foreground
+        # polling never launches overlapping Queue/History reads that can complete
+        # out of order. The browser can poll at 250 ms while most requests are
+        # served from this short-lived coherent snapshot.
+        self._snapshot_lock = threading.Lock()
+        self._snapshot_cache_seconds = 0.12
+        self._snapshot_sequence = 0
+        # Queue is the live data plane. History changes much less often, so cache it
+        # briefly and refresh immediately when a queue id disappears (the normal
+        # Queue -> History handoff). This keeps live progress responsive without
+        # hammering SAB's History API four times per second.
+        self._live_history_payload: dict[str, Any] | None = None
+        self._live_history_fetch_ts = 0.0
+        self._live_queue_ids: set[str] = set()
         # SAB queue snapshots can briefly report the foreground job as Queued, or
         # omit a slot for one poll while its internal queue is being reshaped. Keep
         # a short presentation latch so NewzDeck does not flicker Active/Queued
@@ -310,6 +478,11 @@ class SabDownloadManager:
         self._job_last_view: dict[str, dict[str, Any]] = {}
         self._active_latch_until: dict[str, float] = {}
         self._job_missing_since: dict[str, float] = {}
+        # Consecutive queued observations are used only for presentation stability.
+        # A previously-active package must be coherently observed as queued several
+        # times before NewzDeck removes it from Active, unless another package has
+        # clearly become SAB's foreground transfer.
+        self._job_queued_observations: dict[str, int] = {}
         # Terminal SAB failures need to feed back into Interactive Search promptly.
         # Keep an in-process guard as well as a persisted per-job flag so the UI poll
         # and completion thread can both observe a fast failure without duplicate work.
@@ -795,7 +968,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.35"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.5.52"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -961,6 +1134,52 @@ class SabDownloadManager:
         except OSError:
             pass
 
+    def _try_kernel_file_lock(self, path: Path):
+        """Return a held one-byte OS lock, or None without waiting.
+
+        Unlike the old create/delete launch marker, the operating system owns this
+        lock. It cannot survive a crashed process and it does not require PID, token,
+        mtime or heartbeat recovery heuristics.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = path.open("a+b")
+        try:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() <= 0:
+                fh.write(b"0")
+                fh.flush()
+            fh.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fh
+        except (OSError, BlockingIOError):
+            fh.close()
+            return None
+
+    @staticmethod
+    def _release_kernel_file_lock(fh) -> None:
+        if fh is None:
+            return
+        try:
+            fh.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        finally:
+            try:
+                fh.close()
+            except OSError:
+                pass
+
     def _acquire_launch_lock(self) -> bool:
         """Cross-process guard used by desktop/service/tray startup races."""
         try:
@@ -1043,7 +1262,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.35 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.5.52 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1164,6 +1383,20 @@ class SabDownloadManager:
             cfg.write(f)
 
     def _launch(self) -> None:
+        """Start/adopt the private SAB engine with one clean-generation recovery.
+
+        v3.5.47 keeps the proven v3.5.39 identity/adoption ordering, but fixes the
+        persistent-state failure mode exposed after the v3.5.41-v3.5.45 acceptance
+        cycle: a damaged sabnzbd.ini/admin generation could make every subsequent
+        launch fail forever even after NewzDeck itself was downgraded/restored.
+
+        The first launch attempt always uses the existing identity/config exactly as
+        before.  Only if a SAB process that *we just launched* exits or never exposes
+        a valid authenticated API do we preserve that generation, allocate a fresh
+        admin directory/localhost port, and try once more.  NewzDeck's job ledger,
+        incoming NZBs, incomplete data, statistics and provider settings are outside
+        the rotated SAB admin generation and are therefore preserved.
+        """
         # Never write sabnzbd.ini until we know whether the saved port belongs to an
         # already-running private engine. This ordering prevents the v3.5.2 key split.
         if self._ping(timeout=0.8):
@@ -1171,21 +1404,34 @@ class SabDownloadManager:
             return
 
         if not self._acquire_launch_lock():
-            if self._wait_for_engine(45.0):
+            if self._wait_for_engine(12.0):
                 self._event("info", f"Adopted SABnzbd {SAB_VERSION} engine started by another NewzDeck process",
                             port=self._load_engine_identity()["port"])
                 return
             try:
-                if self.launch_lock_file.exists() and time.time() - self.launch_lock_file.stat().st_mtime > 45:
+                if self.launch_lock_file.exists() and time.time() - self.launch_lock_file.stat().st_mtime > 12:
                     self.launch_lock_file.unlink(missing_ok=True)
             except OSError:
                 pass
             if not self._acquire_launch_lock():
-                raise RuntimeError("Another NewzDeck process is still starting the built-in download engine")
+                raise RuntimeError("Another NewzDeck runtime still owns the private SAB startup guard")
 
-        try:
-            if self._ping(timeout=0.8):
+        def stop_spawned_process() -> None:
+            proc = self._process
+            if proc is None or proc.poll() is not None:
                 return
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            finally:
+                self._process = None
+
+        def start_current_generation(*, recovery: bool) -> tuple[bool, str]:
             exe = self._provision_engine()
             ident = self._load_engine_identity()
             port = int(ident["port"])
@@ -1198,11 +1444,13 @@ class SabDownloadManager:
                 if self._reconcile_live_identity(timeout=0.9):
                     self._event("info", f"Adopted existing SABnzbd {SAB_VERSION} engine after port probe",
                                 port=self._load_engine_identity()["port"])
-                    return
+                    return True, ""
                 version = self._probe_version(port, timeout=0.7)
                 reason = (f"unrecoverable legacy SAB {version} identity on localhost:{port}"
                           if version else f"another process occupies localhost:{port}")
-                ident = self._fresh_engine_generation(reason=reason)
+                self._fresh_engine_generation(reason=reason)
+                ident = self._load_engine_identity()
+                port = int(ident["port"])
 
             self._write_initial_config()
             ident = self._load_engine_identity()
@@ -1224,23 +1472,80 @@ class SabDownloadManager:
                     startupinfo.wShowWindow = 0
                 except Exception:
                     startupinfo = None
+
+            # Keep a small persistent startup log.  Previous builds sent stdout/stderr
+            # to DEVNULL, which made a real SAB startup failure indistinguishable from
+            # a generic "reconnecting" state in the UI.
+            startup_log = self.root / "sab-startup.log"
             try:
-                self._process = subprocess.Popen(args, cwd=str(exe.parent), stdin=subprocess.DEVNULL,
-                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                                 creationflags=creationflags, startupinfo=startupinfo)
+                with startup_log.open("ab") as log:
+                    stamp = f"\n--- NewzDeck 3.5.52 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    log.write(stamp.encode("utf-8", errors="replace"))
+                    log.flush()
+                    if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
+                        if not self.process_launcher:
+                            return False, "NewzDeck background service has no signed-in user-session SAB launcher"
+                        result = self.process_launcher(exe, args[1:], exe.parent, startup_log)
+                        pid = int((result or {}).get("pid") or 0)
+                        if pid <= 0:
+                            return False, "NewzDeck tray did not return a valid private SAB process id"
+                        self._process = _ExternalWindowsProcess(pid)
+                    else:
+                        self._process = subprocess.Popen(args, cwd=str(exe.parent), stdin=subprocess.DEVNULL,
+                                                         stdout=log, stderr=subprocess.STDOUT,
+                                                         creationflags=creationflags, startupinfo=startupinfo)
             except Exception as exc:
-                raise RuntimeError(f"Could not start the built-in SABnzbd engine: {exc}") from exc
-            deadline = time.monotonic() + 40
+                return False, f"Could not start the built-in SABnzbd engine: {exc}"
+
+            deadline = time.monotonic() + (22.0 if recovery else 16.0)
             while time.monotonic() < deadline and not self.shutdown_event.is_set():
-                if self._ping(timeout=1.0):
-                    self._event("info", f"SABnzbd {SAB_VERSION} engine ready", port=self._load_engine_identity()["port"])
-                    return
+                if self._ping(timeout=0.8):
+                    self._event("info", f"SABnzbd {SAB_VERSION} engine ready",
+                                port=self._load_engine_identity()["port"], recovery_generation=bool(recovery))
+                    return True, ""
                 if self._process and self._process.poll() is not None:
-                    raise RuntimeError(f"Built-in SABnzbd engine exited during startup (code {self._process.returncode})")
-                time.sleep(0.4)
-            raise RuntimeError("Timed out starting the built-in SABnzbd engine")
+                    code = self._process.returncode
+                    self._process = None
+                    return False, f"Built-in SABnzbd engine exited during startup (code {code})"
+                time.sleep(0.35)
+            stop_spawned_process()
+            return False, "Built-in SABnzbd engine did not expose a healthy localhost API before the startup deadline"
+
+        try:
+            if self._ping(timeout=0.8):
+                return
+
+            ok, first_error = start_current_generation(recovery=False)
+            if ok:
+                return
+
+            # Preserve the failed admin generation in place and rotate engine.json to
+            # a brand-new admin-vN + port.  This is deliberately a one-shot recovery:
+            # if a clean generation cannot start either, the real error is surfaced
+            # rather than creating endless admin generations every three seconds.
+            current_ident = self._load_engine_identity()
+            previous_recovery = str(current_ident.get("generation_reason") or "").startswith("automatic startup recovery:")
+            previous_recovery_ts = float(current_ident.get("generation_ts") or 0.0)
+            if previous_recovery and time.time() - previous_recovery_ts < 600.0:
+                raise RuntimeError(f"Private SAB startup still failing after the recent clean-generation recovery ({first_error})")
+
+            self._event("warning", "Private SAB admin generation failed; retrying with a clean generation",
+                        error=first_error, config_file=str(self.config_file))
+            self._fresh_engine_generation(reason=f"automatic startup recovery: {first_error}")
+            ok, recovery_error = start_current_generation(recovery=True)
+            if ok:
+                self._last_error = ""
+                return
+            raise RuntimeError(f"Private SAB startup failed ({first_error}); clean-generation recovery also failed ({recovery_error})")
         finally:
             self._release_launch_lock()
+
+    def wait_ready_for_submit(self, timeout: float = 4.0) -> bool:
+        """Compatibility helper retained for diagnostics; user Grabs are queued locally first."""
+        try:
+            return bool(self.ensure_running(blocking=True))
+        except Exception:
+            return False
 
     def ensure_running(self, *, blocking: bool = True) -> bool:
         if self._ping(timeout=0.8):
@@ -1975,17 +2280,20 @@ class SabDownloadManager:
             try:
                 self.ensure_running(blocking=True)
                 self._sync_configuration()
-                self.sync_event.wait(8.0)
+                self._flush_pending_submissions(max_items=3)
+                self.sync_event.wait(3.0)
                 self.sync_event.clear()
             except Exception as exc:
                 self._last_error = str(exc)
                 self._event("warning", f"Download engine unavailable: {exc}")
-                self.sync_event.wait(8.0)
+                self.sync_event.wait(3.0)
                 self.sync_event.clear()
 
     def engine_status(self) -> dict[str, Any]:
         exe = self._engine_exe()
         now = time.time()
+        if self._engine_status_cache and now - self._engine_status_ts < 1.0:
+            return dict(self._engine_status_cache)
         probe_ready = self._ping(timeout=0.55)
         if probe_ready:
             self._engine_unready_since = 0.0
@@ -2006,10 +2314,10 @@ class SabDownloadManager:
         except Exception:
             port = 0
             config_name = ""
-        return {
+        result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.5.35",
+            "adapter_version": "3.5.52",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -2025,6 +2333,9 @@ class SabDownloadManager:
             "config_generation": config_name,
             "official_sha256": SAB_WINDOWS_X64_SHA256,
         }
+        self._engine_status_cache = dict(result)
+        self._engine_status_ts = now
+        return result
 
     def _tracked(self) -> dict[str, dict[str, Any]]:
         jobs = self.state.get("jobs")
@@ -2116,23 +2427,223 @@ class SabDownloadManager:
             return "The built-in download engine was temporarily unavailable while queueing this release."
         return "The built-in download engine could not queue this release."
 
+    def queue_nzb(self, provider_id: str, source_name: str, raw: bytes, automation_context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Commit an NZB to NewzDeck immediately and hand it to SAB asynchronously.
+
+        Interactive/Automation Grabs must never block an HTTP request on SAB startup.
+        Persist the NZB and its Smart Import identity first, expose it as Queued, then
+        let the normal background engine worker perform the SAB addlocalfile handoff.
+        """
+        parsed = self.parse_nzb(raw, source_name)
+        files = list(parsed.get("files") or [])
+        expected = sum(max(0, int(x.get("bytes", 0) or 0)) for x in files if isinstance(x, dict))
+        passwords = list(parsed.get("passwords") or [])
+        job_name = str(parsed.get("name") or Path(source_name).stem)
+        if isinstance(automation_context, dict):
+            release_name = str(automation_context.get("release_title") or "").strip()
+            if release_name:
+                job_name = release_name
+        ticket = "pending-" + uuid.uuid4().hex
+        pending_path = self.incoming_dir / f"{ticket}.nzb"
+        pending_path.write_bytes(raw)
+        now = time.time()
+        self._refresh_shared_state()
+        with self.lock:
+            self._tracked()[ticket] = {
+                "id": ticket, "name": _safe_name(job_name), "source_name": source_name,
+                "provider_id": provider_id, "expected_bytes": max(0, int(expected)),
+                "file_count": max(1, len(files)), "automation_context": dict(automation_context or {}),
+                "priority": "normal", "created_ts": now, "import_status": "", "import_message": "",
+                "import_progress": 0, "imported": False, "pending_submit": True,
+                "pending_path": str(pending_path), "pending_password": str(passwords[0]) if passwords else "",
+                "pending_attempts": 0, "pending_next_ts": 0.0, "pending_last_error": "",
+                "pending_before_ids": [], "pending_before_ids_known": False, "pending_ambiguous_since": 0.0,
+                "output_hint": str(self.download_dir_getter() / _safe_name(job_name)), "_updated_ts": now,
+            }
+            self.state.setdefault("removed_jobs", {}).pop(ticket, None)
+            self._save_state()
+        self._last_snapshot_ts = 0.0
+        self.start_background_threads()
+        self.sync_event.set()
+        self._event("info", f"Queued {job_name} for immediate SAB handoff", pending_id=ticket)
+        return {
+            "ok": True, "collection_id": ticket, "collection_name": _safe_name(job_name),
+            "files": max(1, len(files)), "added": [{"id": ticket, "filename": _safe_name(job_name), "collection_id": ticket}],
+            "duplicates": [], "skipped": [], "warnings": [],
+            "folder": str(self.download_dir_getter() / _safe_name(job_name)),
+            "engine": "SABnzbd", "engine_version": SAB_VERSION, "pending_engine_handoff": True,
+        }
+
+    def _flush_pending_submissions(self, max_items: int = 3) -> int:
+        """Submit already-committed Grab tickets after SAB is ready.
+
+        A per-ticket kernel lock prevents desktop and service runtimes from submitting
+        the same NZB. Failures in the localhost control path remain queued and retry
+        without asking the user to click Grab again.
+        """
+        self._refresh_shared_state()
+        now = time.time()
+        with self.lock:
+            pending = [(str(k), dict(v)) for k, v in self._tracked().items()
+                       if isinstance(v, dict) and v.get("pending_submit") and not v.get("terminal_status")
+                       and float(v.get("pending_next_ts") or 0) <= now]
+        pending.sort(key=lambda kv: float(kv[1].get("created_ts") or 0))
+        completed = 0
+        for ticket, meta in pending[:max(1, int(max_items))]:
+            claim_path = self.incoming_dir / f".{ticket}.submit.lock"
+            claim = self._try_kernel_file_lock(claim_path)
+            if claim is None:
+                continue
+            try:
+                self._refresh_shared_state()
+                with self.lock:
+                    live = self._tracked().get(ticket)
+                    if not isinstance(live, dict) or not live.get("pending_submit"):
+                        continue
+                    meta = dict(live)
+
+                # Record the matching SAB ids that existed before the first attempt.
+                # If addlocalfile ever returns an ambiguous connection reset, this
+                # baseline lets a later pass prove whether SAB accepted a new job
+                # before NewzDeck considers another submission.
+                if not bool(meta.get("pending_before_ids_known")):
+                    before = self._sab_ids_for_name(str(meta.get("name") or ""), timeout=1.0)
+                    if before is not None:
+                        with self.lock:
+                            live = self._tracked().get(ticket)
+                            if isinstance(live, dict):
+                                live["pending_before_ids"] = sorted(before)
+                                live["pending_before_ids_known"] = True
+                                self._touch_job_locked(live)
+                                self._save_state()
+                                meta = dict(live)
+
+                ambiguous_since = float(meta.get("pending_ambiguous_since") or 0.0)
+                if ambiguous_since > 0:
+                    current = self._sab_ids_for_name(str(meta.get("name") or ""), timeout=1.2)
+                    if current is None or not bool(meta.get("pending_before_ids_known")):
+                        with self.lock:
+                            live = self._tracked().get(ticket)
+                            if isinstance(live, dict):
+                                live["pending_next_ts"] = time.time() + 2.0
+                                self._touch_job_locked(live)
+                                self._save_state()
+                        continue
+                    before = {str(x) for x in (meta.get("pending_before_ids") or [])}
+                    added = sorted(set(current) - before)
+                    if added:
+                        real_id = str(added[0])
+                        self._track_add(
+                            real_id, name=str(meta.get("name") or "NZB package"),
+                            source_name=str(meta.get("source_name") or "Queued Grab.nzb"),
+                            provider_id=str(meta.get("provider_id") or ""),
+                            expected_bytes=int(meta.get("expected_bytes") or 0),
+                            file_count=int(meta.get("file_count") or 1),
+                            automation_context=dict(meta.get("automation_context") or {}),
+                            priority=str(meta.get("priority") or "normal"),
+                        )
+                        self._refresh_shared_state()
+                        with self.lock:
+                            self._tracked().pop(ticket, None)
+                            self._mark_removed_locked(ticket)
+                            self._save_state()
+                        try:
+                            Path(str(meta.get("pending_path") or "")).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        self._last_snapshot_ts = 0.0
+                        completed += 1
+                        self._event("warning", "Recovered ambiguous queued SAB handoff without duplicate submission", pending_id=ticket, nzo_id=real_id)
+                        continue
+                    if time.time() - ambiguous_since < 8.0:
+                        with self.lock:
+                            live = self._tracked().get(ticket)
+                            if isinstance(live, dict):
+                                live["pending_next_ts"] = time.time() + 1.5
+                                self._touch_job_locked(live)
+                                self._save_state()
+                        continue
+                    # SAB has been queryable for multiple seconds and no id beyond
+                    # the pre-submit baseline exists. A retry is now proven safe.
+                    with self.lock:
+                        live = self._tracked().get(ticket)
+                        if isinstance(live, dict):
+                            live["pending_ambiguous_since"] = 0.0
+                            live["pending_next_ts"] = 0.0
+                            self._touch_job_locked(live)
+                            self._save_state()
+                            meta = dict(live)
+
+                path = Path(str(meta.get("pending_path") or ""))
+                if not path.exists():
+                    with self.lock:
+                        live = self._tracked().get(ticket)
+                        if isinstance(live, dict):
+                            live["pending_submit"] = False
+                            live["terminal_status"] = "failed"
+                            live["pending_last_error"] = "The queued NZB staging file is missing."
+                            self._touch_job_locked(live)
+                            self._save_state()
+                    continue
+                raw = path.read_bytes()
+                try:
+                    result = self._submit_nzb(
+                        str(meta.get("provider_id") or ""), str(meta.get("source_name") or path.name), raw,
+                        name=str(meta.get("name") or path.stem), expected_bytes=int(meta.get("expected_bytes") or 0),
+                        file_count=int(meta.get("file_count") or 1),
+                        automation_context=dict(meta.get("automation_context") or {}),
+                        priority=str(meta.get("priority") or "normal"), password=str(meta.get("pending_password") or ""),
+                    )
+                    real_id = str(result.get("collection_id") or "")
+                    self._refresh_shared_state()
+                    with self.lock:
+                        self._tracked().pop(ticket, None)
+                        self._mark_removed_locked(ticket)
+                        self._save_state()
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    self._last_snapshot_ts = 0.0
+                    completed += 1
+                    self._event("info", "Completed queued SAB handoff", pending_id=ticket, nzo_id=real_id)
+                except Exception as exc:
+                    attempts = int(meta.get("pending_attempts") or 0) + 1
+                    low = str(exc or "").casefold()
+                    ambiguous = "could not safely confirm whether sab accepted" in low
+                    delay = 1.5 if ambiguous else min(15.0, 0.75 * (2 ** min(attempts - 1, 4)))
+                    with self.lock:
+                        live = self._tracked().get(ticket)
+                        if isinstance(live, dict):
+                            live["pending_attempts"] = attempts
+                            live["pending_next_ts"] = time.time() + delay
+                            live["pending_last_error"] = str(exc)[:500]
+                            if ambiguous and not float(live.get("pending_ambiguous_since") or 0.0):
+                                live["pending_ambiguous_since"] = time.time()
+                            self._touch_job_locked(live)
+                            self._save_state()
+                    self._last_snapshot_ts = 0.0
+                    self._event("warning", "Queued SAB handoff will reconcile before retry" if ambiguous else "Queued SAB handoff will retry", pending_id=ticket, attempt=attempts, error=str(exc))
+                    # Engine/control errors are shared across queued tickets; let the
+                    # next engine-loop pass recover before trying additional entries.
+                    break
+            finally:
+                self._release_kernel_file_lock(claim)
+                try:
+                    claim_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return completed
+
     def _submit_nzb(self, provider_id: str, source_name: str, raw: bytes, *, name: str,
                     expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None = None,
                     priority: str = "normal", password: str = "") -> dict[str, Any]:
-        # Startup/configuration calls happen before addlocalfile and are therefore
-        # safe to retry.  SAB occasionally recycles its localhost HTTP listener
-        # during configuration persistence on Windows, which surfaces as 10054.
-        for attempt in range(3):
-            try:
-                self.ensure_running(blocking=True)
-                self._sync_configuration()
-                break
-            except Exception as exc:
-                if not self._is_transient_control_error(exc) or attempt >= 2:
-                    if self._is_transient_control_error(exc):
-                        raise RuntimeError(self._friendly_submit_error(exc) + " Please try Grab again in a moment.") from exc
-                    raise
-                time.sleep(0.25 * (attempt + 1))
+        # Synchronous callers (ordinary NZB imports) may still ensure SAB is ready.
+        # Interactive/Automation Grabs use queue_nzb() and therefore never block the
+        # browser request on this startup/control path.
+        self.start_background_threads()
+        self.sync_event.set()
+        self.ensure_running(blocking=True)
 
         safe_source = _safe_name(Path(source_name).stem, "NewzDeck") + ".nzb"
         path = self.incoming_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{safe_source}"
@@ -2259,9 +2770,42 @@ class SabDownloadManager:
         return self._submit_nzb(provider_id, name + ".nzb", raw, name=name, expected_bytes=expected,
                                 file_count=len(items), automation_context=None)
 
-    def _queue_and_history(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        queue_data = self._api("queue", start=0, limit=200, timeout=4)
-        history_data = self._api("history", start=0, limit=200, timeout=4)
+    def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Read SAB queue/history with an optimized live-display path.
+
+        Queue contains the rapidly-changing transfer counters and is always fresh.
+        History is cached for at most one second during live polling, but is forced
+        fresh immediately when a queue id disappears so queue->history transitions
+        remain effectively real time.
+        """
+        queue_data = self._api("queue", start=0, limit=200, timeout=1.5 if live else 4)
+        if not live:
+            history_data = self._api("history", start=0, limit=200, timeout=4)
+            self._live_history_payload = history_data
+            self._live_history_fetch_ts = time.time()
+            _qroot, qslots = self._queue_slots(queue_data)
+            self._live_queue_ids = {str(x.get("nzo_id") or x.get("id") or "") for x in qslots if str(x.get("nzo_id") or x.get("id") or "")}
+            return queue_data, history_data
+
+        now = time.time()
+        _qroot, qslots = self._queue_slots(queue_data)
+        current_ids = {str(x.get("nzo_id") or x.get("id") or "") for x in qslots if str(x.get("nzo_id") or x.get("id") or "")}
+        queue_handoff = bool(self._live_queue_ids - current_ids)
+        cached_history_root, _cached_history_slots = self._history_slots(self._live_history_payload or {})
+        cached_pp_active = int(_num(cached_history_root.get("ppslots"), 0) or 0) > 0
+        history_interval = 0.5 if cached_pp_active else 1.0
+        history_due = (
+            self._live_history_payload is None
+            or now - self._live_history_fetch_ts >= history_interval
+            or queue_handoff
+        )
+        if history_due:
+            history_data = self._api("history", start=0, limit=200, timeout=2.0)
+            self._live_history_payload = history_data
+            self._live_history_fetch_ts = now
+        else:
+            history_data = self._live_history_payload or {}
+        self._live_queue_ids = current_ids
         return queue_data, history_data
 
     @staticmethod
@@ -2437,6 +2981,9 @@ class SabDownloadManager:
             downloaded = int(expected * pct / 100.0)
         storage = str(slot.get("storage") or slot.get("path") or "")
         pp = str(slot.get("status") or "")
+        sab_post_stage, sab_post_progress, sab_post_progress_known, sab_post_message = _sab_post_progress(slot, post)
+        if sab_post_stage:
+            post = sab_post_stage
         import_status = str(meta.get("import_status") or "")
         if import_status in {"queued", "waiting", "importing", "failed", "completed"}:
             post = import_status if import_status != "completed" else "completed"
@@ -2458,9 +3005,12 @@ class SabDownloadManager:
             "total_parts": 100, "speed_bps": speed, "eta_seconds": eta_seconds, "connections_used": 0, "path": storage, "partial_path": str(slot.get("path") or ""),
             "error": str(slot.get("fail_message") or "") if status == "failed" else "", "created_ts": created, "started_ts": _num(meta.get("started_ts"), created),
             "completed_ts": completed_ts, "history_rank": history_rank, "recovered_parts": 0, "retry_count": 0, "priority": str(meta.get("priority") or "normal"), "paused": paused,
-            "queue_order": _num(slot.get("index"), 0), "status_detail": str(slot.get("stage_log") or slot.get("status") or ""), "transfer_phase": "sabnzbd",
-            "integrity_status": "healthy" if status == "completed" else "unknown", "post_status": post, "post_progress": int(meta.get("import_progress", 0) or 0),
-            "post_message": str(meta.get("import_message") or pp), "automation_context": automation_context, "source": "nzb",
+            "queue_order": _num(slot.get("index"), 0), "status_detail": sab_post_message or _sab_text(slot.get("stage_log")) or str(slot.get("status") or ""), "transfer_phase": "sabnzbd",
+            "integrity_status": "healthy" if status == "completed" else "unknown", "post_status": post,
+            "post_progress": int(meta.get("import_progress", 0) or 0) if import_status in {"queued", "waiting", "importing", "failed", "completed"} else sab_post_progress,
+            "post_progress_known": bool(import_status == "importing" or (not import_status and sab_post_progress_known)),
+            "post_indeterminate": bool(post in {"queued", "verifying", "repairing", "extracting", "importing"} and not (import_status == "importing" or (not import_status and sab_post_progress_known))),
+            "post_message": str(meta.get("import_message") or sab_post_message or pp), "automation_context": automation_context, "source": "nzb",
             "automation_label": automation_label, "automation_release_title": automation_release_title,
             "automation_destination": automation_destination, "display_name": automation_label or str(slot.get("filename") or meta.get("name") or "NZB package"),
             "source_filename": str(slot.get("filename") or ""), "import_status": import_status,
@@ -2485,7 +3035,7 @@ class SabDownloadManager:
         package_name = str(meta.get("name") or job.get("collection_name") or "NZB package")
         return {
             "id": str(job["id"]), "name": package_name, "display_name": automation_label or package_name, "status": package_status,
-            "priority": str(meta.get("priority") or "normal"), "category": "Automation" if automation_context else "",
+            "priority": str(meta.get("priority") or "normal"), "category": ("One-time Media" if str(automation_context.get("source") or "")=="manual_media_grab" else "Automation" if automation_context else ""),
             "automation_context": automation_context, "automation_source": str(automation_context.get("source") or ""),
             "automation_label": automation_label, "automation_release_title": automation_release_title,
             "automation_destination": automation_destination, "source_filename": str(job.get("source_filename") or job.get("filename") or ""),
@@ -2495,7 +3045,9 @@ class SabDownloadManager:
             "queued_files": file_count if status == "queued" else 0, "active_files": file_count if status in {"downloading", "retry_wait"} else 0,
             "expected_bytes": expected, "downloaded_bytes": downloaded, "speed_bps": int(job.get("speed_bps", 0) or 0), "eta_seconds": int(job.get("eta_seconds", 0) or 0), "peak_speed_bps": 0,
             "connections_used": int(job.get("connections_used", 0) or 0), "retry_count": 0, "recovered_parts": 0, "failed_parts": 0,
-            "post_status": str(job.get("post_status") or ""), "post_progress": int(job.get("post_progress", 0) or 0), "post_message": str(job.get("post_message") or ""),
+            "post_status": str(job.get("post_status") or ""), "post_progress": int(job.get("post_progress", 0) or 0),
+            "post_progress_known": bool(job.get("post_progress_known")), "post_indeterminate": bool(job.get("post_indeterminate")),
+            "post_message": str(job.get("post_message") or ""),
             "import_status": str(job.get("import_status") or ""),
             "imported": bool(job.get("imported")),
             "release_failure_recorded": bool(job.get("release_failure_recorded")),
@@ -2547,8 +3099,91 @@ class SabDownloadManager:
 
     def snapshot(self) -> dict[str, Any]:
         now = time.time()
-        if self._last_snapshot is not None and now - self._last_snapshot_ts < 0.6:
+        if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
             return self._last_snapshot
+        with self._snapshot_lock:
+            now = time.time()
+            if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
+                return self._last_snapshot
+            result = self._snapshot_uncached()
+            # Sequence/timestamp let the browser reject genuinely older state even
+            # if a slow HTTP response arrives after a newer request.
+            decorated = dict(result)
+            self._snapshot_sequence += 1
+            decorated["snapshot_seq"] = self._snapshot_sequence
+            decorated["snapshot_generated_ts"] = time.time()
+            self._last_snapshot = decorated
+            self._last_snapshot_ts = time.time()
+            return decorated
+
+    def _offline_job_from_meta(self, nzo_id: str, meta: dict[str, Any], now: float) -> dict[str, Any]:
+        """Reconstruct one persisted job while SAB is temporarily unavailable.
+
+        A process restart clears the in-memory last-view cache, but the shared ledger
+        survives.  Terminal jobs must remain terminal during that reconnect window;
+        otherwise old completed/imported downloads are falsely presented as a live
+        Queue and can consume Automation queue depth until SAB responds again.
+        """
+        prior = self._job_last_view.get(nzo_id)
+        if prior is not None:
+            job = dict(prior)
+            if str(job.get("status") or "") not in {"completed", "failed", "cancelled"}:
+                job["speed_bps"] = 0
+                job["connections_used"] = 0
+                job["status_detail"] = "Download engine reconnecting…"
+            return job
+
+        expected = max(0, int(meta.get("expected_bytes", 0) or 0))
+        completed_ts = _num(meta.get("completed_ts"), 0)
+        terminal_status = str(meta.get("terminal_status") or "").casefold()
+        import_status = str(meta.get("import_status") or "").casefold()
+        transfer_complete = bool(
+            terminal_status in {"completed", "failed", "cancelled"}
+            or completed_ts > 0
+            or meta.get("imported")
+            or import_status in {"queued", "waiting", "importing", "failed", "completed"}
+        )
+        if transfer_complete:
+            sab_status = "Failed" if terminal_status == "failed" else "Completed"
+            slot = {
+                "nzo_id": nzo_id,
+                "status": sab_status,
+                "filename": str(meta.get("name") or "NZB package"),
+                "time_added": _num(meta.get("created_ts"), now),
+                "completed": completed_ts or _num(meta.get("_updated_ts"), now),
+                "mb": expected / (1024 * 1024) if expected else 0,
+                "mbleft": 0,
+                "percentage": 100,
+                "storage": str(meta.get("resolved_output") or meta.get("output_hint") or ""),
+                "stage_log": "Download engine reconnecting…",
+            }
+            job = self._job_from_slot(nzo_id, meta, slot, history=True)
+            job["speed_bps"] = 0
+            job["connections_used"] = 0
+            job["status_detail"] = "Download complete • download engine reconnecting…" if job.get("status") == "completed" else "Download engine reconnecting…"
+            return job
+
+        created = _num(meta.get("created_ts"), now)
+        return {
+            "id": nzo_id, "identity": nzo_id, "collection_id": nzo_id,
+            "collection_name": str(meta.get("name") or "NZB package"),
+            "provider_id": str(meta.get("provider_id") or ""), "provider_name": "SABnzbd engine",
+            "origin_provider_id": str(meta.get("provider_id") or ""), "group": "",
+            "filename": str(meta.get("name") or "NZB package"), "kind": "file",
+            "status": "queued", "expected_bytes": expected, "downloaded_bytes": 0, "actual_size": 0,
+            "current_part": 0, "processed_parts": 0, "successful_parts": 0, "failed_parts": 0, "total_parts": 100,
+            "speed_bps": 0, "eta_seconds": 0, "connections_used": 0, "path": "", "partial_path": "", "error": "",
+            "created_ts": created, "started_ts": 0, "completed_ts": 0, "recovered_parts": 0, "retry_count": 0,
+            "priority": str(meta.get("priority") or "normal"), "paused": bool(self.state.get("paused")),
+            "queue_order": 0, "status_detail": "Waiting for built-in download engine",
+            "transfer_phase": "sabnzbd", "integrity_status": "unknown", "post_status": "", "post_progress": 0,
+            "post_message": "", "automation_context": dict(meta.get("automation_context") or {}),
+            "source": "nzb", "collection_role": "payload", "is_auxiliary": False,
+            "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
+        }
+
+    def _snapshot_uncached(self) -> dict[str, Any]:
+        now = time.time()
         self._refresh_shared_state()
         engine = self.engine_status()
         if not engine.get("ready"):
@@ -2561,35 +3196,10 @@ class SabDownloadManager:
             collections: list[dict[str, Any]] = []
             counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
             for nzo_id, meta in tracked.items():
-                prior = self._job_last_view.get(nzo_id)
-                if prior is not None:
-                    # Terminal history is sticky. A transient SAB heartbeat miss must
-                    # never turn an already-completed package back into Queued, which
-                    # made the Downloads badge/card flash on and off after completion.
-                    job = dict(prior)
-                    if str(job.get("status") or "") not in {"completed", "failed", "cancelled"}:
-                        job["speed_bps"] = 0
-                        job["status_detail"] = "Download engine reconnecting…"
-                else:
-                    expected = max(0, int(meta.get("expected_bytes", 0) or 0))
-                    created = _num(meta.get("created_ts"), now)
-                    job = {
-                        "id": nzo_id, "identity": nzo_id, "collection_id": nzo_id,
-                        "collection_name": str(meta.get("name") or "NZB package"),
-                        "provider_id": str(meta.get("provider_id") or ""), "provider_name": "SABnzbd engine",
-                        "origin_provider_id": str(meta.get("provider_id") or ""), "group": "",
-                        "filename": str(meta.get("name") or "NZB package"), "kind": "file",
-                        "status": "queued", "expected_bytes": expected, "downloaded_bytes": 0, "actual_size": 0,
-                        "current_part": 0, "processed_parts": 0, "successful_parts": 0, "failed_parts": 0, "total_parts": 100,
-                        "speed_bps": 0, "connections_used": 0, "path": "", "partial_path": "", "error": "",
-                        "created_ts": created, "started_ts": 0, "completed_ts": 0, "recovered_parts": 0, "retry_count": 0,
-                        "priority": str(meta.get("priority") or "normal"), "paused": bool(self.state.get("paused")),
-                        "queue_order": 0, "status_detail": "Waiting for built-in download engine",
-                        "transfer_phase": "sabnzbd", "integrity_status": "unknown", "post_status": "", "post_progress": 0,
-                        "post_message": "", "automation_context": dict(meta.get("automation_context") or {}),
-                        "source": "nzb", "collection_role": "payload", "is_auxiliary": False,
-                        "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
-                    }
+                # Reconstruct from durable ledger state.  A fresh process has no
+                # _job_last_view yet, so completed/imported records must not fall
+                # through to a synthetic Queued placeholder while SAB reconnects.
+                job = self._offline_job_from_meta(nzo_id, meta, now)
                 jobs.append(job)
                 collections.append(self._collection_from_job(job, meta))
                 status = str(job.get("status") or "queued")
@@ -2602,12 +3212,12 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.35 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.5.52 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
         try:
-            queue_payload, history_payload = self._queue_and_history()
+            queue_payload, history_payload = self._queue_and_history(live=True)
             qroot, qslots = self._queue_slots(queue_payload)
             hroot, hslots = self._history_slots(history_payload)
             self._adopt_untracked_slots(qslots, hslots)
@@ -2671,6 +3281,14 @@ class SabDownloadManager:
         with self.lock:
             tracked = dict(self._tracked())
         for nzo_id, meta in tracked.items():
+            if bool(meta.get("pending_submit")):
+                job = self._offline_job_from_meta(nzo_id, meta, now)
+                job["status"] = "queued"
+                job["status_detail"] = "Queued • handing off to built-in download engine"
+                jobs.append(job)
+                collections.append(self._collection_from_job(job, meta))
+                counts["queued"] += 1
+                continue
             queue_slot = queue_by.get(nzo_id)
             history_slot = hist_by.get(nzo_id)
             history_status = str((history_slot or {}).get("status") or "").casefold()
@@ -2709,8 +3327,15 @@ class SabDownloadManager:
                 # a short grace window rather than removing/re-adding the card.
                 last_seen = self._job_last_seen_ts.get(nzo_id, 0.0)
                 prior = self._job_last_view.get(nzo_id)
-                if prior is not None and now - last_seen <= 2.5 and str(prior.get("status") or "") not in {"completed", "failed", "cancelled"}:
+                prior_status = str((prior or {}).get("status") or "")
+                preserve_seconds = 8.0 if prior_status == "downloading" else 3.0
+                if prior is not None and now - last_seen <= preserve_seconds and prior_status not in {"completed", "failed", "cancelled"}:
+                    # Missing from one SAB snapshot is not a state transition. A
+                    # foreground transfer gets a longer bridge because queue slots
+                    # can vanish for several polls while SAB reshapes files/articles.
                     job = dict(prior)
+                    if prior_status == "downloading":
+                        job["status_detail"] = str(job.get("status_detail") or "Downloading")
                     jobs.append(job)
                     collections.append(self._collection_from_job(job, meta))
                     counts[job["status"] if job["status"] in counts else "queued"] += 1
@@ -2731,12 +3356,27 @@ class SabDownloadManager:
             job = self._job_from_slot(nzo_id, meta, slot, history=history)
             if not history:
                 slot_status = str(slot.get("status") or "").casefold()
-                genuinely_active = slot_status in {"downloading", "fetching"} or nzo_id == foreground_id
+                prior = self._job_last_view.get(nzo_id) or {}
+                prior_was_active = str(prior.get("status") or "").casefold() == "downloading"
+                prior_done = max(0, int(prior.get("downloaded_bytes", 0) or 0))
+                current_done = max(0, int(job.get("downloaded_bytes", 0) or 0))
+                progress_advanced = current_done > prior_done
+                genuinely_active = slot_status in {"downloading", "fetching"} or nzo_id == foreground_id or progress_advanced
                 if genuinely_active:
-                    self._active_latch_until[nzo_id] = now + 2.5
-                elif (job.get("status") == "queued" and not queue_paused and slot_status not in {"paused", "propagating"}
-                      and self._active_latch_until.get(nzo_id, 0.0) > now):
-                    genuinely_active = True
+                    self._active_latch_until[nzo_id] = now + 8.0
+                    self._job_queued_observations[nzo_id] = 0
+                elif (job.get("status") == "queued" and prior_was_active and not queue_paused
+                      and slot_status not in {"paused", "propagating"}
+                      and (not foreground_id or foreground_id == nzo_id)):
+                    observations = self._job_queued_observations.get(nzo_id, 0) + 1
+                    self._job_queued_observations[nzo_id] = observations
+                    # Require several coherent observations before an active card is
+                    # demoted. The time latch bridges longer SAB article/file handoffs;
+                    # the observation gate handles fast polling without flicker.
+                    if observations < 4 or self._active_latch_until.get(nzo_id, 0.0) > now:
+                        genuinely_active = True
+                else:
+                    self._job_queued_observations[nzo_id] = 0
                 if genuinely_active and job.get("status") == "queued":
                     job["status"] = "downloading"
                     job["status_detail"] = str(slot.get("stage_log") or slot.get("status") or "Downloading")
@@ -2760,15 +3400,28 @@ class SabDownloadManager:
                             job["status_detail"] = "Connecting to Usenet provider…"
             else:
                 self._active_latch_until.pop(nzo_id, None)
+                self._job_queued_observations.pop(nzo_id, None)
             self._job_last_seen_ts[nzo_id] = now
             self._job_last_view[nzo_id] = dict(job)
-            if history and str(job.get("status") or "") == "completed" and _num(job.get("completed_ts"), 0) > 0 and _num(meta.get("completed_ts"), 0) <= 0:
+            if history and str(job.get("status") or "") in {"completed", "failed", "cancelled"}:
+                # Persist terminal classification, not only the timestamp. This makes
+                # restart/reconnect reconstruction monotonic even before SAB history
+                # is reachable in the new process.
                 with self.lock:
                     live_meta = self._tracked().get(nzo_id)
-                    if isinstance(live_meta, dict) and _num(live_meta.get("completed_ts"), 0) <= 0:
-                        live_meta["completed_ts"] = _num(job.get("completed_ts"), 0)
-                        self._touch_job_locked(live_meta)
-                        self._save_state()
+                    if isinstance(live_meta, dict):
+                        changed_terminal = False
+                        terminal = str(job.get("status") or "")
+                        if str(live_meta.get("terminal_status") or "") != terminal:
+                            live_meta["terminal_status"] = terminal
+                            changed_terminal = True
+                        completed_value = _num(job.get("completed_ts"), 0)
+                        if completed_value > 0 and _num(live_meta.get("completed_ts"), 0) <= 0:
+                            live_meta["completed_ts"] = completed_value
+                            changed_terminal = True
+                        if changed_terminal:
+                            self._touch_job_locked(live_meta)
+                            self._save_state()
             jobs.append(job)
             collections.append(self._collection_from_job(job, meta))
             counts[job["status"] if job["status"] in counts else "queued"] += 1
@@ -2818,7 +3471,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.35", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.5.52", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -2863,6 +3516,7 @@ class SabDownloadManager:
                     self._job_last_seen_ts.pop(nzo, None)
                     self._active_latch_until.pop(nzo, None)
                     self._job_missing_since.pop(nzo, None)
+                    self._job_queued_observations.pop(nzo, None)
                 self._save_state()
             self._last_snapshot_ts = 0
             return self.snapshot()
@@ -2897,6 +3551,7 @@ class SabDownloadManager:
                     self._job_last_seen_ts.pop(nzo, None)
                     self._active_latch_until.pop(nzo, None)
                     self._job_missing_since.pop(nzo, None)
+                    self._job_queued_observations.pop(nzo, None)
                 self._save_state()
             self._last_snapshot_ts = 0
             return self.snapshot()
@@ -3003,7 +3658,7 @@ class SabDownloadManager:
         groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
         for nzo_id, meta in tracked.items():
             context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
-            if not context or str(context.get("source") or "") != "automation_grab" or meta.get("imported"):
+            if not _is_smart_import_context(context) or meta.get("imported"):
                 continue
             target = str(context.get("target_key") or "").strip() or f"job:{nzo_id}"
             groups.setdefault(target, []).append((str(nzo_id), meta))
@@ -3074,12 +3729,13 @@ class SabDownloadManager:
                     tracked = dict(self._tracked())
                 for nzo_id, meta in tracked.items():
                     context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
-                    if not context or str(context.get("source") or "") != "automation_grab" or meta.get("imported"):
+                    if not _is_smart_import_context(context) or meta.get("imported"):
                         continue
                     slot = by_id.get(nzo_id)
                     if slot is not None and str(slot.get("status") or "").casefold() == "failed":
                         self._remember_failed_automation_release(nzo_id, meta, slot)
                 self._process_completed_automation_slots(qslots, hslots)
+                self._retry_pending_automation_cleanups()
             except Exception as exc:
                 self._event("warning", f"Automation completion monitor failed: {exc}")
 
@@ -3244,7 +3900,7 @@ class SabDownloadManager:
         # outside the configured Completed Download Folder and never guess between
         # multiple similarly plausible groups.
         exact_target = bool(
-            str(context.get("source") or "") == "automation_grab" and (
+            _is_smart_import_context(context) and (
                 (str(context.get("kind") or "") == "tv" and context.get("season") is not None and context.get("episode") is not None and not bool(context.get("season_pack")))
                 or str(context.get("kind") or "") == "movie"
             )
@@ -3308,6 +3964,105 @@ class SabDownloadManager:
 
         return [], next((p for p in explicit if p.exists() and p.is_dir()), None), "SAB completed the job but its media output could not yet be located safely"
 
+    def _cleanup_automation_output(self, nzo_id: str, staging_dir: Path | str | None, *, attempts: int = 6) -> tuple[bool, str]:
+        """Remove one verified Automation job's completed SAB folder safely.
+
+        v3.5.38 closes a long-standing split between the native post-processor and
+        the private SAB engine path. Smart Import moves/keeps the media file, but
+        SAB can legitimately leave .nfo/.sfv/.srr/.par2/artwork and other sidecars
+        in its completed job directory. The previous SAB path only tried rmdir(),
+        which can never remove those files, so raw release folders accumulated.
+
+        Cleanup is allowed only for a child of NewzDeck's configured Completed
+        Download Folder; the Completed Download Folder itself is never recursively
+        removed. A few short retries absorb transient Windows Defender/Explorer/SAB
+        file handles without turning a momentary sharing violation into permanent
+        debris.
+        """
+        if not staging_dir:
+            return False, "No completed job folder was available for cleanup"
+        try:
+            complete = Path(self.download_dir_getter()).expanduser().resolve()
+            stage = Path(staging_dir).expanduser().resolve()
+        except OSError as exc:
+            return False, f"Could not resolve completed job folder: {exc}"
+        try:
+            relative = stage.relative_to(complete)
+        except ValueError:
+            return False, f"Refused cleanup outside the Completed Download Folder: {stage}"
+        if not relative.parts:
+            # Direct-media jobs can occasionally resolve to a file directly in the
+            # Completed Download Folder. The media file itself is already moved by
+            # Smart Import, but recursively deleting the shared root is forbidden.
+            return False, "Completed media was stored directly in the shared Download Folder; root cleanup was intentionally skipped"
+
+        # _resolve_automation_output is bounded to one job. If SAB/history points at
+        # a nested media directory, remove the top-level job folder, not only the
+        # innermost directory, so release sidecars beside that nested directory are
+        # cleaned as well.
+        owned = complete / relative.parts[0]
+        delay = 0.15
+        last_error = ""
+        for attempt in range(max(1, int(attempts))):
+            try:
+                shutil.rmtree(owned)
+                return True, f"Removed completed media staging folder: {owned}"
+            except FileNotFoundError:
+                return True, f"Completed media staging folder was already removed: {owned}"
+            except OSError as exc:
+                last_error = str(exc)
+                if attempt + 1 >= max(1, int(attempts)):
+                    break
+                time.sleep(delay)
+                delay = min(1.5, delay * 1.8)
+        return False, f"Could not completely remove {owned}: {last_error or 'folder is still in use'}"
+
+    def _retry_pending_automation_cleanups(self) -> None:
+        """Retry successful imports whose SAB source folder hit a transient lock."""
+        now = time.time()
+        with self.lock:
+            rows = []
+            for nzo_id, meta in self._tracked().items():
+                if not isinstance(meta, dict) or not meta.get("imported") or meta.get("source_cleaned") or meta.get("cleanup_abandoned"):
+                    continue
+                # Adopt successful v3.5.37 imports too. That release persisted
+                # resolved_output + "Smart Import complete" but had no recursive
+                # SAB-source cleanup state, which is why old .nfo/.sfv folders can
+                # still be present when v3.5.38 first starts.
+                context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+                legacy_exact_target = bool(str(context.get("kind") or "") == "movie" or (str(context.get("kind") or "") == "tv" and context.get("season") is not None and context.get("episode") is not None and not bool(context.get("season_pack"))))
+                legacy_success = legacy_exact_target and str(meta.get("import_status") or "") == "completed" and str(meta.get("import_message") or "").startswith("Smart Import complete")
+                if not meta.get("cleanup_pending") and not legacy_success:
+                    continue
+                if _num(meta.get("cleanup_retry_after"), 0) > now:
+                    continue
+                stage = str(meta.get("resolved_output") or "").strip()
+                if stage:
+                    rows.append((str(nzo_id), stage))
+        changed = False
+        for nzo_id, stage in rows[:4]:
+            cleaned, detail = self._cleanup_automation_output(nzo_id, stage, attempts=2)
+            with self.lock:
+                live = self._tracked().get(nzo_id)
+                if not isinstance(live, dict):
+                    continue
+                count = int(live.get("cleanup_retry_count", 0) or 0) + 1
+                live["cleanup_retry_count"] = count
+                live["cleanup_message"] = detail[:500]
+                terminal = ("intentionally skipped" in detail or "outside the Completed Download Folder" in detail or "No completed job folder" in detail)
+                live["cleanup_retry_after"] = 0 if (cleaned or terminal) else time.time() + min(60.0, 5.0 + count * 2.0)
+                live["cleanup_pending"] = not cleaned and not terminal
+                live["cleanup_abandoned"] = bool(terminal)
+                live["source_cleaned"] = bool(cleaned)
+                self._touch_job_locked(live)
+                changed = True
+                if cleaned:
+                    self._event("info", "Removed deferred media staging folder", nzo_id=nzo_id, path=stage)
+            if cleaned:
+                self._last_snapshot_ts = 0
+        if changed:
+            self._save_state()
+
     def _run_automation_import(self, nzo_id: str, meta: dict[str, Any], slot: dict[str, Any]) -> None:
         claimed = self._claim_automation_import(nzo_id)
         if not claimed:
@@ -3337,6 +4092,29 @@ class SabDownloadManager:
             ok = bool(result.get("ok")) if isinstance(result, dict) else False
             skipped = bool(result.get("skipped")) if isinstance(result, dict) else False
             retryable = bool(result.get("retryable")) if isinstance(result, dict) else False
+            # v3.5.38 Movie imports are not allowed to finish silently unless the
+            # reconciled final/kept-existing library file actually exists. This turns
+            # any remaining Movie-specific path problem into an explicit Import needs
+            # attention state while preserving the SAB output for diagnosis/retry.
+            context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+            if ok and str(context.get("kind") or "") == "movie":
+                destination = str((result or {}).get("destination") or "").strip()
+                if not destination or not Path(destination).is_file():
+                    result = dict(result or {})
+                    result.update({"ok": False, "needs_attention": True, "cleanup_safe": False, "reason": "Movie Smart Import did not produce or reconcile a verified library file; the completed SAB output was preserved for Retry Import."})
+                    ok = False
+                    skipped = False
+                    retryable = False
+            cleanup_safe = bool((result or {}).get("cleanup_safe", True)) if isinstance(result, dict) else False
+            cleanup_attempted = bool(ok and cleanup_safe and staging_dir)
+            cleanup_done = False
+            cleanup_detail = ""
+            if cleanup_attempted:
+                cleanup_done, cleanup_detail = self._cleanup_automation_output(nzo_id, staging_dir, attempts=6)
+                if isinstance(result, dict):
+                    result = dict(result)
+                    result["source_cleaned"] = bool(cleanup_done)
+                    result["cleanup_message"] = cleanup_detail
             with self.lock:
                 live = self._tracked().get(nzo_id)
                 if live:
@@ -3358,6 +4136,22 @@ class SabDownloadManager:
                         live["import_status"] = "completed" if (ok or skipped) else "failed"
                         live["import_progress"] = 100 if (ok or skipped) else int(live.get("import_progress", 0) or 0)
                         live["import_retry_after"] = 0
+                    if cleanup_attempted:
+                        cleanup_terminal = ("intentionally skipped" in cleanup_detail or "outside the Completed Download Folder" in cleanup_detail or "No completed job folder" in cleanup_detail)
+                        live["source_cleaned"] = bool(cleanup_done)
+                        live["cleanup_pending"] = not bool(cleanup_done) and not cleanup_terminal
+                        live["cleanup_abandoned"] = bool(cleanup_terminal)
+                        live["cleanup_message"] = str(cleanup_detail)[:500]
+                        live["cleanup_retry_count"] = 0
+                        live["cleanup_retry_after"] = 0 if (cleanup_done or cleanup_terminal) else time.time() + 5.0
+                    elif ok and not cleanup_safe:
+                        live["source_cleaned"] = False
+                        live["cleanup_pending"] = False
+                        live["cleanup_message"] = "Source folder preserved because Import Inspector still has unresolved media"
+                    if isinstance(result, dict):
+                        live["import_destination"] = str(result.get("destination") or "")[:1000]
+                        live["imported_count"] = int(result.get("imported_count", 0) or 0)
+                        live["kept_existing_count"] = int(result.get("kept_existing", 0) or 0)
                     live["import_claim_pid"] = 0
                     live["import_claim_ts"] = 0
                     if retryable and not ok and int(live.get("import_retry_count", 0) or 0) >= 24:
@@ -3365,11 +4159,17 @@ class SabDownloadManager:
                     elif retryable and not ok:
                         message = f"Smart Import is locating completed media • {resolution}"
                     else:
-                        message = str((result or {}).get("reason") or ("Smart Import complete" if ok else "Smart Import requires attention"))
+                        if ok:
+                            dest = str((result or {}).get("destination") or "")
+                            message = "Smart Import complete" + (f" • {dest}" if dest else "")
+                            if cleanup_attempted:
+                                message += " • source cleaned" if cleanup_done else " • source cleanup pending"
+                        else:
+                            message = str((result or {}).get("reason") or "Smart Import requires attention")
                     live["import_message"] = message[:500]
                     self._touch_job_locked(live)
                     self._save_state()
-            self._event("info" if (ok or skipped or retryable) else "warning", f"Automation import {'completed' if ok else ('deferred' if retryable else 'finished')} for {meta.get('name')}", result=result)
+            self._event("info" if (ok or skipped or retryable) else "warning", f"Smart Import {'completed' if ok else ('deferred' if retryable else 'finished')} for {meta.get('name')}", result=result)
         except Exception as exc:
             with self.lock:
                 live = self._tracked().get(nzo_id)
@@ -3380,7 +4180,7 @@ class SabDownloadManager:
                     live["import_claim_ts"] = 0
                     self._touch_job_locked(live)
                     self._save_state()
-            self._event("error", f"Automation import failed for {meta.get('name')}: {exc}")
+            self._event("error", f"Smart Import failed for {meta.get('name')}: {exc}")
         finally:
             self._last_snapshot_ts = 0
 

@@ -1,25 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.5.35",
-  "base_version": "3.5.34",
-  "release": "Installer & Tray Reliability",
-  "adapter_version": "3.5.35",
+  "version": "3.5.52",
+  "base_version": "3.5.51",
+  "release": "Authoritative Service Runtime Handoff",
+  "adapter_version": "3.5.52",
   "changes": [
-    "Includes all accepted v3.5.34 reliability, updater, Downloads ordering, TMDB attribution, localhost hardening and Watch Folder fairness work.",
-    "Fixes the Windows installer upgrade path so the signed-in-user tray companion is closed before file-lock discovery.",
-    "Fixes existing-background-service upgrades by resolving the default download path from USERPROFILE with supported Inno Setup runtime functions.",
-    "Reworks the tray context-menu path to use the documented foreground-window plus TPM_RETURNCMD pattern and adds an explicit WM_CLOSE/Exit path.",
-    "Keeps the tray context menu responsive by avoiding a synchronous backend status request before the menu is displayed.",
-    "Builds and validates the complete Windows Setup and Portable artifacts without creating or publishing a GitHub release."
+    "Fixes a same-version split-runtime condition where the Windows background service could load the real NNTP provider state while the Chromium desktop UI remained attached to a different desktop backend that reported an empty provider list.",
+    "Adds a bounded localhost authoritative-runtime probe: a healthy same-version background-service backend always wins over a desktop backend, and the Chromium app window navigates directly to the service port.",
+    "Manage NNTP Providers now refreshes /api/providers every time it opens instead of trusting stale in-memory provider state.",
+    "Health diagnostics now expose backend PID, user root, and provider count to make future runtime-split diagnosis explicit.",
+    "Preserves v3.5.51 BOM-safe provider loading and does not rewrite providers.json or reset private SABnzbd."
   ],
   "regression_guards": [
-    "Python compile validation for server.py, sab_engine.py and automation_engine.py",
-    "JavaScript syntax validation for static/app.js",
-    "All six NewzDeck-owned Windows binaries rebuilt from public Go source with Go 1.23.2",
-    "Installer source rejects the invalid {userprofile} constant",
-    "Installer upgrade smoke test exercises an existing NewzDeckService registration",
-    "Installer upgrade smoke test exercises a running NewzDeckTrayWindow that locks NewzDeckTray.exe",
-    "Release checksum verification for Setup.exe and Portable.zip",
-    "No SAB transfer-data-path changes relative to accepted v3.5.34 application behavior"
-  ]
+    "v3.5.51 BOM-safe and provider-shape compatibility remains preserved.",
+    "v3.5.49 Smooth Post-Processing Motion remains preserved.",
+    "v3.5.47 Session 0 SAB Launch Fix remains unchanged.",
+    "Private SAB queue/history and Metadata Server v0.3.3 remain unchanged."
+  ],
+  "name": "Authoritative Service Runtime Handoff"
 }
