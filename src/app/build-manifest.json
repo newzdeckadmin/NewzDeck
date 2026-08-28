@@ -1,21 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.5.52",
-  "base_version": "3.5.51",
-  "release": "Authoritative Service Runtime Handoff",
-  "adapter_version": "3.5.52",
+  "version": "3.6.0",
+  "base_version": "3.5.52",
+  "release": "UI/UX Overhaul",
+  "adapter_version": "3.6.0",
   "changes": [
-    "Fixes a same-version split-runtime condition where the Windows background service could load the real NNTP provider state while the Chromium desktop UI remained attached to a different desktop backend that reported an empty provider list.",
-    "Adds a bounded localhost authoritative-runtime probe: a healthy same-version background-service backend always wins over a desktop backend, and the Chromium app window navigates directly to the service port.",
-    "Manage NNTP Providers now refreshes /api/providers every time it opens instead of trusting stale in-memory provider state.",
-    "Health diagnostics now expose backend PID, user root, and provider count to make future runtime-split diagnosis explicit.",
-    "Preserves v3.5.51 BOM-safe provider loading and does not rewrite providers.json or reset private SABnzbd."
+    "Introduces a major application-wide UI/UX overhaul focused on alignment, readability, visual hierarchy, and intuitive navigation while preserving the proven v3.5.52 runtime architecture.",
+    "Reorganizes the sidebar into Browse, Library, and System sections with clearer active-location states, higher-contrast library counters, and improved navigation accessibility.",
+    "Standardizes typography, spacing, control sizing, borders, semantic status colors, focus treatment, panels, dialogs, Settings, Providers, Diagnostics, Discover, Automation, and Downloads for a more consistent desktop experience.",
+    "Improves Discover detail presentation with a seamless full-width backdrop and corrected title-header transition.",
+    "Reworks Automation library cards and item settings so poster metadata, monitoring labels, profile/root controls, Library Name, and Manage actions stay aligned across varied titles and content lengths.",
+    "Corrects Newsgroups All/Bookmarks/Recent tab structure so full labels and count badges remain readable without overlap or truncation across supported desktop widths.",
+    "Aligns the top-right Providers, Settings, and About controls with real icon-and-label content and responsive compact behavior."
   ],
   "regression_guards": [
-    "v3.5.51 BOM-safe and provider-shape compatibility remains preserved.",
+    "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
+    "v3.5.51 BOM-safe provider loading remains preserved.",
     "v3.5.49 Smooth Post-Processing Motion remains preserved.",
-    "v3.5.47 Session 0 SAB Launch Fix remains unchanged.",
-    "Private SAB queue/history and Metadata Server v0.3.3 remain unchanged."
+    "v3.5.47 Session 0 SAB Launch Fix remains preserved.",
+    "Private SAB queue/history, Smart Import, Automation, Discover metadata behavior, tray/service logic, and Metadata Server v0.3.3 compatibility remain unchanged except for version identifiers and accepted UI presentation."
   ],
-  "name": "Authoritative Service Runtime Handoff"
+  "name": "UI/UX Overhaul"
 }

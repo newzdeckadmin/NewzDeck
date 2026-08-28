@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.5.52** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.0** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.5.52_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.0_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,19 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.5.52 highlights
+## v3.6.0 highlights
 
-v3.5.52 is the cumulative production release from the v3.5.36–v3.5.52 acceptance cycle. Highlights include:
+v3.6.0 is NewzDeck's major UI/UX overhaul. It keeps the accepted v3.5.52 runtime, private SAB download engine, Smart Import, Automation, Discover metadata, Windows service, and tray architecture while substantially improving how the application looks and navigates.
 
-- resilient tray/context-menu behavior across long idle periods and Explorer/taskbar recreation;
-- near-real-time Downloads updates without transient Active-card disappearance;
-- Smart Import finalization and cleanup for Movies and TV, including existing-media reconciliation;
-- one-time Movie/TV organization for manual Discover grabs;
-- faster Discover title opening and corrected Interactive Search sizing;
-- durable immediate Grab queueing that is independent of SAB startup timing;
-- corrected private SAB launch from the Windows background-service environment;
-- live and smooth post-processing progress;
-- BOM-safe provider-state loading and authoritative service-runtime handoff so the desktop UI and background service use the same provider state.
+- **Clearer navigation:** the sidebar is organized into Browse, Library, and System sections with stronger active-location states and readable library counters.
+- **Improved readability:** typography, spacing, contrast, semantic status colors, focus treatment, control sizing, and panel hierarchy are standardized across the app.
+- **Refined Newsgroups:** All newsgroups, Bookmarks, and Recent remain fully readable without label/count overlap or truncation.
+- **Better Discover details:** full-width backdrops transition cleanly into title information without cropped or stray edge bands.
+- **Aligned Automation:** library cards use consistent content rows, and item settings keep Monitoring, Quality Profile, Root Folder, and Library Name aligned.
+- **Consistent utility controls:** Providers, Settings, and About use properly aligned real icon-and-label button content with responsive compact behavior.
+- **Application-wide polish:** Downloads, Diagnostics, Providers, Settings, dialogs, cards, headers, controls, and responsive layouts share one coherent visual system.
 
 ## Requirements
 
@@ -70,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.5.52_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.0_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
