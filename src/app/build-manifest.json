@@ -1,23 +1,34 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.3",
-  "base_version": "3.6.2",
-  "release": "Automation Sidebar Startup & Cache Reliability",
-  "adapter_version": "3.6.3",
+  "version": "3.6.4",
+  "base_version": "3.6.3",
+  "release": "Newsgroup Package Browser & Binary Reconstruction",
+  "adapter_version": "3.6.4",
   "changes": [
-    "Fixes Library sidebar badges not populating at application startup until an Automation section was opened.",
-    "Adds a lightweight Automation sidebar-count endpoint so TV, Movies, and Wanted navigation badges can load independently of the full Automation summary and provider/newsgroup startup.",
-    "Caches the last positive Automation navigation counts, keeps startup retries bounded, and prevents transient empty snapshots from erasing valid sidebar counts while startup settles.",
-    "Restores missing Quality Profile and Newznab Indexer editor handlers that could abort app.js top-level execution before initializeApp() ran.",
-    "Adds Settings > Storage & Cache > Clear preview cache, clearing only full-preview cache files and browser preview memory while leaving thumbnails and user data intact.",
-    "Corrects the high-contrast sidebar badge CSS so the hidden state wins until real non-zero counts are available."
+    "Reworks All Posts into a wide metadata-first package browser while preserving Gallery/List thumbnails and the Preview pane for Images, Video, and Images + Video.",
+    "Adds Packages and Raw posts modes, connected-binary grouping for multipart RAR/legacy RAR, split ZIP/7-Zip/numeric sets, PAR2 data, and matching sidecars, with cleaned package titles and expandable original file/subject details.",
+    "Adds conservative package health/completeness reporting, hides incomplete/non-downloadable fragments by default, and keeps All/Incomplete-only troubleshooting filters for retained partial material.",
+    "Makes complete non-image/video binaries first-class selectable and queueable downloads, and queues healthy grouped sets under one collection identity for package-level scheduling/post-processing.",
+    "Adds package sorting for Newest, Oldest, Largest, Smallest, Name A-Z, Most files, and Best health.",
+    "Adds persistent browse-level minimum-size filtering in All Posts > Packages using reconstructed binary/package size (MB/GB, decimal values supported, 0 disables) without affecting Images/Video or Raw posts.",
+    "Adds low-bandwidth provider-independent name resolution using yEnc filename probes plus bounded PAR2/SFV metadata inspection, with persistent caching and live multipart regrouping after resolution.",
+    "Adds bounded archive-header inspection for RAR4/RAR5/ZIP and best-effort plain 7-Zip metadata so obfuscated outer names can derive package titles from internal filenames without downloading full archives.",
+    "Adds structural package reconstruction for randomized/obfuscated binaries using recovered title hints, counters, posting proximity, sequence, and conservative size patterns, with confidence-aware queue safety.",
+    "Fixes obfuscated yEnc multipart streams leaking thousands of segment rows into All Posts by reconstructing opaque streams from part/total structure before the browser renders them.",
+    "Adds bounded All Posts-only XOVER expansion for very large opaque multipart binaries and tracks consumed header ranges so Load older skips pages already absorbed by reconstruction.",
+    "Adds an anonymous multipart fallback for uploaders that randomize both subject tokens and From identities, using shared yEnc totals, part counters, posting sequence, segment-size consistency, and bounded posting windows.",
+    "Keeps unresolved multipart segment fragments out of the normal Downloadable view and prevents them from being selected/queued while allowing troubleshooting through All/Incomplete views.",
+    "Always opens/reopens a newsgroup from a fresh page 1 header load rather than restoring stale pagination/session snapshots, while retaining useful per-group display preferences.",
+    "Fixes Newsgroup browser toolbar alignment/wrapping and read-state badge paint containment so UNSEEN/NEW badges cannot overlap sticky package controls during scrolling.",
+    "Keeps Newsgroup deobfuscation provider-agnostic: no Easynews web integration/scraping and no Newznab/indexer reconciliation calls are used for browsing."
   ],
   "regression_guards": [
+    "v3.6.3 Automation Sidebar Startup & Cache Reliability remains preserved.",
     "v3.6.2 Tray Upgrade Lock Reliability remains preserved.",
-    "v3.6.1 Installer Upgrade Reliability service-stop fix remains preserved.",
+    "v3.6.1 Installer Upgrade Reliability remains preserved.",
     "v3.6.0 UI/UX Overhaul remains preserved.",
     "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
-    "Private SAB downloads, Smart Import, Automation behavior, Discover/TMDB integration, provider state, and Metadata Server v0.3.3 compatibility remain unchanged."
+    "Private SAB downloads, Smart Import, Automation behavior, Discover/TMDB integration, provider state, and Metadata Server v0.3.3 compatibility remain preserved."
   ],
-  "name": "Automation Sidebar Startup & Cache Reliability"
+  "name": "Newsgroup Package Browser & Binary Reconstruction"
 }

@@ -1596,3 +1596,290 @@ select{color-scheme:dark}
   .group-mode-tabs button{font-size:9.5px!important;padding:0 3px!important;gap:3px!important}
   .group-mode-tabs .group-tab-count{min-width:16px!important;height:16px!important;line-height:16px!important;padding:0 3px!important}
 }
+
+/* ========================================================================== */
+/* v3.6.4 — Newsgroup browser layout + connected binary sets                 */
+/* ========================================================================== */
+/* The browse toolbar previously depended on one wrapping flex row. At the
+   practical center-pane width that let the second wrap collide visually with
+   paging/summary/selection controls. Keep the two logical rows independent,
+   allow each row to grow when needed, and never assign a fixed toolbar height. */
+.articles-pane{min-width:0!important}
+.media-browser-toolbar{
+  display:flex!important;
+  flex:0 0 auto!important;
+  flex-direction:column!important;
+  align-items:stretch!important;
+  gap:0!important;
+  min-height:0!important;
+  height:auto!important;
+  padding:0!important;
+  overflow:visible!important;
+}
+.browser-toolbar-row{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:6px;
+  min-width:0;
+  min-height:45px;
+  padding:6px 9px;
+}
+.browser-toolbar-primary{border-bottom:1px solid rgba(142,170,199,.08)}
+.browser-toolbar-secondary{min-height:43px}
+.browser-toolbar-row>*{flex:0 0 auto}
+.browser-toolbar-primary .article-search-box{
+  flex:1 1 260px;
+  min-width:190px;
+  max-width:none;
+}
+.browser-toolbar-secondary .toolbar-spacer{flex:1 1 18px;min-width:8px}
+.browser-toolbar-row .select-label{min-width:0}
+.browser-toolbar-row .select-label select{max-width:150px}
+.browser-toolbar-primary .content-filter-label select{min-width:105px}
+.browser-toolbar-primary .status-filter-label select{min-width:92px}
+.browser-toolbar-secondary .sort-label select{min-width:93px}
+.browser-toolbar-secondary .headers-label select{min-width:74px}
+.binary-list-mode{
+  height:32px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:0 10px;
+  border:1px solid rgba(77,183,225,.20);
+  border-radius:8px;
+  background:rgba(18,44,61,.74);
+  color:#a8dff0;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.02em;
+  white-space:nowrap;
+}
+.binary-list-mode span{font-size:13px;color:#58d8ef}
+.binary-list-mode.hidden{display:none!important}
+.binary-view-toggle{height:32px;display:inline-flex;align-items:center;padding:2px;border:1px solid rgba(126,160,193,.16);border-radius:8px;background:rgba(8,17,27,.82);white-space:nowrap}
+.binary-view-toggle.hidden{display:none!important}
+.binary-view-toggle button{height:26px;padding:0 9px;border:0;border-radius:6px;background:transparent;color:#71899d;font-size:9.5px;font-weight:800;cursor:pointer}
+.binary-view-toggle button:hover{color:#c8dce8;background:rgba(31,55,75,.55)}
+.binary-view-toggle button.active{color:#d8f5fb;background:linear-gradient(180deg,rgba(31,102,125,.62),rgba(18,61,78,.68));box-shadow:inset 0 0 0 1px rgba(73,196,224,.20)}
+
+/* These rows follow the toolbar and therefore must size to their content.
+   This prevents the overlap visible when controls wrap on narrower panes. */
+.article-paging-bar{
+  flex:0 0 auto!important;
+  height:auto!important;
+  min-height:40px!important;
+  white-space:nowrap;
+  overflow:hidden;
+}
+.article-page-info{min-width:0;overflow:hidden}
+.article-page-info>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.summary-bar{
+  flex:0 0 auto!important;
+  height:auto!important;
+  min-height:34px!important;
+  padding-top:6px!important;
+  padding-bottom:6px!important;
+  flex-wrap:wrap;
+  row-gap:4px;
+}
+.selection-bar{
+  flex:0 0 auto!important;
+  height:auto!important;
+  min-height:42px!important;
+  padding-top:6px!important;
+  padding-bottom:6px!important;
+  flex-wrap:wrap;
+  row-gap:6px;
+}
+.selection-actions{min-width:0}
+#articlesList{flex:1 1 auto!important;min-height:0!important}
+
+/* All Posts is intentionally information-dense. It is always a list, while
+   Images/Video/Media keep the user's Gallery/List preference. */
+.binary-list-mode-active{padding:7px 8px!important;background:rgba(5,11,18,.35)}
+.binary-list-summary{
+  position:sticky;
+  top:-7px;
+  z-index:4;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:34px;
+  margin:-7px -8px 7px;
+  padding:6px 10px;
+  border-bottom:1px solid rgba(142,170,199,.10);
+  background:rgba(7,14,23,.96);
+  backdrop-filter:blur(12px);
+  color:#71889d;
+  font-size:10px;
+}
+.binary-list-summary strong{color:#b8d5e5;font-size:10.5px}
+.binary-list-summary span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.binary-set-wrap{margin:0 0 5px;border-radius:10px}
+.binary-set-row{
+  display:grid;
+  grid-template-columns:28px 30px minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  min-height:58px;
+  padding:7px 9px;
+  border:1px solid rgba(114,158,192,.13);
+  border-radius:10px;
+  background:linear-gradient(90deg,rgba(14,27,40,.96),rgba(9,18,28,.94));
+  cursor:pointer;
+  transition:border-color .13s ease,background .13s ease,box-shadow .13s ease;
+}
+.binary-set-row:hover{border-color:rgba(76,189,226,.32);background:linear-gradient(90deg,rgba(18,38,55,.98),rgba(10,21,32,.96))}
+.binary-set-row.selected{border-color:rgba(83,139,255,.50);box-shadow:inset 3px 0 0 rgba(83,139,255,.72);background:linear-gradient(90deg,rgba(34,57,103,.46),rgba(10,22,34,.96))}
+.binary-set-row.partial{border-color:rgba(77,192,206,.34);box-shadow:inset 3px 0 0 rgba(77,192,206,.54)}
+.binary-set-expand{
+  width:28px;height:28px;padding:0;border:1px solid rgba(139,171,204,.15);border-radius:7px;
+  background:#0d1925;color:#7f9aad;cursor:pointer;font-size:13px
+}
+.binary-set-expand:hover{border-color:rgba(76,189,226,.34);color:#d8eef7;background:#132536}
+.binary-set-icon{
+  width:28px;height:28px;display:grid;place-items:center;border-radius:7px;
+  border:1px solid rgba(62,191,219,.20);background:rgba(19,65,78,.36);color:#69d7e8;font-size:12px
+}
+.binary-set-main{min-width:0}
+.binary-set-title{display:flex;align-items:center;gap:7px;min-width:0;line-height:1.2}
+.binary-set-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dce9f2;font-size:12px;font-weight:730}
+.binary-set-count{flex:0 0 auto;color:#7190a4;font-size:9.5px;font-weight:750;white-space:nowrap}
+.binary-set-meta{display:flex;align-items:center;gap:9px;min-width:0;margin-top:5px;color:#657d91;font-size:9.5px}
+.binary-set-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.binary-set-meta .poster{min-width:0;max-width:210px}
+.binary-set-state{flex:0 0 auto;color:#75c6d3;font-size:9px;font-weight:800;white-space:nowrap}
+.binary-set-state.done{color:#73c9a9}
+.binary-set-state.warning{color:#d7b86c}
+.binary-health{flex:0 0 auto;display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid rgba(130,164,194,.15);border-radius:999px;background:rgba(15,28,40,.82);font-size:8.5px;font-weight:850;white-space:nowrap}
+.binary-health.good{border-color:rgba(69,184,141,.22);background:rgba(24,84,64,.28);color:#78d5ae}
+.binary-health.warn{border-color:rgba(215,184,108,.25);background:rgba(100,74,28,.26);color:#e1c37b}
+.binary-health.bad{border-color:rgba(222,104,104,.24);background:rgba(104,38,42,.27);color:#ea9494}
+.binary-health.neutral{color:#819aad}
+.parity-meta{color:#86c9de!important;font-weight:800}
+.binary-set-select,.binary-set-queue{
+  height:29px;padding:0 9px;border:1px solid rgba(136,171,202,.18);border-radius:7px;
+  background:#101d2a;color:#8faabc;font-size:9.5px;font-weight:800;white-space:nowrap;cursor:pointer
+}
+.binary-set-select:hover,.binary-set-queue:hover:not(:disabled){border-color:rgba(60,191,225,.34);color:#e0eef6;background:#142637}
+.binary-set-queue{border-color:rgba(67,190,184,.22);color:#83cfc5}
+.binary-set-queue:disabled{opacity:.4;cursor:default}
+.binary-package-details{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:4px 0 0 18px;padding:8px 10px 8px 40px;border-left:1px solid rgba(76,189,226,.20);border-bottom:1px solid rgba(125,159,188,.08);background:rgba(8,17,27,.52);color:#72899c;font-size:9px}
+.binary-package-details>span{white-space:nowrap}
+.binary-package-details b{color:#a8bfce;font-weight:800}
+.binary-package-warning{color:#dd9a86!important}
+.binary-package-health-note{flex:1 1 100%;white-space:normal!important;line-height:1.4;color:#72899c}
+.binary-package-health-note.good{color:#6fae97}.binary-package-health-note.warn{color:#b9a06d}.binary-package-health-note.bad{color:#c58484}
+.binary-set-members{
+  margin:0 0 1px 18px;
+  padding:5px 0 1px 12px;
+  border-left:1px solid rgba(76,189,226,.20)
+}
+.binary-set-member{margin-bottom:3px!important;border-radius:8px!important;background:rgba(10,19,29,.72)!important}
+.binary-set-member .article-top{padding-left:2px}
+
+/* Binary rows put the useful filename first and keep the raw Usenet subject as
+   supporting metadata instead of consuming the whole row. */
+.binary-list-mode-active .article-row{padding:8px 10px;margin-bottom:4px}
+.binary-list-mode-active .article-top{align-items:center;min-width:0}
+.binary-list-mode-active .article-subject{flex:1 1 auto;min-width:0;overflow:hidden}
+.binary-list-mode-active .article-subject>span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dbe8f1;font-size:11.5px}
+.binary-list-mode-active .article-subject>small{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#62798c;font-size:9px;font-weight:500}
+.binary-list-mode-active .article-meta{margin-top:5px;gap:9px}
+.binary-list-mode-active .article-meta .poster{min-width:0;max-width:260px}
+.media-chip.archive{color:#80d7e6;border-color:rgba(68,190,216,.32);background:rgba(19,65,78,.34)}
+.binary-set-preview-files{display:flex;flex-direction:column;gap:4px;margin:12px 0;padding:9px;border:1px solid rgba(137,171,204,.12);border-radius:9px;background:#09131d}
+.binary-set-preview-files span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8ea7b9;font-size:9.5px}
+.binary-set-preview-files em{color:#608196;font-size:9px;font-style:normal;font-weight:750}
+
+@media(max-width:1380px){
+  .browser-toolbar-primary .article-search-box{flex-basis:220px;min-width:170px}
+  .binary-set-row{grid-template-columns:27px 28px minmax(0,1fr) auto}
+  .binary-set-queue{grid-column:4;grid-row:2;justify-self:end;margin-top:-2px}
+  .binary-set-select{grid-column:4;grid-row:1}
+  .binary-set-main{grid-row:1 / span 2}
+  .binary-set-expand,.binary-set-icon{grid-row:1 / span 2}
+}
+@media(max-width:1180px){
+  .browser-toolbar-row{gap:5px;padding-left:7px;padding-right:7px}
+  .browser-toolbar-primary .article-search-box{order:10;flex:1 0 100%;min-width:0}
+  .browser-toolbar-secondary .toolbar-spacer{display:none}
+  .binary-list-summary{align-items:flex-start;flex-direction:column;gap:2px}
+  .binary-set-meta .poster{display:none}
+}
+
+/* All Posts is a metadata-first browser. Reclaim the media-preview column only in this mode. */
+.workspace.all-posts-wide{grid-template-columns:minmax(250px,320px) minmax(0,1fr)}
+.workspace.all-posts-wide .preview-pane{display:none!important}
+@media(max-width:1320px){.workspace.all-posts-wide{grid-template-columns:minmax(225px,285px) minmax(0,1fr)}}
+@media(max-width:1080px){.workspace.all-posts-wide{grid-template-columns:minmax(220px,275px) minmax(0,1fr)}}
+
+
+/* v3.6.4 package-browser refinement */
+.binary-set-title .media-chip.archive{min-width:54px;text-align:center}
+.binary-list-summary.raw strong{color:#9eb5c5}
+@media(max-width:1180px){.binary-view-toggle{order:3}.binary-package-details{padding-left:12px}.binary-health{max-width:145px;overflow:hidden;text-overflow:ellipsis}}
+
+/* v3.6.4 r4 low-bandwidth Usenet name resolution */
+.binary-resolve-btn{margin-left:auto;height:26px;padding:0 9px;flex:0 0 auto;border-color:rgba(73,186,217,.24);color:#8fd8e6;background:rgba(15,39,52,.82)}
+.binary-resolve-btn:hover:not(:disabled){border-color:rgba(76,202,230,.42);color:#d9f5fa;background:rgba(18,54,68,.92)}
+.binary-resolve-btn:disabled{opacity:.55;cursor:default}
+.binary-name-resolved,.name-resolved-chip{display:inline-flex;align-items:center;flex:0 0 auto;height:18px;padding:0 6px;border:1px solid rgba(70,190,160,.20);border-radius:999px;background:rgba(23,79,63,.24);color:#77cdb0;font-size:8px;font-weight:850;letter-spacing:.02em;white-space:nowrap}
+.name-resolved-chip{height:19px;margin-left:2px;text-transform:none;letter-spacing:0}
+.binary-package-name-source{color:#75bda9!important}
+@media(max-width:1180px){.binary-list-summary .binary-resolve-btn{margin-left:0;margin-top:4px}}
+
+/* v3.6.4 r7 binary-browser correctness and package controls */
+.binary-summary-copy{display:flex;align-items:center;gap:9px;min-width:0;flex:1 1 auto}
+.binary-summary-copy>span{min-width:0}
+.binary-summary-controls{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.binary-summary-controls label{display:flex;align-items:center;gap:5px;color:#7890a4;font-size:9px;font-weight:750;white-space:nowrap}
+.binary-summary-controls select{height:26px;min-width:112px;border:1px solid rgba(130,164,194,.18);border-radius:7px;background:#0c1824;color:#a9c0cf;padding:0 25px 0 7px;font-size:9.5px;outline:none}
+.binary-summary-controls select:focus{border-color:rgba(67,190,222,.44)}
+.binary-filter-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:130px;margin:10px 2px;padding:24px;border:1px dashed rgba(128,160,188,.16);border-radius:10px;color:#6e8699;text-align:center}
+.binary-filter-empty strong{color:#a9becd;font-size:12px}.binary-filter-empty span{max-width:560px;font-size:10px;line-height:1.5}
+.article-row-download{margin-left:auto;flex:0 0 auto;height:27px!important;padding:0 9px!important;border-color:rgba(67,190,184,.22)!important;color:#83cfc5!important;background:#101d2a!important}
+.article-row-download:hover{border-color:rgba(60,191,225,.34)!important;color:#e0eef6!important;background:#142637!important}
+.binary-row-pending,.binary-row-incomplete{flex:0 0 auto;margin-left:auto;padding:3px 7px;border:1px solid rgba(130,164,194,.14);border-radius:999px;color:#8099aa;font-size:8.5px;font-weight:800;white-space:nowrap}
+.binary-row-pending{border-color:rgba(78,183,207,.20);background:rgba(16,62,74,.22);color:#82c9d5}
+.binary-row-incomplete{border-color:rgba(213,154,89,.20);background:rgba(90,58,24,.20);color:#c8a06f}
+.opaque-grouping{color:#7498ab!important;font-weight:700}
+@media(max-width:1180px){.binary-summary-copy{align-items:flex-start;flex-direction:column;gap:1px}.binary-summary-controls{flex-wrap:wrap}.binary-list-summary .binary-resolve-btn{margin-left:0}.binary-summary-controls select{min-width:106px}}
+
+/* v3.6.4 r8 — fragment containment + sticky summary/read-state layering */
+.binary-list-summary{z-index:20}
+.binary-list-mode-active .article-row{min-width:0;overflow:hidden;contain:paint}
+.article-row .article-status-badge{z-index:auto}
+.binary-list-mode-active .article-top{overflow:hidden}
+.binary-list-mode-active .article-subject{max-width:100%}
+
+/* v3.6.4 r9 — package minimum-size cutoff */
+.binary-min-size-wrap{display:inline-flex;align-items:center;height:26px;border:1px solid rgba(130,164,194,.18);border-radius:7px;background:#0c1824;overflow:hidden}
+.binary-min-size-wrap:focus-within{border-color:rgba(67,190,222,.44)}
+.binary-summary-controls .binary-min-size-input{width:58px;height:24px;border:0;background:transparent;color:#b7cad6;padding:0 5px 0 7px;font-size:9.5px;outline:none;text-align:right}
+.binary-summary-controls .binary-min-size-unit{min-width:48px;height:24px;border:0;border-left:1px solid rgba(130,164,194,.13);border-radius:0;background:#0c1824;padding:0 18px 0 5px}
+.binary-summary-controls .binary-min-size-input::-webkit-inner-spin-button{opacity:.45}
+@media(max-width:1180px){.binary-summary-controls .binary-min-size-input{width:52px}.binary-summary-controls .binary-min-size-unit{min-width:44px}}
+/* v3.6.4 r10 — keep the minimum-size cutoff in the persistent browse toolbar,
+   not inside the package result summary/search surface. */
+.binary-min-size-toolbar{align-items:center;gap:5px}
+.binary-min-size-toolbar .binary-min-size-wrap{display:inline-flex;align-items:center;height:30px;border:1px solid var(--line2);border-radius:8px;background:#0d151f;overflow:hidden}
+.binary-min-size-toolbar input{width:62px;height:28px;border:0;background:transparent;color:var(--muted2);padding:0 6px 0 8px;font:inherit;outline:none;text-align:right}
+.binary-min-size-toolbar select{height:28px!important;min-width:52px!important;border:0!important;border-left:1px solid var(--line2)!important;border-radius:0!important;background:#0d151f!important;padding-left:6px!important;padding-right:20px!important}
+.binary-min-size-toolbar .binary-min-size-wrap:focus-within{border-color:rgba(67,190,222,.5)}
+.binary-min-size-toolbar input::-webkit-inner-spin-button{opacity:.45}
+@media(max-width:1180px){.binary-min-size-toolbar input{width:54px}.binary-min-size-toolbar select{min-width:48px!important}}
+/* v3.6.4 r11: keep the browse minimum-size cutoff in the always-visible Packages summary controls. */
+.binary-summary-controls .binary-summary-min-size{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.binary-summary-controls .binary-summary-min-size .binary-min-size-wrap{height:30px;border-color:var(--line2);background:#0d151f}
+.binary-summary-controls .binary-summary-min-size input{width:66px;height:28px;border:0;background:transparent;color:var(--text);padding:0 6px 0 8px;font:inherit;outline:none;text-align:right}
+.binary-summary-controls .binary-summary-min-size select{height:28px!important;min-width:54px!important;border:0!important;border-left:1px solid var(--line2)!important;border-radius:0!important;background:#0d151f!important;padding-left:6px!important;padding-right:20px!important}
+@media(max-width:1100px){.binary-list-summary{align-items:flex-start}.binary-summary-controls{flex-wrap:wrap}.binary-summary-controls .binary-summary-min-size input{width:58px}}
+
+/* v3.6.4 — newsgroup package browser and visible minimum-size control */
+.binary-summary-controls .binary-summary-min-size{flex:0 0 auto;color:#91aabd;font-weight:800}
+.binary-summary-controls .binary-summary-min-size .binary-min-size-wrap{display:inline-flex!important;visibility:visible!important;opacity:1!important;min-width:126px}
+.binary-summary-controls .binary-summary-min-size input.binary-package-min-size{display:block!important;visibility:visible!important;opacity:1!important;width:68px;min-width:68px}
+.binary-summary-controls .binary-summary-min-size select.binary-package-min-unit{display:block!important;visibility:visible!important;opacity:1!important;min-width:56px!important}

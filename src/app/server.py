@@ -152,6 +152,7 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 DOWNLOADS_FILE = DATA_DIR / "downloads.json"
 SAVED_SEARCHES_FILE = DATA_DIR / "saved-searches.json"
 DIAGNOSTICS_LOG_FILE = DATA_DIR / "diagnostics.log"
+NAME_RESOLUTION_CACHE_FILE = DATA_DIR / "name-resolution-cache.json"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_GROUP_PAGE_SIZE = 1000
@@ -161,6 +162,12 @@ DEFAULT_PREVIEW_LIMIT_MB = 512
 VIDEO_THUMB_SAMPLE_MB = 24
 PREVIEW_WORKER_COUNT = 24
 PREVIEW_SOCKET_TIMEOUT = 7.0
+NAME_RESOLUTION_WORKER_COUNT = 3
+NAME_RESOLUTION_PROBE_BYTES = 96 * 1024
+NAME_RESOLUTION_SOCKET_TIMEOUT = 4.5
+NAME_RESOLUTION_METADATA_MAX_BYTES = 4 * 1024 * 1024
+NAME_RESOLUTION_ARCHIVE_PROBE_BYTES = 512 * 1024
+NAME_RESOLUTION_ARCHIVE_WIRE_MAX_BYTES = 768 * 1024
 DEFAULT_THUMB_CACHE_GB = 2
 MAX_CONCURRENT_DOWNLOADS = 6
 PACKAGE_QUEUE_CONCURRENCY = 1
@@ -216,6 +223,7 @@ DEFAULT_VIEW_MODE = "gallery"
 DEFAULT_CONTENT_FILTER = "images"
 DEFAULT_DOWNLOAD_ORGANIZATION = "flat"
 DEFAULT_GROUP_RELATED_MEDIA = False
+DEFAULT_GROUP_BINARY_SETS = True
 DEFAULT_POST_PROCESSING = True
 DEFAULT_AUTO_REPAIR = True
 DEFAULT_AUTO_FETCH_PAR2 = True
@@ -234,7 +242,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.3"
+APP_VERSION = "3.6.4"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -1646,6 +1654,73 @@ class NntpClient:
                 line = line[1:]
             yield line
 
+    def body_control_prefix(self, article: int | str, *, max_bytes: int = NAME_RESOLUTION_PROBE_BYTES, max_lines: int = 80) -> list[bytes]:
+        """Read only the beginning of BODY for low-bandwidth metadata inspection.
+
+        Callers must discard this NNTP connection after returning because the
+        remainder of the multiline BODY response intentionally remains unread.
+        This makes yEnc name recovery cheap without downloading an entire binary
+        segment merely to discover its filename.
+        """
+        self._send(f"BODY {article}")
+        code, msg = self._read_status()
+        if code != 222:
+            raise NntpError(f"Unable to retrieve article body: {code} {msg}")
+        lines: list[bytes] = []
+        total = 0
+        for _ in range(max(1, max_lines)):
+            line = self._readline()
+            if line == b".":
+                break
+            if line.startswith(b".."):
+                line = line[1:]
+            lines.append(line)
+            total += len(line) + 2
+            control = _control_view(line).lower()
+            if control.startswith(b"=ybegin") or total >= max_bytes:
+                break
+        return lines
+
+    def body_yenc_decoded_prefix(self, article: int | str, *, max_decoded: int = NAME_RESOLUTION_ARCHIVE_PROBE_BYTES, max_wire: int = NAME_RESOLUTION_ARCHIVE_WIRE_MAX_BYTES) -> tuple[bytes, dict[str, Any]]:
+        """Decode only a bounded prefix of a yEnc BODY response.
+
+        This is used by the Newsgroup name resolver to inspect archive headers
+        without downloading a complete RAR/ZIP/7-Zip volume.  The caller must
+        discard the connection afterwards because the BODY response normally
+        remains intentionally unread.
+        """
+        self._send(f"BODY {article}")
+        code, msg = self._read_status()
+        if code != 222:
+            raise NntpError(f"Unable to retrieve article body: {code} {msg}")
+        decoded = bytearray()
+        meta: dict[str, Any] = {"encoding": "yenc"}
+        saw_begin = False
+        wire = 0
+        while wire < max(4096, int(max_wire)) and len(decoded) < max(1024, int(max_decoded)):
+            line = self._readline()
+            if line == b".":
+                break
+            if line.startswith(b".."):
+                line = line[1:]
+            wire += len(line) + 2
+            control = _control_view(line)
+            low = control.lower()
+            if low.startswith(b"=ybegin"):
+                _parse_yenc_begin(control, meta)
+                saw_begin = True
+                continue
+            if not saw_begin:
+                continue
+            if low.startswith(b"=ypart"):
+                _parse_ypart(control, meta)
+                continue
+            if low.startswith(b"=yend"):
+                _parse_yenc_end(control, meta)
+                break
+            decoded.extend(_decode_yenc_data_line(line))
+        return bytes(decoded[:max_decoded]), meta
+
     def _read_body_raw_response(self, *, cancel_check=None, progress_callback=None, max_bytes: int = 32 * 1024 * 1024) -> bytes:
         """Read one already-started multiline BODY response without line-by-line overhead.
 
@@ -1858,47 +1933,309 @@ def normalize_subject(subject: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s.strip(" -_[]()")
 
-def group_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    buckets: dict[str, list[dict[str, Any]]] = {}
-    singles = []
-    for a in articles:
-        mp = a.get("multipart")
-        media = a.get("media")
-        if mp and media:
-            key = normalize_subject(a["subject"])
-            buckets.setdefault(key, []).append(a)
-        else:
-            singles.append(a)
+def _multipart_signature(article: dict[str, Any]) -> tuple[str, int] | None:
+    mp = article.get("multipart") or {}
+    try:
+        total = int(mp.get("total", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if total <= 1 or "yenc" not in str(article.get("subject") or "").casefold():
+        return None
+    poster = str(article.get("from") or "").strip().casefold()
+    return (poster, total) if poster else None
 
-    output = []
-    for items in buckets.values():
-        items.sort(key=lambda a: a.get("multipart", {}).get("part", 1))
-        first = items[0]
-        total = max((a.get("multipart") or {}).get("total", 1) for a in items)
-        parts = sorted({(a.get("multipart") or {}).get("part", 1) for a in items})
-        output.append({
-            **first,
-            "article": first["article"],
-            "segments": [{
-                "article": a["article"],
-                "message_id": a.get("message_id", ""),
-                "part": (a.get("multipart") or {}).get("part", 1),
-                "bytes": int(a.get("bytes", 0) or 0),
-            } for a in items],
-            "segment_count": len(parts),
-            "segment_total": total,
-            "complete": len(parts) == total and parts == list(range(1, total + 1)),
-            "bytes": sum(a.get("bytes", 0) for a in items),
-        })
-    for a in singles:
-        output.append({**a, "segments": [{
-            "article": a["article"],
-            "message_id": a.get("message_id", ""),
-            "part": 1,
-            "bytes": int(a.get("bytes", 0) or 0),
-        }], "segment_count": 1, "segment_total": 1, "complete": True})
-    output.sort(key=lambda a: a["article"], reverse=True)
+def _opaque_multipart_signatures(articles: list[dict[str, Any]]) -> set[tuple[str, int]]:
+    """Identify multipart streams whose subject filenames cannot be trusted for grouping.
+
+    Modern obfuscators commonly randomize the visible subject token on every yEnc
+    segment.  Grouping only when detect_media() sees a filename therefore leaks every
+    segment into the UI as an individual POST row.  A repeated poster/part-total stream
+    with missing filenames or almost entirely unique filenames is a strong signal that
+    the yEnc part counter is the useful identity instead.
+    """
+    buckets: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for article in articles:
+        sig = _multipart_signature(article)
+        if sig:
+            buckets.setdefault(sig, []).append(article)
+    opaque: set[tuple[str, int]] = set()
+    for sig, items in buckets.items():
+        if len(items) < 2:
+            continue
+        media_names = [str((x.get("media") or {}).get("filename") or "").strip().casefold() for x in items]
+        missing = sum(1 for name in media_names if not name)
+        known = [name for name in media_names if name]
+        unique_ratio = (len(set(known)) / len(known)) if known else 1.0
+        if missing or (len(known) >= 3 and unique_ratio >= 0.70):
+            opaque.add(sig)
+    return opaque
+
+def _partition_opaque_multipart(items: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    ordered = sorted(items, key=lambda a: int(a.get("article", 0) or 0), reverse=True)
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    seen_parts: set[int] = set()
+    previous_article = 0
+    previous_ts: float | None = None
+
+    def flush() -> None:
+        nonlocal current, seen_parts, previous_article, previous_ts
+        if current:
+            groups.append(current)
+        current = []
+        seen_parts = set()
+        previous_article = 0
+        previous_ts = None
+
+    for article in ordered:
+        mp = article.get("multipart") or {}
+        try:
+            part = int(mp.get("part", 0) or 0)
+        except (TypeError, ValueError):
+            part = 0
+        article_no = int(article.get("article", 0) or 0)
+        ts = None
+        try:
+            dt = email.utils.parsedate_to_datetime(str(article.get("date") or ""))
+            ts = dt.timestamp() if dt else None
+        except Exception:
+            ts = None
+        duplicate_part = part > 0 and part in seen_parts
+        article_gap = abs(previous_article - article_no) if previous_article and article_no else 0
+        time_gap = abs((previous_ts or 0) - (ts or 0)) if previous_ts is not None and ts is not None else 0
+        # A repeated part number means a new multipart stream.  Very large article/date
+        # gaps are another conservative boundary for same-poster/same-total collisions.
+        if current and (duplicate_part or article_gap > 5000 or time_gap > 6 * 60 * 60):
+            flush()
+        current.append(article)
+        if part > 0:
+            seen_parts.add(part)
+        previous_article = article_no
+        previous_ts = ts
+    flush()
+    return groups
+
+
+def _opaque_filename_token(filename: str) -> bool:
+    name = Path(str(filename or '').replace('\\', '/')).name.strip()
+    if not name:
+        return True
+    stem = Path(name).stem
+    compact = re.sub(r'[^A-Za-z0-9]', '', stem)
+    if re.fullmatch(r'[A-Fa-f0-9]{14,}', compact or ''):
+        return True
+    if len(compact) >= 20 and not re.search(r'[._ -]', stem):
+        digits = len(re.findall(r'\d', compact))
+        vowels = len(re.findall(r'[AEIOUaeiou]', compact))
+        if digits >= 4 and vowels / max(1, len(compact)) < 0.16:
+            return True
+    return False
+
+def _anonymous_opaque_multipart_streams(articles: list[dict[str, Any]], *, exclude_articles: set[int] | None = None) -> list[list[dict[str, Any]]]:
+    """Find heavily obfuscated yEnc streams even when the poster changes per segment.
+
+    Some modern posters randomize not only the visible subject token but also the From
+    identity for every segment.  In that case poster+total grouping cannot work.  We only
+    enable this fallback when a same-total cluster is overwhelmingly opaque, has several
+    distinct part numbers, similar segment sizes, and sits in one tight posting window.
+    That keeps readable multipart traffic on the normal filename/poster path.
+    """
+    excluded = exclude_articles or set()
+    by_total: dict[int, list[dict[str, Any]]] = {}
+    for article in articles:
+        article_no = int(article.get('article', 0) or 0)
+        if article_no in excluded:
+            continue
+        mp = article.get('multipart') or {}
+        try:
+            part = int(mp.get('part', 0) or 0); total = int(mp.get('total', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        subject = str(article.get('subject') or '')
+        if total < 32 or part <= 0 or 'yenc' not in subject.casefold():
+            continue
+        by_total.setdefault(total, []).append(article)
+
+    streams: list[list[dict[str, Any]]] = []
+    for total, items in by_total.items():
+        if len(items) < 6:
+            continue
+        opaque_count = 0
+        sizes: list[int] = []
+        times: list[float] = []
+        parts: set[int] = set()
+        for article in items:
+            media = article.get('media') or {}
+            filename = str(media.get('filename') or '')
+            if not filename or _opaque_filename_token(filename):
+                opaque_count += 1
+            size = int(article.get('bytes', 0) or 0)
+            if size > 0:
+                sizes.append(size)
+            try:
+                dt = email.utils.parsedate_to_datetime(str(article.get('date') or ''))
+                if dt:
+                    times.append(dt.timestamp())
+            except Exception:
+                pass
+            try:
+                parts.add(int((article.get('multipart') or {}).get('part', 0) or 0))
+            except (TypeError, ValueError):
+                pass
+        if len(parts) < 6 or opaque_count / max(1, len(items)) < 0.70:
+            continue
+        if times and max(times) - min(times) > 8 * 60 * 60:
+            continue
+        if len(sizes) >= 6:
+            ordered = sorted(sizes)
+            median = ordered[len(ordered)//2]
+            near = sum(1 for n in sizes if median and 0.70 <= n / median <= 1.30)
+            if near / len(sizes) < 0.75:
+                continue
+        # Reuse the conservative repeated-part/article-gap partitioner, but without
+        # poster identity. Exact same-total collisions are split when part numbers
+        # repeat or the posting sequence/time window jumps sharply.
+        for stream in _partition_opaque_multipart(items):
+            distinct = {int((x.get('multipart') or {}).get('part', 0) or 0) for x in stream}
+            if len(stream) >= 6 and len(distinct) >= 6:
+                streams.append(stream)
+    return streams
+
+def _grouped_article(items: list[dict[str, Any]], *, opaque: bool = False) -> dict[str, Any]:
+    items = sorted(items, key=lambda a: int((a.get("multipart") or {}).get("part", 1) or 1))
+    first = items[0]
+    total = max(int((a.get("multipart") or {}).get("total", 1) or 1) for a in items)
+    parts = sorted({int((a.get("multipart") or {}).get("part", 1) or 1) for a in items})
+    resolved = next((a for a in items if a.get("media")), None)
+    newest = max(items, key=lambda a: int(a.get("article", 0) or 0))
+    base = dict(resolved or first)
+    # Preserve the newest header identity as the browser anchor while using a resolved
+    # member's media/name metadata when one segment has already been probed.
+    base["article"] = int(newest.get("article", 0) or 0)
+    base["message_id"] = str(newest.get("message_id") or base.get("message_id") or "")
+    base["date"] = newest.get("date") or base.get("date") or ""
+    base["from"] = newest.get("from") or base.get("from") or ""
+    base["segments"] = [{
+        "article": int(a.get("article", 0) or 0),
+        "message_id": a.get("message_id", ""),
+        "part": int((a.get("multipart") or {}).get("part", 1) or 1),
+        "bytes": int(a.get("bytes", 0) or 0),
+    } for a in items]
+    base["segment_count"] = len(parts)
+    base["segment_total"] = total
+    base["complete"] = len(parts) == total and parts == list(range(1, total + 1))
+    base["bytes"] = sum(int(a.get("bytes", 0) or 0) for a in items)
+    if opaque:
+        base["opaque_multipart"] = True
+        base["opaque_grouping"] = "poster + yEnc part counter"
+        if not base.get("media"):
+            base["subject"] = f"Obfuscated multipart binary — {len(parts):,}/{total:,} segments"
+    return base
+
+def group_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    opaque_signatures = _opaque_multipart_signatures(articles)
+    opaque_buckets: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    named_buckets: dict[str, list[dict[str, Any]]] = {}
+    singles: list[dict[str, Any]] = []
+    consumed: set[int] = set()
+
+    for article in articles:
+        mp = article.get("multipart")
+        media = article.get("media")
+        sig = _multipart_signature(article)
+        if mp and sig in opaque_signatures:
+            opaque_buckets.setdefault(sig, []).append(article)
+        elif mp and media:
+            named_buckets.setdefault(normalize_subject(article["subject"]), []).append(article)
+        else:
+            singles.append(article)
+
+    output: list[dict[str, Any]] = []
+    for items in named_buckets.values():
+        output.append(_grouped_article(items, opaque=False))
+        consumed.update(int(x.get("article", 0) or 0) for x in items)
+    for items in opaque_buckets.values():
+        for stream in _partition_opaque_multipart(items):
+            grouped = _grouped_article(stream, opaque=True)
+            output.append(grouped)
+            consumed.update(int(x.get("article", 0) or 0) for x in stream)
+
+    # Second opaque path: some uploaders randomize From on every yEnc segment.
+    # Collapse those same-total posting streams before they can leak into the UI as
+    # hundreds of misleading, individually-complete POST rows.
+    anonymous_streams = _anonymous_opaque_multipart_streams(articles, exclude_articles=consumed)
+    for stream in anonymous_streams:
+        grouped = _grouped_article(stream, opaque=True)
+        grouped["anonymous_opaque_multipart"] = True
+        grouped["opaque_grouping"] = "yEnc counter + posting sequence"
+        output.append(grouped)
+        consumed.update(int(x.get("article", 0) or 0) for x in stream)
+
+    for article in singles:
+        article_no = int(article.get("article", 0) or 0)
+        if article_no in consumed:
+            continue
+        # A lone multipart yEnc header is not a complete downloadable binary merely
+        # because only one header was loaded. Preserve the true part/total state so
+        # Packages view can hide it until reconstruction succeeds.
+        mp = article.get("multipart") or {}
+        try:
+            mp_total = int(mp.get("total", 0) or 0)
+            mp_part = int(mp.get("part", 0) or 0)
+        except (TypeError, ValueError):
+            mp_total = mp_part = 0
+        is_fragment = mp_total > 1 and "yenc" in str(article.get("subject") or "").casefold()
+        output.append({**article, "segments": [{
+            "article": article["article"],
+            "message_id": article.get("message_id", ""),
+            "part": mp_part if is_fragment and mp_part > 0 else 1,
+            "bytes": int(article.get("bytes", 0) or 0),
+        }], "segment_count": 1, "segment_total": mp_total if is_fragment else 1, "complete": not is_fragment, "multipart_fragment": bool(is_fragment)})
+    output.sort(key=lambda a: int(a.get("article", 0) or 0), reverse=True)
     return output
+
+def _smart_binary_expansion_headers(raw_articles: list[dict[str, Any]], cap: int = 12000) -> int:
+    """Estimate how many older headers are needed to finish an opaque yEnc stream.
+
+    This is header-only work: no BODY data is downloaded.  It is intentionally used only
+    by All Posts/Packages browsing so visual media browsing keeps its normal lightweight
+    page fetch.
+    """
+    opaque = _opaque_multipart_signatures(raw_articles)
+    buckets: list[tuple[int, list[dict[str, Any]]]] = []
+    poster_consumed: set[int] = set()
+    poster_buckets: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for article in raw_articles:
+        sig = _multipart_signature(article)
+        if sig in opaque:
+            poster_buckets.setdefault(sig, []).append(article)
+    for (_, total), items in poster_buckets.items():
+        for stream in _partition_opaque_multipart(items):
+            buckets.append((total, stream))
+            poster_consumed.update(int(x.get("article", 0) or 0) for x in stream)
+    for stream in _anonymous_opaque_multipart_streams(raw_articles, exclude_articles=poster_consumed):
+        total = max(int((x.get("multipart") or {}).get("total", 0) or 0) for x in stream)
+        buckets.append((total, stream))
+    if not buckets:
+        return 0
+    need = 0
+    for total, items in buckets:
+        parts = sorted({int((a.get("multipart") or {}).get("part", 0) or 0) for a in items if int((a.get("multipart") or {}).get("part", 0) or 0) > 0})
+        if len(parts) < 2:
+            continue
+        by_article = sorted(items, key=lambda a: int(a.get("article", 0) or 0))
+        low_part = int((by_article[0].get("multipart") or {}).get("part", 0) or 0)
+        high_part = int((by_article[-1].get("multipart") or {}).get("part", 0) or 0)
+        ascending = high_part >= low_part
+        missing_older = (parts[0] - 1) if ascending else (total - parts[-1])
+        # When randomized From values make posting order noisy, the conservative
+        # fallback is the larger missing side, bounded by the same 12k-header cap.
+        if any(x.get("from") != items[0].get("from") for x in items[1:]):
+            missing_older = max(parts[0] - 1, total - parts[-1])
+        if missing_older > 0:
+            estimate = int(missing_older * 1.25) + 64
+            need = max(need, min(cap, estimate))
+    return max(0, min(cap, need))
 
 def _control_view(line: bytes) -> bytes:
     """Return a tolerant view for encoder control lines without altering payload data."""
@@ -2139,6 +2476,581 @@ def _parse_yenc_end(control: bytes, meta: dict[str, Any]) -> None:
         m = re.search(rf"\b{key}=([0-9a-fA-F]{{8}})", text, flags=re.I)
         if m:
             meta[key] = m.group(1).lower()
+
+# --- Newsgroup name resolution -------------------------------------------------
+# Obfuscated Usenet subjects frequently hide a perfectly useful filename inside
+# the yEnc control header.  Keep name discovery separate from normal header
+# loading so browsing remains instant, then persist successful discoveries and
+# apply them on subsequent /api/articles calls before multipart grouping.
+_NAME_RESOLUTION_CACHE_LOCK = threading.RLock()
+_NAME_RESOLUTION_CACHE: dict[str, dict[str, Any]] | None = None
+NAME_RESOLUTION_EXECUTOR = ThreadPoolExecutor(max_workers=NAME_RESOLUTION_WORKER_COUNT, thread_name_prefix="usenet-name")
+
+def _resolution_filename_media(filename: str) -> dict[str, Any] | None:
+    name = str(filename or "").replace("\\", "/").split("/")[-1].strip().strip('"\'')
+    name = "".join(ch for ch in name if ord(ch) >= 32 and ch not in "\x7f")[:512]
+    if not name or "." not in name:
+        return None
+    ext = Path(name).suffix.lower().lstrip(".")
+    if not ext:
+        return None
+    if ext in {"jpg", "jpeg", "png", "gif", "webp", "bmp"}:
+        kind = "image"
+    elif ext in {"mp4", "m4v", "webm", "mov", "avi", "mkv"}:
+        kind = "video"
+    else:
+        kind = "file"
+    mime = mimetypes.guess_type(name)[0] or ("image/jpeg" if kind == "image" else "video/mp4" if kind == "video" else "application/octet-stream")
+    return {"filename": name, "extension": ext, "kind": kind, "mime": mime}
+
+def _name_resolution_cache_key(provider_id: str, group: str, article: dict[str, Any]) -> str:
+    identity = str(article.get("message_id") or "").strip() or f"article:{int(article.get('article', 0) or 0)}"
+    raw = f"{provider_id}\n{group}\n{identity}".encode("utf-8", errors="replace")
+    return hashlib.sha256(raw).hexdigest()
+
+def _load_name_resolution_cache() -> dict[str, dict[str, Any]]:
+    global _NAME_RESOLUTION_CACHE
+    with _NAME_RESOLUTION_CACHE_LOCK:
+        if _NAME_RESOLUTION_CACHE is None:
+            raw = json_read(NAME_RESOLUTION_CACHE_FILE, {"entries": {}})
+            source = raw.get("entries") if isinstance(raw, dict) else {}
+            _NAME_RESOLUTION_CACHE = {str(k): dict(v) for k, v in (source or {}).items() if isinstance(v, dict)}
+        return _NAME_RESOLUTION_CACHE
+
+def _save_name_resolution_cache_locked() -> None:
+    cache = _load_name_resolution_cache()
+    cutoff = time.time() - 180 * 24 * 60 * 60
+    compact = [(k, v) for k, v in cache.items() if float(v.get("ts", 0) or 0) >= cutoff]
+    compact.sort(key=lambda kv: float(kv[1].get("ts", 0) or 0), reverse=True)
+    entries = dict(compact[:12000])
+    cache.clear(); cache.update(entries)
+    json_write(NAME_RESOLUTION_CACHE_FILE, {"version": 1, "entries": entries})
+
+def _name_resolution_lookup(provider_id: str, group: str, article: dict[str, Any]) -> dict[str, Any] | None:
+    cache = _load_name_resolution_cache()
+    key = _name_resolution_cache_key(provider_id, group, article)
+    with _NAME_RESOLUTION_CACHE_LOCK:
+        entry = cache.get(key)
+        if not entry:
+            return None
+        # Article-number fallback keys are less durable than Message-IDs.  Guard
+        # them with the original subject so a retention-window rollover cannot
+        # accidentally apply an old filename to a different article number.
+        if not str(article.get("message_id") or "").strip():
+            old_subject = str(entry.get("subject") or "")
+            if old_subject and old_subject != str(article.get("subject") or ""):
+                return None
+        return dict(entry)
+
+def _store_name_resolution_entries(entries: list[tuple[str, dict[str, Any]]]) -> None:
+    if not entries:
+        return
+    cache = _load_name_resolution_cache()
+    with _NAME_RESOLUTION_CACHE_LOCK:
+        for key, entry in entries:
+            cache[key] = dict(entry)
+        _save_name_resolution_cache_locked()
+
+def _apply_cached_name_resolutions(provider_id: str, group: str, articles: list[dict[str, Any]]) -> int:
+    applied = 0
+    for article in articles:
+        entry = _name_resolution_lookup(provider_id, group, article)
+        filename = str((entry or {}).get("filename") or "").strip()
+        media = _resolution_filename_media(filename)
+        if not media:
+            continue
+        original = str((article.get("media") or {}).get("filename") or "")
+        article["media"] = media
+        article["name_resolution"] = {
+            "source": str(entry.get("source") or "yEnc header"),
+            "confidence": str(entry.get("confidence") or "high"),
+            "original_filename": original,
+            "title_hint": str(entry.get("title_hint") or ""),
+            "metadata_source": str(entry.get("metadata_source") or ""),
+            "metadata_names": list(entry.get("metadata_names") or [])[:100],
+            "archive_source": str(entry.get("archive_source") or ""),
+            "archive_names": list(entry.get("archive_names") or [])[:100],
+            "title_source": str(entry.get("title_source") or ""),
+            "archive_checked": bool(float(entry.get("archive_checked_ts", 0) or 0) >= time.time() - 14 * 24 * 60 * 60 or not _archive_probe_candidate(filename)),
+        }
+        applied += 1
+    return applied
+
+def _parse_par2_filenames(data: bytes) -> list[str]:
+    names: list[str] = []
+    pos = 0
+    magic = b"PAR2\x00PKT"
+    while True:
+        idx = data.find(magic, pos)
+        if idx < 0 or idx + 64 > len(data):
+            break
+        try:
+            packet_len = int(struct.unpack_from("<Q", data, idx + 8)[0])
+        except (struct.error, ValueError):
+            break
+        if packet_len < 64 or packet_len > 64 * 1024 * 1024 or idx + packet_len > len(data):
+            pos = idx + 8
+            continue
+        packet_type = data[idx + 48:idx + 64]
+        if packet_type == b"PAR 2.0\x00FileDesc" and packet_len >= 120:
+            raw_name = data[idx + 120:idx + packet_len].rstrip(b"\x00")
+            for encoding in ("utf-8", "cp1252", "latin-1"):
+                try:
+                    name = raw_name.decode(encoding).strip().replace("\\", "/").split("/")[-1]
+                    break
+                except UnicodeDecodeError:
+                    name = ""
+            if name and name not in names:
+                names.append(name[:512])
+        pos = idx + packet_len
+    return names[:250]
+
+def _parse_sfv_filenames(data: bytes) -> list[str]:
+    text = data.decode("utf-8", errors="replace")
+    names: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith((";", "#")):
+            continue
+        m = re.match(r"^(.*?)\s+[0-9A-Fa-f]{8}$", line)
+        if not m:
+            continue
+        name = m.group(1).strip().strip('"').replace("\\", "/").split("/")[-1]
+        if name and name not in names:
+            names.append(name[:512])
+    return names[:250]
+
+def _decode_archive_name(raw: bytes) -> str:
+    raw = bytes(raw or b"").split(b"\x00", 1)[0]
+    for encoding in ("utf-8", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(encoding).strip()
+            break
+        except UnicodeDecodeError:
+            text = ""
+    text = text.replace("\\", "/").split("/")[-1]
+    text = "".join(ch for ch in text if ord(ch) >= 32 and ch not in "\x7f")
+    return text[:512]
+
+def _read_rar_vint(data: bytes, pos: int, limit: int) -> tuple[int, int] | None:
+    value = 0
+    shift = 0
+    for _ in range(10):
+        if pos >= limit:
+            return None
+        byte = data[pos]
+        pos += 1
+        value |= (byte & 0x7F) << shift
+        if not (byte & 0x80):
+            return value, pos
+        shift += 7
+    return None
+
+def _parse_rar4_prefix_filenames(data: bytes) -> list[str]:
+    signature = b"Rar!\x1a\x07\x00"
+    start = data.find(signature)
+    if start < 0:
+        return []
+    pos = start + len(signature)
+    names: list[str] = []
+    while pos + 7 <= len(data) and len(names) < 24:
+        try:
+            head_type = data[pos + 2]
+            flags = struct.unpack_from("<H", data, pos + 3)[0]
+            head_size = struct.unpack_from("<H", data, pos + 5)[0]
+        except struct.error:
+            break
+        if head_size < 7 or pos + head_size > len(data):
+            break
+        add_size = 0
+        if flags & 0x8000 and pos + 11 <= len(data):
+            try:
+                add_size = int(struct.unpack_from("<I", data, pos + 7)[0])
+            except struct.error:
+                add_size = 0
+        if head_type == 0x74 and pos + 32 <= len(data):
+            try:
+                name_size = int(struct.unpack_from("<H", data, pos + 26)[0])
+            except struct.error:
+                name_size = 0
+            name_pos = pos + 32 + (8 if flags & 0x0100 else 0)
+            name_end = min(pos + head_size, name_pos + max(0, name_size))
+            if name_size and name_pos < name_end <= len(data):
+                name = _decode_archive_name(data[name_pos:name_end])
+                if name and name not in names:
+                    names.append(name)
+            # The first file header is enough to identify almost every release;
+            # its payload usually starts immediately afterwards and is huge.
+            if names:
+                break
+        step = head_size + max(0, add_size)
+        if step <= 0:
+            break
+        pos += step
+    return names
+
+def _parse_rar5_prefix_filenames(data: bytes) -> list[str]:
+    signature = b"Rar!\x1a\x07\x01\x00"
+    start = data.find(signature)
+    if start < 0:
+        return []
+    pos = start + len(signature)
+    names: list[str] = []
+    while pos + 6 <= len(data) and len(names) < 24:
+        block_start = pos
+        pos += 4  # header CRC32
+        hv = _read_rar_vint(data, pos, len(data))
+        if not hv:
+            break
+        header_size, pos = hv
+        header_start = pos
+        header_end = header_start + int(header_size)
+        if header_size <= 0 or header_end > len(data):
+            break
+        tv = _read_rar_vint(data, pos, header_end)
+        if not tv:
+            break
+        header_type, pos = tv
+        fv = _read_rar_vint(data, pos, header_end)
+        if not fv:
+            break
+        header_flags, pos = fv
+        extra_size = 0
+        data_size = 0
+        if header_flags & 0x0001:
+            ev = _read_rar_vint(data, pos, header_end)
+            if not ev:
+                break
+            extra_size, pos = ev
+        if header_flags & 0x0002:
+            dv = _read_rar_vint(data, pos, header_end)
+            if not dv:
+                break
+            data_size, pos = dv
+        if header_type == 2:  # file header
+            for _ in range(3):
+                vv = _read_rar_vint(data, pos, header_end)
+                if not vv:
+                    return names
+                value, pos = vv
+                if _ == 0:
+                    file_flags = value
+            if file_flags & 0x0002:
+                pos += 4
+            if file_flags & 0x0004:
+                pos += 4
+            cv = _read_rar_vint(data, pos, header_end)
+            if not cv:
+                return names
+            _, pos = cv
+            ov = _read_rar_vint(data, pos, header_end)
+            if not ov:
+                return names
+            _, pos = ov
+            nv = _read_rar_vint(data, pos, header_end)
+            if not nv:
+                return names
+            name_size, pos = nv
+            if 0 < name_size <= 4096 and pos + name_size <= header_end:
+                name = _decode_archive_name(data[pos:pos + name_size])
+                if name and name not in names:
+                    names.append(name)
+            if names:
+                break
+        next_pos = header_end + max(0, int(data_size))
+        if next_pos <= block_start or next_pos > len(data):
+            break
+        pos = next_pos
+    return names
+
+def _parse_zip_prefix_filenames(data: bytes) -> list[str]:
+    names: list[str] = []
+    pos = 0
+    signature = b"PK\x03\x04"
+    while len(names) < 24:
+        idx = data.find(signature, pos)
+        if idx < 0 or idx + 30 > len(data):
+            break
+        try:
+            flags = int(struct.unpack_from("<H", data, idx + 6)[0])
+            name_size = int(struct.unpack_from("<H", data, idx + 26)[0])
+            extra_size = int(struct.unpack_from("<H", data, idx + 28)[0])
+        except struct.error:
+            break
+        name_pos = idx + 30
+        name_end = name_pos + name_size
+        if name_size and name_end <= len(data):
+            raw = data[name_pos:name_end]
+            encoding = "utf-8" if flags & 0x0800 else "cp437"
+            try:
+                name = raw.decode(encoding, errors="replace").replace("\\", "/").split("/")[-1].strip()
+            except Exception:
+                name = _decode_archive_name(raw)
+            if name and name not in names:
+                names.append(name[:512])
+        # Local data usually follows, so scanning for another signature is a
+        # best-effort convenience rather than a requirement for title recovery.
+        pos = max(name_end + extra_size, idx + 4)
+    return names
+
+def _parse_7z_prefix_filenames(data: bytes) -> list[str]:
+    if b"7z\xbc\xaf'\x1c" not in data[:64]:
+        return []
+    # 7-Zip headers may be encoded/compressed.  When they are plain, filenames
+    # often remain visible as UTF-16LE strings. Keep this heuristic deliberately
+    # strict so random binary bytes are never presented as a recovered title.
+    names: list[str] = []
+    known = r"(?:mkv|mp4|avi|mov|m4v|mp3|flac|iso|exe|pdf|epub|nfo|sfv|rar|7z|zip)"
+    pattern = re.compile(rb"((?:[ -~]\x00){4,180}\." + known.encode("ascii") + rb"\x00)", re.I)
+    for match in pattern.finditer(data[:NAME_RESOLUTION_ARCHIVE_PROBE_BYTES]):
+        try:
+            name = match.group(1).decode("utf-16le", errors="ignore").replace("\\", "/").split("/")[-1].strip(" \x00")
+        except Exception:
+            continue
+        if 4 <= len(name) <= 512 and name not in names:
+            names.append(name)
+        if len(names) >= 24:
+            break
+    return names
+
+def _parse_archive_prefix_filenames(data: bytes) -> tuple[list[str], str]:
+    if not data:
+        return [], ""
+    if b"Rar!\x1a\x07\x01\x00" in data[:64]:
+        return _parse_rar5_prefix_filenames(data), "RAR5 header"
+    if b"Rar!\x1a\x07\x00" in data[:64]:
+        return _parse_rar4_prefix_filenames(data), "RAR header"
+    if data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        return _parse_zip_prefix_filenames(data), "ZIP header"
+    if data.startswith(b"7z\xbc\xaf'\x1c"):
+        return _parse_7z_prefix_filenames(data), "7-Zip header"
+    return [], ""
+
+def _filename_looks_obfuscated(filename: str) -> bool:
+    name = str(filename or "").replace("\\", "/").split("/")[-1].strip()
+    stem = Path(name).stem
+    compact = re.sub(r"[^A-Za-z0-9]", "", stem)
+    if not compact:
+        return True
+    if re.fullmatch(r"[a-fA-F0-9]{14,}", compact):
+        return True
+    if re.fullmatch(r"[a-fA-F0-9]{8}-[a-fA-F0-9-]{18,}", stem):
+        return True
+    separators = len(re.findall(r"[._ -]", stem))
+    if separators == 0 and len(compact) >= 28 and len(re.findall(r"\d", compact)) >= 5:
+        return True
+    if len(compact) >= 20:
+        digits = len(re.findall(r"\d", compact))
+        vowels = len(re.findall(r"[aeiou]", compact, re.I))
+        if separators <= 1 and digits >= 4 and vowels / max(1, len(compact)) < 0.16:
+            return True
+    return False
+
+def _archive_probe_candidate(filename: str) -> bool:
+    lower = str(filename or "").casefold()
+    if not _filename_looks_obfuscated(filename):
+        return False
+    m = re.search(r"\.part0*(\d+)\.rar$", lower)
+    if m:
+        return int(m.group(1)) == 1
+    m = re.search(r"\.r(\d{2,3})$", lower)
+    if m:
+        return False
+    m = re.search(r"\.z(\d{2,3})$", lower)
+    if m:
+        return int(m.group(1)) == 1
+    m = re.search(r"\.7z\.(\d{3,5})$", lower)
+    if m:
+        return int(m.group(1)) == 1
+    m = re.search(r"\.(\d{3,5})$", lower)
+    if m:
+        return int(m.group(1)) == 1
+    return lower.endswith((".rar", ".zip", ".7z"))
+
+def _probe_archive_metadata(provider: dict[str, Any], group: str, target: int | str, filename: str) -> tuple[list[str], str]:
+    if not _archive_probe_candidate(filename):
+        return [], ""
+    password = unprotect_secret(provider.get("password_protected", ""))
+    client = NntpClient(
+        provider["host"], provider["port"], bool(provider.get("ssl", True)),
+        provider.get("username", ""), password, timeout=NAME_RESOLUTION_SOCKET_TIMEOUT, probe_capabilities=False,
+    )
+    try:
+        client.connect(); client.group(group)
+        prefix, _ = client.body_yenc_decoded_prefix(target)
+        names, source = _parse_archive_prefix_filenames(prefix)
+        return names[:100], source if names else ""
+    except Exception:
+        return [], ""
+    finally:
+        client.abort()
+        try:
+            client.close()
+        except Exception:
+            pass
+
+def _metadata_title_hint(names: list[str]) -> str:
+    candidates: list[str] = []
+    for name in names:
+        base = str(name or "").replace("\\", "/").split("/")[-1].strip()
+        base = re.sub(r"(?i)\.vol\d+[+_]\d+\.par2$", "", base)
+        base = re.sub(r"(?i)[._ -]part0*\d{1,5}\.rar$", "", base)
+        base = re.sub(r"(?i)\.r\d{2,3}$", "", base)
+        base = re.sub(r"(?i)\.(?:rar|par2|sfv|nfo|srr|7z|zip|mkv|mp4|m4v|avi|mov|webm|mp3|flac|wav|iso|img|exe|msi|pdf|epub)$", "", base)
+        base = re.sub(r"(?i)\.7z\.\d{3,5}$", "", base)
+        base = re.sub(r"\.\d{3,5}$", "", base)
+        base = base.strip(" ._-[]()")
+        if len(base) >= 4:
+            candidates.append(base)
+    if not candidates:
+        return ""
+    counts: dict[str, tuple[int, str]] = {}
+    for candidate in candidates:
+        norm = re.sub(r"[._ -]+", " ", candidate).casefold().strip()
+        count, _ = counts.get(norm, (0, candidate))
+        counts[norm] = (count + 1, candidate)
+    return max(counts.values(), key=lambda item: (item[0], len(item[1])))[1][:512]
+
+def _probe_yenc_name(provider: dict[str, Any], group: str, target: int | str) -> tuple[str, dict[str, Any]]:
+    password = unprotect_secret(provider.get("password_protected", ""))
+    client = NntpClient(
+        provider["host"], provider["port"], bool(provider.get("ssl", True)),
+        provider.get("username", ""), password, timeout=NAME_RESOLUTION_SOCKET_TIMEOUT, probe_capabilities=False,
+    )
+    try:
+        client.connect(); client.group(group)
+        lines = client.body_control_prefix(target)
+        meta: dict[str, Any] = {"encoding": "yenc"}
+        for line in lines:
+            control = _control_view(line)
+            if control.lower().startswith(b"=ybegin"):
+                _parse_yenc_begin(control, meta)
+                media = _resolution_filename_media(str(meta.get("name") or ""))
+                return (str(media.get("filename")) if media else ""), meta
+        return "", meta
+    finally:
+        # body_control_prefix intentionally leaves BODY unread; abort instead of
+        # trying to reuse or gracefully QUIT an out-of-frame connection.
+        client.abort()
+        try:
+            client.close()
+        except Exception:
+            pass
+
+def _probe_small_metadata(provider: dict[str, Any], group: str, item: dict[str, Any], filename: str) -> tuple[list[str], str]:
+    ext = Path(filename).suffix.casefold()
+    lower = filename.casefold()
+    if ext not in {".par2", ".sfv"} or re.search(r"(?i)\.vol\d+[+_]\d+\.par2$", lower):
+        return [], ""
+    segments = [dict(x) for x in (item.get("segments") or []) if isinstance(x, dict)]
+    if not segments:
+        article = item.get("article")
+        message_id = str(item.get("message_id") or "").strip()
+        if article is not None or message_id:
+            segments = [{"article": article, "message_id": message_id, "part": 1, "bytes": int(item.get("bytes", 0) or 0)}]
+    expected = sum(max(0, int(seg.get("bytes", 0) or 0)) for seg in segments)
+    if not segments or len(segments) > 32 or expected <= 0 or expected > int(NAME_RESOLUTION_METADATA_MAX_BYTES * 1.45):
+        return [], ""
+    token = hashlib.sha256((str(provider.get("id") or provider.get("host")) + "|" + group + "|" + str(item.get("message_id") or item.get("article")) + "|metadata").encode("utf-8", errors="replace")).hexdigest()[:24]
+    temp = CACHE_DIR / f".name-meta-{token}{ext}"
+    temp.unlink(missing_ok=True)
+    try:
+        written, _ = _assemble_segments(provider, group, segments, temp, max_bytes=NAME_RESOLUTION_METADATA_MAX_BYTES + 1)
+        if written <= 0 or written > NAME_RESOLUTION_METADATA_MAX_BYTES:
+            return [], ""
+        data = temp.read_bytes()
+        if ext == ".par2":
+            return _parse_par2_filenames(data), "PAR2 metadata"
+        return _parse_sfv_filenames(data), "SFV metadata"
+    except Exception:
+        return [], ""
+    finally:
+        temp.unlink(missing_ok=True)
+
+def _resolve_article_name_worker(provider: dict[str, Any], provider_id: str, group: str, item: dict[str, Any]) -> dict[str, Any]:
+    client_key = str(item.get("client_key") or "")
+    returned_fields = ("source", "confidence", "title_hint", "metadata_source", "metadata_names", "archive_source", "archive_names", "title_source", "archive_checked")
+    segments = [x for x in (item.get("segments") or []) if isinstance(x, dict)]
+    first = segments[0] if segments else item
+    target: int | str | None = first.get("article")
+    if target is None or not str(target).strip():
+        target = str(first.get("message_id") or item.get("message_id") or "").strip() or None
+    if target is None:
+        return {"client_key": client_key, "resolved": False, "error": "No retrievable article reference"}
+    target_value = int(target) if isinstance(target, (int, float)) or str(target).isdigit() else str(target)
+
+    cached = _name_resolution_lookup(provider_id, group, item)
+    if cached and str(cached.get("filename") or ""):
+        filename = str(cached.get("filename"))
+        media = _resolution_filename_media(filename)
+        archive_recent = float(cached.get("archive_checked_ts", 0) or 0) >= time.time() - 14 * 24 * 60 * 60
+        needs_archive_upgrade = bool(media and not str(cached.get("title_hint") or "") and _archive_probe_candidate(filename) and not archive_recent)
+        if needs_archive_upgrade:
+            archive_names, archive_source = _probe_archive_metadata(provider, group, target_value, filename)
+            upgraded = dict(cached)
+            upgraded["archive_checked_ts"] = time.time()
+            upgraded["archive_names"] = archive_names
+            upgraded["archive_source"] = archive_source
+            archive_hint = _metadata_title_hint(archive_names)
+            if archive_hint:
+                upgraded["title_hint"] = archive_hint
+                upgraded["title_source"] = archive_source
+            upgraded["ts"] = time.time()
+            key = _name_resolution_cache_key(provider_id, group, item)
+            upgraded_result = {**{k: upgraded.get(k) for k in returned_fields}, "archive_checked": True}
+            return {"client_key": client_key, "resolved": True, "cached": False, "filename": filename, "media": media, "_cache_key": key, "_cache_entry": upgraded, **upgraded_result}
+        cached_result = {**{k: cached.get(k) for k in returned_fields}, "archive_checked": bool(archive_recent or not _archive_probe_candidate(filename))}
+        return {"client_key": client_key, "resolved": True, "cached": True, "filename": filename, "media": media, **cached_result}
+
+    try:
+        filename, ymeta = _probe_yenc_name(provider, group, target_value)
+    except Exception as exc:
+        return {"client_key": client_key, "resolved": False, "error": classify_nntp_failure(exc).get("label") or str(exc)}
+    media = _resolution_filename_media(filename)
+    if not media:
+        return {"client_key": client_key, "resolved": False, "error": "No filename was exposed by the yEnc header"}
+    metadata_names, metadata_source = _probe_small_metadata(provider, group, item, filename)
+    metadata_hint = _metadata_title_hint(metadata_names)
+    title_hint = metadata_hint
+    archive_names: list[str] = []
+    archive_source = ""
+    archive_checked_ts = 0.0
+    if not title_hint and _archive_probe_candidate(filename):
+        archive_names, archive_source = _probe_archive_metadata(provider, group, target_value, filename)
+        archive_checked_ts = time.time()
+        title_hint = _metadata_title_hint(archive_names)
+    title_source = metadata_source if metadata_hint else archive_source if title_hint else "yEnc header"
+    entry = {
+        "filename": media["filename"], "source": "yEnc header", "confidence": "high",
+        "subject": str(item.get("subject") or ""), "ts": time.time(),
+        "title_hint": title_hint, "metadata_source": metadata_source, "metadata_names": metadata_names,
+        "archive_source": archive_source, "archive_names": archive_names, "archive_checked_ts": archive_checked_ts,
+        "title_source": title_source, "yenc_size": int(ymeta.get("size", 0) or 0),
+    }
+    key = _name_resolution_cache_key(provider_id, group, item)
+    result_fields = {**{k: entry.get(k) for k in returned_fields}, "archive_checked": bool(archive_checked_ts or not _archive_probe_candidate(filename))}
+    return {"client_key": client_key, "resolved": True, "cached": False, "filename": media["filename"], "media": media, "_cache_key": key, "_cache_entry": entry, **result_fields}
+
+def resolve_article_names(provider_id: str, group: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    provider = provider_by_id(provider_id)
+    limited = [dict(item) for item in items[:12] if isinstance(item, dict)]
+    future_items = [(NAME_RESOLUTION_EXECUTOR.submit(_resolve_article_name_worker, provider, provider_id, group, item), item) for item in limited]
+    futures = [future for future, _ in future_items]
+    done, pending = wait(futures, timeout=40)
+    results: list[dict[str, Any]] = []
+    for future, item in future_items:
+        if future not in done:
+            future.cancel()
+            results.append({"client_key": str(item.get("client_key") or ""), "resolved": False, "error": "Name probe timed out"})
+            continue
+        try:
+            results.append(future.result())
+        except Exception as exc:
+            results.append({"client_key": str(item.get("client_key") or ""), "resolved": False, "error": str(exc)[:300]})
+    pending_cache = [(str(result.pop("_cache_key")), dict(result.pop("_cache_entry"))) for result in results if result.get("_cache_key") and isinstance(result.get("_cache_entry"), dict)]
+    _store_name_resolution_entries(pending_cache)
+    resolved = sum(1 for result in results if result.get("resolved"))
+    return {"results": results, "requested": len(limited), "resolved": resolved, "unresolved": len(limited) - resolved}
 
 _YENC_DECODE_TABLE = bytes(((i - 42) & 0xFF) for i in range(256))
 
@@ -5469,7 +6381,7 @@ class DownloadManager:
         if not isinstance(job, dict):
             return False
         return bool(
-            str(job.get("source") or "") == "nzb"
+            str(job.get("source") or "") in {"nzb", "browser_set"}
             and str(job.get("collection_id") or "")
             and str(job.get("collection_role") or "payload") == "payload"
             and _is_rar_volume(str(job.get("filename") or ""))
@@ -5479,7 +6391,7 @@ class DownloadManager:
     def _queue_item_key(job: dict[str, Any] | None) -> str:
         """Return the top-level queue item that owns a transfer job.
 
-        Every file imported from the same NZB has one collection_id and therefore
+        Every file in the same package/collection has one collection_id and therefore
         one queue-item key. A manually queued standalone file is its own queue
         item. This boundary is intentionally stricter than file concurrency: only
         one key may receive network bandwidth at a time.
@@ -5957,6 +6869,7 @@ class DownloadManager:
         with self.lock:
             existing = {j.get("identity") for j in self.jobs if j.get("status") in ("queued", "downloading", "retry_wait", "cancelling")}
             queue_tail = max([float(j.get("queue_order", 0) or 0) for j in self.jobs] + [0.0])
+            browser_collections: dict[str, dict[str, Any]] = {}
             for item in items:
                 media = item.get("media") or {}
                 segments = item.get("segments") or []
@@ -5993,6 +6906,7 @@ class DownloadManager:
                     "collection_id": str(item.get("collection_id", "") or ""),
                     "collection_name": str(item.get("collection_name", "") or ""),
                     "collection_expected": max(0, int(item.get("collection_expected", 0) or 0)),
+                    "collection_required_expected": max(0, int(item.get("collection_required_expected", 0) or 0)),
                     "post_status": "", "post_progress": 0, "post_message": "",
                     "processed_parts": 0, "successful_parts": 0, "failed_parts": 0, "missing_bytes": 0,
                     "retry_count": 0, "auto_retry_count": 0, "retry_at_ts": 0,
@@ -6012,6 +6926,22 @@ class DownloadManager:
                 self.jobs.append(job)
                 existing.add(identity)
                 added.append({"id": job["id"], "filename": filename})
+                cid = str(job.get("collection_id") or "")
+                if cid and str(job.get("source") or "") == "browser_set":
+                    browser_collections.setdefault(cid, {
+                        "id": cid, "name": str(job.get("collection_name") or Path(filename).stem or "Newsgroup package"),
+                        "source_name": "Newsgroup browser", "provider_id": provider_id,
+                        "created_ts": now, "priority": str(job.get("priority") or "normal"),
+                        "recovery_catalog": [], "recovery_queued_names": [],
+                        "recovery_requested_blocks": 0, "recovery_queued_blocks": 0,
+                        "category": str(job.get("category") or ""), "category_folder": str(job.get("category_folder") or ""),
+                        "automation_source": "", "automation_context": {},
+                        "required_expected": max(0, int(job.get("collection_required_expected", 0) or 0)),
+                        "original_file_count": max(0, int(job.get("collection_expected", 0) or 0)),
+                    })
+            for cid, rec in browser_collections.items():
+                if cid not in self.collections and self._collection_jobs_locked(cid):
+                    self.collections[cid] = rec
             self._save()
         self.wake.set()
         disk_warning = ""
@@ -6602,7 +7532,7 @@ class DownloadManager:
         attempt. It turns an otherwise failed payload into a controlled
         repair-needed state and queues only the deferred recovery volumes needed.
         """
-        if str(job.get("source") or "") != "nzb" or bool(job.get("is_par2")):
+        if str(job.get("source") or "") not in {"nzb", "browser_set"} or bool(job.get("is_par2")):
             return False
         post_settings = self._post_settings()
         if not post_settings.get("enabled") or not post_settings.get("repair") or not post_settings.get("fetch_par2"):
@@ -6741,7 +7671,7 @@ class DownloadManager:
                 soft_missing = bool(retry_plan["soft_missing"])
                 bulk_missing = bool(retry_plan["bulk_missing"])
                 optional_aux_failure = bool(
-                    str(job.get("source") or "") == "nzb"
+                    str(job.get("source") or "") in {"nzb", "browser_set"}
                     and bool(job.get("is_auxiliary") or str(job.get("collection_role") or "") == "auxiliary")
                     and error_code in {"soft_missing", "article_missing", "incomplete", "propagation"}
                 )
@@ -6811,7 +7741,7 @@ class DownloadManager:
                     job["transfer_phase"] = "retry_wait"
                 else:
                     optional_missing = bool(
-                        str(job.get("source") or "") == "nzb"
+                        str(job.get("source") or "") in {"nzb", "browser_set"}
                         and bool(job.get("is_auxiliary") or str(job.get("collection_role") or "") == "auxiliary")
                         and error_code in {"soft_missing", "article_missing", "incomplete", "propagation"}
                     )
@@ -7824,19 +8754,19 @@ class DownloadManager:
                 if str(target.get("post_status") or "") not in {"completed", "not_needed", "needs_tool", "disabled"}:
                     target["post_status"] = "blocked"
                     target["post_progress"] = 100
-                    target["post_message"] = f"Post-processing blocked: {missing} NZB file{'s were' if missing != 1 else ' was'} removed"
+                    target["post_message"] = f"Post-processing blocked: {missing} package file{'s were' if missing != 1 else ' was'} removed"
         elif terminal_bad:
             for target in completed:
                 if str(target.get("post_status") or "") not in {"completed", "not_needed", "needs_tool", "disabled"}:
                     target["post_status"] = "blocked"
                     target["post_progress"] = 100
-                    target["post_message"] = f"Post-processing blocked: {len(terminal_bad)} file{'s' if len(terminal_bad) != 1 else ''} failed or were cancelled. Retry those files or process this NZB manually."
+                    target["post_message"] = f"Post-processing blocked: {len(terminal_bad)} file{'s' if len(terminal_bad) != 1 else ''} failed or were cancelled. Retry those files or process this package manually."
         elif pending:
             for target in completed:
                 if str(target.get("post_status") or "") in {"", "waiting", "blocked", "cancelled"}:
                     target["post_status"] = "waiting"
                     target["post_progress"] = 0
-                    target["post_message"] = "Waiting for the rest of this NZB"
+                    target["post_message"] = "Waiting for the rest of this package"
 
     def _post_settings(self) -> dict[str, Any]:
         raw = json_read(SETTINGS_FILE, {})
@@ -7966,7 +8896,7 @@ class DownloadManager:
         mode = str(settings.get("direct_unpack") or DEFAULT_DIRECT_UNPACK_MODE).casefold()
         if mode not in {"auto", "on"} or not settings.get("enabled") or not settings.get("extract"):
             return
-        if str(job.get("source") or "") != "nzb":
+        if str(job.get("source") or "") not in {"nzb", "browser_set"}:
             return
         if mode == "auto":
             pool_state = download_pool_stats()
@@ -8379,7 +9309,7 @@ class DownloadManager:
                         else:
                             target["post_status"] = "waiting"
                             target["post_progress"] = 0
-                            target["post_message"] = "Waiting for the rest of this NZB"
+                            target["post_message"] = "Waiting for the rest of this package"
                 self._save_hot(3.0)
                 return
             if key in self.post_active:
@@ -9558,6 +10488,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                 "download_organization": DEFAULT_DOWNLOAD_ORGANIZATION,
                 "download_folder": str(DOWNLOAD_DIR),
                 "group_related_media": DEFAULT_GROUP_RELATED_MEDIA,
+                "group_binary_sets": DEFAULT_GROUP_BINARY_SETS,
+                "binary_min_size_value": 0.0,
+                "binary_min_size_unit": "MB",
                 "favorites": [],
                 "bookmark_folders": [],
                 "recent_groups": [],
@@ -9664,6 +10597,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.groups_status_api(data)
             if parsed.path == "/api/articles":
                 return self.articles_api(data)
+            if parsed.path == "/api/articles/resolve-names":
+                return self.article_name_resolution_api(data)
             if parsed.path == "/api/group-search/start":
                 return self.group_search_start_api(data)
             if parsed.path == "/api/group-search/status":
@@ -9996,8 +10931,9 @@ class AppHandler(SimpleHTTPRequestHandler):
         limit = max(25, min(2000, int(data.get("limit", DEFAULT_ARTICLE_LIMIT))))
         requested_page = max(1, int(data.get("page", 1) or 1))
         media_only = bool(data.get("media_only", False))
+        smart_binaries = bool(data.get("smart_binaries", False))
         refresh = bool(data.get("refresh", False))
-        cache_key = (provider_id, group, limit, requested_page)
+        cache_key = (provider_id, group, limit, requested_page, smart_binaries)
         started = time.perf_counter()
 
         if not refresh:
@@ -10015,6 +10951,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._json(200, payload)
 
         password = unprotect_secret(provider.get("password_protected", ""))
+        fetch_start = fetch_end = smart_extra = 0
         with NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)), provider.get("username", ""), password) as client:
             info = client.group(group)
             high = int(info["high"]); low = int(info["low"]); group_count = int(info.get("count", 0) or 0)
@@ -10029,6 +10966,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                 overlap = min(200, max(25, limit // 10))
                 fetch_start = max(low, start_num - overlap); fetch_end = min(high, end_num + overlap)
                 raw_articles = client.overview(fetch_start, fetch_end)
+                if smart_binaries and raw_articles:
+                    smart_extra = _smart_binary_expansion_headers(raw_articles)
+                    if smart_extra > 0:
+                        expanded_start = max(low, fetch_start - smart_extra)
+                        if expanded_start < fetch_start:
+                            fetch_start = expanded_start
+                            raw_articles = client.overview(fetch_start, fetch_end)
+                _apply_cached_name_resolutions(provider_id, group, raw_articles)
                 grouped_all = group_articles(raw_articles)
                 articles = []
                 for item in grouped_all:
@@ -10037,12 +10982,18 @@ class AppHandler(SimpleHTTPRequestHandler):
                     if start_num <= anchor_num <= end_num:
                         articles.append(item)
 
+        scanned_page_end = page
+        if page_count and smart_binaries and smart_extra > 0 and start_num and fetch_start:
+            scanned_page_end = min(page_count, max(page, ((high - max(low, fetch_start)) // limit) + 1))
+        next_older_page = scanned_page_end + 1 if page_count and scanned_page_end < page_count else 0
         paging = {
             "page": page, "page_count": page_count, "page_size": limit, "start": start_num, "end": end_num,
-            "low": low, "high": high, "has_older": bool(page_count and page < page_count),
+            "low": low, "high": high, "has_older": bool(next_older_page),
             "has_newer": bool(page_count and page > 1),
+            "scanned_page_end": scanned_page_end, "next_older_page": next_older_page,
+            "smart_binary_scan": bool(smart_binaries),
         }
-        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "provider", "cache_age_seconds": 0}
+        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0)}
         with ARTICLE_PAGE_CACHE_LOCK:
             ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": base_payload}
             if len(ARTICLE_PAGE_CACHE) > 250:
@@ -10053,6 +11004,24 @@ class AppHandler(SimpleHTTPRequestHandler):
         if media_only:
             payload["articles"] = [a for a in articles if a.get("media")]
         return self._json(200, payload)
+
+    def article_name_resolution_api(self, data: dict[str, Any]):
+        provider_id = str(data.get("provider_id", ""))
+        group = str(data.get("group", "")).strip()
+        items = data.get("items") or []
+        if not provider_id or not group:
+            raise ValueError("Provider and newsgroup are required")
+        if not isinstance(items, list):
+            raise ValueError("Invalid name-resolution request")
+        result = resolve_article_names(provider_id, group, items)
+        if result.get("resolved"):
+            # Header pages are cheap to reload and must not keep an older grouped
+            # snapshot after the persistent name cache learns real filenames.
+            with ARTICLE_PAGE_CACHE_LOCK:
+                stale = [key for key in ARTICLE_PAGE_CACHE if len(key) >= 2 and key[0] == provider_id and key[1] == group]
+                for key in stale:
+                    ARTICLE_PAGE_CACHE.pop(key, None)
+        return self._json(200, result)
 
     def group_search_start_api(self, data: dict[str, Any]):
         result = GROUP_SEARCH_MANAGER.start(
@@ -10703,6 +11672,9 @@ class AppHandler(SimpleHTTPRequestHandler):
             "download_organization": download_organization,
             "download_folder": str(merged.get("download_folder") or DOWNLOAD_DIR),
             "group_related_media": bool(merged.get("group_related_media", DEFAULT_GROUP_RELATED_MEDIA)),
+            "group_binary_sets": bool(merged.get("group_binary_sets", DEFAULT_GROUP_BINARY_SETS)),
+            "binary_min_size_value": max(0.0, min(1000000.0, float(merged.get("binary_min_size_value", 0.0) or 0.0))),
+            "binary_min_size_unit": str(merged.get("binary_min_size_unit") or "MB").upper() if str(merged.get("binary_min_size_unit") or "MB").upper() in {"MB", "GB"} else "MB",
             "favorites": raw_favorites,
             "bookmark_folders": bookmark_folders,
             "recent_groups": [str(x).strip() for x in (merged.get("recent_groups") or []) if str(x).strip()][:20],

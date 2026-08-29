@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.3** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.4** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.3_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.4_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,16 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.3 highlights
+## v3.6.4 highlights
 
-v3.6.3 is a focused startup/UI reliability release built on v3.6.2. It preserves the accepted v3.6.0 interface and the v3.6.1/v3.6.2 installed-upgrade fixes.
+v3.6.4 is a major Newsgroup browsing release built on v3.6.3. It replaces the fragment-heavy All Posts experience with a package-oriented binary browser while preserving the visual Images/Video workflow.
 
-- **Automation sidebar counts load at startup:** TV, Movies, and Wanted populate without requiring the user to open an Automation page first.
-- **Lightweight count endpoint:** sidebar badges load independently of the full Automation summary and provider/newsgroup startup.
-- **Startup race protection:** transient empty snapshots cannot erase a valid positive sidebar count while startup settles.
-- **Automation editor wiring restored:** missing Quality Profile and Newznab Indexer handlers no longer abort browser initialization.
-- **Clear Preview Cache:** Settings → Storage & Cache now has a dedicated action for full previews, separate from thumbnail cache clearing.
-- **v3.6.2/v3.6.1 installer fixes preserved:** authoritative tray-process and service shutdown remain unchanged.
-
+- **Package-first All Posts:** connected multipart binaries and release sets are presented as expandable packages, with Raw posts available as an advanced fallback.
+- **Obfuscated multipart reconstruction:** opaque and anonymous yEnc streams are reconstructed from header structure before they reach the normal browser.
+- **Provider-independent name recovery:** yEnc, PAR2/SFV, and bounded archive-header inspection can recover useful filenames without Easynews web scraping or Newznab/indexer reconciliation.
+- **Practical binary downloading:** complete non-media binaries and healthy grouped sets are selectable and queueable as first-class downloads.
+- **Package health, sorting, and filtering:** incomplete fragments stay out of the normal Downloadable view; package sorting and a persistent reconstructed-size Min size cutoff are built into the browser.
+- **Fresh, stable browsing:** newsgroups reopen at a fresh page 1, All Posts uses the wider no-preview layout, and toolbar/read-state badge containment issues are corrected.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.3_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.4_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
