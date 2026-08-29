@@ -1,27 +1,26 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.6",
-  "base_version": "3.6.5",
-  "release": "Adaptive Preview Connection Scaling",
-  "adapter_version": "3.6.6",
+  "version": "3.6.7",
+  "base_version": "3.6.6",
+  "release": "Browsing Pipeline & Long-Scroll Performance",
+  "adapter_version": "3.6.7",
   "changes": [
-    "Raises the backend preview worker ceiling from 24 to 80 for high-connection providers.",
-    "Starts gallery browsing at the proven v3.6.5 concurrency and ramps upward only while a real thumbnail backlog exists and measured throughput remains healthy.",
-    "Reserves roughly 12% of configured NNTP connections for headers, name resolution, and interaction; a 55-connection provider can ramp from 16 toward 48 concurrent previews.",
-    "Steps preview concurrency down when thumbnail failures rise or throughput materially regresses instead of blindly saturating the provider.",
-    "Closes warm preview NNTP sockets about 3 seconds after a browsing burst goes idle so downloads can reclaim provider sessions quickly.",
-    "Immediately returns to the small download-reserve preview budget when active download/retry/cancel traffic appears.",
-    "Preserves v3.6.5 Windows taskbar identity reliability and all v3.6.4 package-browser behavior."
+    "Adds browsing-session cancellation so stale image/video BODY work is interrupted when switching groups, views, filters, or replacing the current page.",
+    "Keeps up to two short-lived NNTP header sessions warm for interactive page loads and retires them after about ten seconds idle.",
+    "Prefetches the next older header page several viewport-heights ahead while scrolling downward so continuous browsing can append with less visible waiting.",
+    "Makes thumbnail demand scroll-direction and velocity aware so v3.6.6 adaptive preview concurrency stays fed without fixed-distance overfetch.",
+    "Returns an initial All Posts package view sooner, then finishes deep multipart reconstruction in a bounded background worker and refreshes the page in place.",
+    "Bounds long-scroll thumbnail watchdog work and releases far-offscreen decoded thumbnails while retaining cached thumbnail URLs for quick return scrolling.",
+    "Preserves v3.6.6 adaptive preview scaling, v3.6.5 taskbar identity, and all v3.6.4 package-browser behavior."
   ],
   "regression_guards": [
+    "v3.6.6 Adaptive Preview Connection Scaling remains preserved.",
     "v3.6.5 Windows Taskbar Identity Reliability remains preserved.",
     "v3.6.4 Newsgroup Package Browser & Binary Reconstruction remains preserved.",
     "v3.6.3 Automation Sidebar Startup & Cache Reliability remains preserved.",
-    "v3.6.2 Tray Upgrade Lock Reliability remains preserved.",
-    "v3.6.1 Installer Upgrade Reliability remains preserved.",
-    "v3.6.0 UI/UX Overhaul remains preserved.",
-    "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
-    "Private SAB downloads, Smart Import, Automation behavior, Discover/TMDB integration, provider state, and Metadata Server v0.3.3 compatibility remain preserved."
+    "v3.6.2 Tray Upgrade Lock Reliability and v3.6.1 Installer Upgrade Reliability remain preserved.",
+    "v3.6.0 UI/UX Overhaul and v3.5.52 Authoritative Service Runtime Handoff remain preserved.",
+    "Private SAB downloads, Smart Import, Automation, Discover/TMDB, provider state, and Metadata Server v0.3.3 compatibility remain preserved."
   ],
-  "name": "Adaptive Preview Connection Scaling"
+  "name": "Browsing Pipeline & Long-Scroll Performance"
 }

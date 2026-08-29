@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.6** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.7** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.6_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.7_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.6 highlights
+## v3.6.7 highlights
 
-v3.6.6 is a browsing-performance release built on v3.6.5. It lets image-heavy newsgroups use much more of a high-connection NNTP account while preserving download priority.
+v3.6.7 is a browsing-responsiveness release built on v3.6.6. It pairs the high-throughput adaptive preview engine with lower paging latency, less stale network work, smoother continuous scrolling, and bounded long-session UI pressure.
 
-- **Adaptive preview scaling:** starts at the proven preview concurrency and ramps upward only while real thumbnail demand exists and measured performance remains healthy.
-- **Higher preview ceiling:** up to 80 backend preview workers, with roughly 12% of provider connections reserved for headers, name resolution, and interaction.
-- **55-connection example:** preview work can ramp from 16 toward 48 concurrent requests under sustained healthy demand.
-- **Automatic backoff:** failure rate and throughput regression can reduce concurrency instead of blindly saturating the provider.
-- **Download priority:** active downloads immediately return browsing to the small connection reserve.
-- **Fast idle release:** warm preview NNTP sessions close after roughly three idle seconds.
-- **v3.6.5 preserved:** Windows taskbar identity reliability remains intact.
+- **Stale preview cancellation:** obsolete image/video BODY work is interrupted when changing groups, pages, views, filters, or leaving Browse.
+- **Warm header connections:** up to two short-lived header sessions remove repeated connect/authentication latency from interactive paging.
+- **Predictive continuous paging:** the next older header page is fetched several viewport-heights before the bottom so it can often append immediately.
+- **Velocity-aware thumbnails:** fast scrolling expands thumbnail look-ahead in the direction of travel; slow scrolling contracts it again.
+- **Progressive package reconstruction:** large All Posts package pages can appear sooner while deep multipart reconstruction finishes in the background.
+- **Long-scroll memory relief:** far-offscreen decoded thumbnails are released in bounded batches while cached URLs remain available for fast return scrolling.
+- **v3.6.6 preserved:** adaptive preview scaling and download-priority behavior remain intact.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.6_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.7_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

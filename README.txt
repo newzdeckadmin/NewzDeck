@@ -1,24 +1,21 @@
-NewzDeck v3.6.6
-Adaptive Preview Connection Scaling
+NewzDeck v3.6.7
+Browsing Pipeline & Long-Scroll Performance
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
-and personal media automation application. v3.6.6 builds on v3.6.5 with
-adaptive high-concurrency thumbnail and preview browsing.
+and personal media automation application. v3.6.7 builds on v3.6.6 with
+lower-latency paging, stale-preview cancellation, predictive prefetch, and
+long-scroll responsiveness improvements.
 
-WHAT'S NEW IN v3.6.6
+WHAT'S NEW IN v3.6.7
 
-- Image-heavy newsgroups can use substantially more configured NNTP connections
-  while the provider is otherwise idle.
-- Preview concurrency ramps upward only under sustained demand and healthy
-  measured throughput, with automatic failure/throughput backoff.
-- Roughly 12% of provider connections remain reserved for headers, name
-  resolution, and interaction.
-- Active downloads immediately reclaim priority and preview scheduling falls
-  back to the small download-reserve budget.
-- Warm preview connections close after roughly three seconds of idle time.
-- v3.6.5 Windows taskbar identity and v3.6.4 package-browser behavior remain
-  preserved.
+- Obsolete thumbnail/preview BODY work cancels quickly when the browsing context changes.
+- Up to two short-lived warm NNTP header sessions reduce repeat paging setup latency.
+- Continuous browsing prefetches the next older header page before the bottom.
+- Thumbnail demand follows scroll direction and velocity while retaining v3.6.6 adaptive scaling.
+- Large All Posts package pages can finish deep reconstruction progressively in the background.
+- Far-offscreen decoded thumbnails are released in bounded batches during very long sessions.
+- v3.6.6 adaptive preview scaling, v3.6.5 taskbar identity, and v3.6.4 package browsing remain preserved.
 WHAT YOU NEED
 
 - Windows 10 or Windows 11, 64-bit

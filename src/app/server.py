@@ -162,6 +162,9 @@ DEFAULT_PREVIEW_LIMIT_MB = 512
 VIDEO_THUMB_SAMPLE_MB = 24
 PREVIEW_WORKER_COUNT = 80
 PREVIEW_SOCKET_TIMEOUT = 7.0
+BROWSE_HEADER_POOL_SIZE = 2
+BROWSE_HEADER_IDLE_CLOSE_SECONDS = 10.0
+SMART_BROWSE_WORKER_COUNT = 2
 PREVIEW_CONNECTION_IDLE_CLOSE_SECONDS = 3.0
 NAME_RESOLUTION_WORKER_COUNT = 3
 NAME_RESOLUTION_PROBE_BYTES = 96 * 1024
@@ -243,7 +246,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.6"
+APP_VERSION = "3.6.7"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -357,6 +360,39 @@ THUMB_STATS_FILE = DATA_DIR / "thumbnail-cache-stats.json"
 ARTICLE_PAGE_CACHE: dict[tuple[str, str, int, int], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 180.0
+
+# v3.6.7 browsing-session registry. Thumbnail/full-preview requests carry a
+# short-lived browser-session token so work from a group/view that the user has
+# already left can be interrupted inside BODY streaming instead of continuing to
+# consume provider sockets in the background.
+_BROWSE_SESSION_LOCK = threading.RLock()
+_BROWSE_SESSIONS: dict[str, dict[str, Any]] = {}
+SMART_BROWSE_EXECUTOR = ThreadPoolExecutor(max_workers=SMART_BROWSE_WORKER_COUNT, thread_name_prefix="usenet-browse-smart")
+
+class BrowseSessionCancelled(RuntimeError):
+    pass
+
+def register_browse_session(provider_id: str, group: str, token: str) -> dict[str, Any]:
+    provider_id = str(provider_id or "").strip()
+    group = str(group or "").strip()
+    token = str(token or "").strip()[:160]
+    if not provider_id or not group or not token:
+        raise ValueError("Provider, newsgroup, and browsing session are required")
+    with _BROWSE_SESSION_LOCK:
+        _BROWSE_SESSIONS[provider_id] = {"token": token, "group": group, "updated": time.monotonic()}
+    return {"ok": True, "provider_id": provider_id, "group": group, "browse_session": token}
+
+def browse_session_cancel_check(provider_id: str, group: str, token: str):
+    token = str(token or "").strip()
+    if not token:
+        return None
+    provider_id = str(provider_id or "").strip(); group = str(group or "").strip()
+    def check() -> None:
+        with _BROWSE_SESSION_LOCK:
+            current = _BROWSE_SESSIONS.get(provider_id)
+        if not current or current.get("token") != token or current.get("group") != group:
+            raise BrowseSessionCancelled("Browsing request superseded by a newer newsgroup session")
+    return check
 
 _THUMB_STATS_LOCK = threading.Lock()
 _THUMB_STATS_CACHE: dict[str, Any] | None = None
@@ -1824,6 +1860,125 @@ class NntpClient:
             raw = self._read_body_raw_response(cancel_check=cancel_check, progress_callback=cb, max_bytes=max_bytes)
             results.append({"ok": True, "article": article, "raw": raw})
         return results
+
+
+class BrowseHeaderClientPool:
+    """Small warm NNTP pool dedicated to interactive header browsing.
+
+    Page loads used to reconnect/authenticate/select the group for every request.
+    Two short-lived pooled connections remove that setup latency while still
+    leaving the overwhelming majority of a high-connection account available to
+    previews/downloads. Idle sessions are closed automatically after ten seconds.
+    """
+    def __init__(self, max_per_provider: int = BROWSE_HEADER_POOL_SIZE):
+        self.max_per_provider = max(1, int(max_per_provider))
+        self.cond = threading.Condition(threading.RLock())
+        self.pools: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+
+    @staticmethod
+    def key(provider: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            provider.get("id") or provider.get("host", ""), str(provider.get("host", "")).casefold(),
+            int(provider.get("port", 563)), bool(provider.get("ssl", True)), str(provider.get("username", "")),
+        )
+
+    def _close_holder(self, key: tuple[Any, ...], holder: dict[str, Any]) -> None:
+        timer = holder.pop("idle_timer", None)
+        if timer is not None:
+            try: timer.cancel()
+            except Exception: pass
+        client = holder.get("client")
+        holder["client"] = None; holder["closed"] = True
+        try:
+            if client: client.close()
+        except Exception:
+            pass
+        with self.cond:
+            pool = self.pools.get(key, [])
+            if holder in pool: pool.remove(holder)
+            if not pool: self.pools.pop(key, None)
+            self.cond.notify_all()
+
+    def _arm_idle_close(self, key: tuple[Any, ...], holder: dict[str, Any]) -> None:
+        old = holder.pop("idle_timer", None)
+        if old is not None:
+            try: old.cancel()
+            except Exception: pass
+        marker = object(); holder["idle_marker"] = marker
+        def expire() -> None:
+            client = None
+            with self.cond:
+                if holder.get("busy") or holder.get("idle_marker") is not marker:
+                    return
+                idle = time.monotonic() - float(holder.get("last_used", 0.0))
+                if idle < BROWSE_HEADER_IDLE_CLOSE_SECONDS - 0.05:
+                    return
+                holder["closed"] = True; holder["idle_timer"] = None; holder["idle_marker"] = None
+                client = holder.get("client"); holder["client"] = None
+                pool = self.pools.get(key, [])
+                if holder in pool: pool.remove(holder)
+                if not pool: self.pools.pop(key, None)
+                self.cond.notify_all()
+            try:
+                if client: client.close()
+            except Exception:
+                pass
+        timer = threading.Timer(BROWSE_HEADER_IDLE_CLOSE_SECONDS, expire)
+        timer.daemon = True; holder["idle_timer"] = timer; timer.start()
+
+    def acquire(self, provider: dict[str, Any], group: str) -> tuple[tuple[Any, ...], dict[str, Any], NntpClient]:
+        key = self.key(provider); create = False; holder = None
+        deadline = time.monotonic() + 8.0
+        while holder is None:
+            with self.cond:
+                pool = self.pools.setdefault(key, [])
+                for item in pool:
+                    if not item.get("busy") and not item.get("closed") and item.get("client"):
+                        holder = item; holder["busy"] = True
+                        timer = holder.pop("idle_timer", None); holder["idle_marker"] = None
+                        if timer is not None:
+                            try: timer.cancel()
+                            except Exception: pass
+                        break
+                if holder is None and len(pool) < self.max_per_provider:
+                    holder = {"busy": True, "closed": False, "client": None, "group": "", "last_used": time.monotonic()}
+                    pool.append(holder); create = True
+                elif holder is None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("Timed out waiting for an interactive NNTP header connection")
+                    self.cond.wait(timeout=min(0.25, remaining))
+        try:
+            if create:
+                password = unprotect_secret(provider.get("password_protected", ""))
+                client = NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)), provider.get("username", ""), password, timeout=15.0, probe_capabilities=False)
+                client.connect(); holder["client"] = client
+            client = holder["client"]
+            holder["last_used"] = time.monotonic()
+            return key, holder, client
+        except Exception:
+            self._close_holder(key, holder)
+            raise
+
+    def release(self, key: tuple[Any, ...], holder: dict[str, Any], healthy: bool = True) -> None:
+        if not healthy:
+            self._close_holder(key, holder); return
+        with self.cond:
+            holder["busy"] = False; holder["last_used"] = time.monotonic(); self.cond.notify_all()
+        self._arm_idle_close(key, holder)
+
+    def lease(self, provider: dict[str, Any], group: str):
+        pool = self
+        class Lease:
+            def __enter__(self_nonlocal):
+                self_nonlocal.key, self_nonlocal.holder, self_nonlocal.client = pool.acquire(provider, group)
+                return self_nonlocal.client
+            def __exit__(self_nonlocal, exc_type, exc, tb):
+                pool.release(self_nonlocal.key, self_nonlocal.holder, healthy=exc_type is None)
+                return False
+        return Lease()
+
+BROWSE_HEADER_POOL = BrowseHeaderClientPool()
 
 def parse_overview(lines: Iterable[bytes]) -> list[dict[str, Any]]:
     result = []
@@ -3742,7 +3897,7 @@ def cached_preview_result(token: str, filename: str, media: dict[str, Any]) -> d
         _preview_tokens[token] = {"path": str(output_path), "mime": mime, "filename": filename, "created": time.time()}
     return {"token": token, "url": f"/media/{token}", "download_url": f"/download/{token}", "filename": filename, "mime": mime, "size": output_path.stat().st_size, "kind": media.get("kind"), "cached": True}
 
-def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], output_path: Path, max_bytes: int | None = None, max_segments: int | None = None) -> tuple[int, int]:
+def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], output_path: Path, max_bytes: int | None = None, max_segments: int | None = None, cancel_check=None) -> tuple[int, int]:
     """Assemble preview segments without letting one bad part stall the gallery.
 
     Each segment is decoded into a small in-memory staging buffer and committed to
@@ -3759,6 +3914,8 @@ def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict
     try:
         with temp_path.open("w+b") as f:
             for seg in segments_sorted:
+                if cancel_check is not None:
+                    cancel_check()
                 last_exc: Exception | None = None
                 completed = False
                 for attempt in range(2):
@@ -3766,7 +3923,7 @@ def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict
                     try:
                         client = _preview_worker_client(provider, group, force_reconnect=attempt > 0)
                         part_written, meta = retrieve_segment_into_file(
-                            client, seg, stage, apply_part_offset=False,
+                            client, seg, stage, cancel_check=cancel_check, apply_part_offset=False,
                         )
                         payload = stage.getvalue()
                         begin = int(meta.get("begin", 0) or 0)
@@ -3800,7 +3957,7 @@ def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict
         temp_path.unlink(missing_ok=True)
         raise
 
-def prepare_preview(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int) -> dict[str, Any]:
+def prepare_preview(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None) -> dict[str, Any]:
     if not media:
         raise ValueError("No previewable image or video was detected in this post")
     if not segments:
@@ -3825,7 +3982,7 @@ def prepare_preview(provider: dict[str, Any], group: str, segments: list[dict[st
             return cached
         suffix = Path(filename).suffix or (".jpg" if media.get("kind") == "image" else ".mp4")
         output_path = CACHE_DIR / f"{token}{suffix}"
-        written, _ = _assemble_segments(provider, group, segments, output_path, max_bytes=max_mb * 1024 * 1024 + 1)
+        written, _ = _assemble_segments(provider, group, segments, output_path, max_bytes=max_mb * 1024 * 1024 + 1, cancel_check=cancel_check)
         if written > max_mb * 1024 * 1024:
             output_path.unlink(missing_ok=True)
             raise ValueError(f"Preview exceeded the {max_mb} MB preview safety limit")
@@ -3876,7 +4033,7 @@ def _try_ffmpeg_frame(source: Path, thumb_token: str) -> str | None:
     cleanup_thumbnail_cache()
     return thumbnail_cache_url(thumb_token, frame_path)
 
-def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int) -> dict[str, Any]:
+def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None) -> dict[str, Any]:
     if media.get("kind") != "image":
         raise ValueError("Image thumbnail requested for a non-image post")
     if not segments:
@@ -3892,7 +4049,7 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
     filename = media.get("filename") or f"preview.{media.get('extension', 'jpg')}"
     filename = re.sub(r"[^A-Za-z0-9._ -]+", "_", filename).strip() or "preview.jpg"
     if thumbnail_prefers_full_preview(thumb_token):
-        full = prepare_preview(provider, group, segments, media, max_mb)
+        full = prepare_preview(provider, group, segments, media, max_mb, cancel_check=cancel_check)
         return {
             "kind": "image", "filename": filename, "thumbnail_token": thumb_token,
             "thumbnail_url": full.get("url", ""), "source_url": full.get("url", ""),
@@ -3927,7 +4084,7 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
         try:
             written, _ = _assemble_segments(
                 provider, group, segments, source_path,
-                max_bytes=max_mb * 1024 * 1024 + 1,
+                max_bytes=max_mb * 1024 * 1024 + 1, cancel_check=cancel_check,
             )
             if written > max_mb * 1024 * 1024:
                 raise ValueError(f"Preview exceeded the {max_mb} MB preview safety limit")
@@ -3953,7 +4110,7 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
         finally:
             source_path.unlink(missing_ok=True)
 
-def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any]) -> dict[str, Any]:
+def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], cancel_check=None) -> dict[str, Any]:
     if media.get("kind") != "video":
         raise ValueError("Video thumbnail requested for a non-video post")
     if not segments:
@@ -3987,7 +4144,7 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
     with lock:
         if not sample_path.exists() or sample_path.stat().st_size <= 0:
             max_bytes = VIDEO_THUMB_SAMPLE_MB * 1024 * 1024
-            written, fetched = _assemble_segments(provider, group, segments, sample_path, max_bytes=max_bytes, max_segments=12)
+            written, fetched = _assemble_segments(provider, group, segments, sample_path, max_bytes=max_bytes, max_segments=12, cancel_check=cancel_check)
             if written <= 0:
                 raise ValueError("Video sample contained no data")
         else:
@@ -9754,6 +9911,8 @@ class DownloadManager:
         shutdown_download_pools()
 
 def preview_error_info(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, BrowseSessionCancelled):
+        return {'error': str(exc), 'error_code': 'browse_cancelled', 'error_label': 'Browsing request cancelled', 'retryable': False}
     text = str(exc)
     low = text.lower()
     if 'unavailable' in low or '430' in low or '423' in low or 'no such article' in low:
@@ -10331,6 +10490,42 @@ def _authoritative_runtime_snapshot(current_port: int) -> dict[str, Any]:
         "current_service_mode": False, "url": current_url, "reason": "no healthy same-version service peer found",
     }
 
+
+def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], group: str, cache_key, info: dict[str, Any], low: int, high: int, page: int, page_count: int, limit: int, start_num: int, end_num: int, fetch_start: int, fetch_end: int) -> None:
+    """Finish deep multipart reconstruction after the first usable page is visible."""
+    try:
+        started = time.perf_counter()
+        with BROWSE_HEADER_POOL.lease(provider, group) as client:
+            client.group(group)
+            raw_articles = client.overview(fetch_start, fetch_end)
+        _apply_cached_name_resolutions(provider_id, group, raw_articles)
+        grouped_all = group_articles(raw_articles); articles = []
+        for item in grouped_all:
+            nums = [int(seg.get("article", 0) or 0) for seg in (item.get("segments") or [])]
+            anchor_num = max(nums) if nums else int(item.get("article", 0) or 0)
+            if start_num <= anchor_num <= end_num:
+                articles.append(item)
+        scanned_page_end = min(page_count, max(page, ((high - max(low, fetch_start)) // limit) + 1)) if page_count else page
+        next_older_page = scanned_page_end + 1 if page_count and scanned_page_end < page_count else 0
+        paging = {
+            "page": page, "page_count": page_count, "page_size": limit, "start": start_num, "end": end_num,
+            "low": low, "high": high, "has_older": bool(next_older_page), "has_newer": bool(page_count and page > 1),
+            "scanned_page_end": scanned_page_end, "next_older_page": next_older_page, "smart_binary_scan": True,
+        }
+        payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "background reconstruction", "cache_age_seconds": 0, "smart_binary_headers": max(0, fetch_end - fetch_start + 1), "smart_binary_pending": False}
+        with ARTICLE_PAGE_CACHE_LOCK:
+            current = ARTICLE_PAGE_CACHE.get(cache_key)
+            # Do not overwrite a newer explicit refresh of this page.
+            if current and bool((current.get("payload") or {}).get("smart_binary_pending")):
+                ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": payload}
+    except Exception as exc:
+        DIAGNOSTICS.event("warning", "browse", f"Progressive binary reconstruction failed: {exc}", provider_id=provider_id, group=group, page=page)
+        with ARTICLE_PAGE_CACHE_LOCK:
+            current = ARTICLE_PAGE_CACHE.get(cache_key)
+            if current and bool((current.get("payload") or {}).get("smart_binary_pending")):
+                failed = dict(current.get("payload") or {}); failed["smart_binary_pending"] = False; failed["smart_binary_background_error"] = str(exc)[:300]
+                ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": failed}
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = f"NewzDeck/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
@@ -10646,6 +10841,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.groups_api(data)
             if parsed.path == "/api/groups/status":
                 return self.groups_status_api(data)
+            if parsed.path == "/api/browse/session":
+                return self._json(200, register_browse_session(str(data.get("provider_id", "")), str(data.get("group", "")), str(data.get("browse_session", ""))))
             if parsed.path == "/api/articles":
                 return self.articles_api(data)
             if parsed.path == "/api/articles/resolve-names":
@@ -10983,6 +11180,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         requested_page = max(1, int(data.get("page", 1) or 1))
         media_only = bool(data.get("media_only", False))
         smart_binaries = bool(data.get("smart_binaries", False))
+        progressive = bool(data.get("progressive", False))
         refresh = bool(data.get("refresh", False))
         cache_key = (provider_id, group, limit, requested_page, smart_binaries)
         started = time.perf_counter()
@@ -10992,18 +11190,21 @@ class AppHandler(SimpleHTTPRequestHandler):
                 cached = ARTICLE_PAGE_CACHE.get(cache_key)
             if cached and time.time() - float(cached.get("cached_at", 0) or 0) <= ARTICLE_PAGE_CACHE_TTL_SECONDS:
                 payload = dict(cached.get("payload") or {})
-                grouped = list(payload.get("articles") or [])
-                if media_only:
-                    grouped = [a for a in grouped if a.get("media")]
-                payload["articles"] = grouped
-                payload["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
-                payload["cache_source"] = "header cache"
-                payload["cache_age_seconds"] = max(0, int(time.time() - float(cached.get("cached_at", 0) or 0)))
-                return self._json(200, payload)
+                if not progressive and bool(payload.get("smart_binary_pending")):
+                    cached = None
+                else:
+                    grouped = list(payload.get("articles") or [])
+                    if media_only:
+                        grouped = [a for a in grouped if a.get("media")]
+                    payload["articles"] = grouped
+                    payload["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
+                    payload["cache_source"] = "header cache"
+                    payload["cache_age_seconds"] = max(0, int(time.time() - float(cached.get("cached_at", 0) or 0)))
+                    return self._json(200, payload)
 
-        password = unprotect_secret(provider.get("password_protected", ""))
         fetch_start = fetch_end = smart_extra = 0
-        with NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)), provider.get("username", ""), password) as client:
+        background_smart = None
+        with BROWSE_HEADER_POOL.lease(provider, group) as client:
             info = client.group(group)
             high = int(info["high"]); low = int(info["low"]); group_count = int(info.get("count", 0) or 0)
             if group_count <= 0 or high < low or (high == 0 and low == 0):
@@ -11022,8 +11223,11 @@ class AppHandler(SimpleHTTPRequestHandler):
                     if smart_extra > 0:
                         expanded_start = max(low, fetch_start - smart_extra)
                         if expanded_start < fetch_start:
-                            fetch_start = expanded_start
-                            raw_articles = client.overview(fetch_start, fetch_end)
+                            if progressive:
+                                background_smart = (expanded_start, fetch_end)
+                            else:
+                                fetch_start = expanded_start
+                                raw_articles = client.overview(fetch_start, fetch_end)
                 _apply_cached_name_resolutions(provider_id, group, raw_articles)
                 grouped_all = group_articles(raw_articles)
                 articles = []
@@ -11044,13 +11248,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             "scanned_page_end": scanned_page_end, "next_older_page": next_older_page,
             "smart_binary_scan": bool(smart_binaries),
         }
-        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0)}
+        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0), "smart_binary_pending": bool(background_smart)}
         with ARTICLE_PAGE_CACHE_LOCK:
             ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": base_payload}
             if len(ARTICLE_PAGE_CACHE) > 250:
                 oldest = sorted(ARTICLE_PAGE_CACHE.items(), key=lambda kv: float(kv[1].get("cached_at", 0) or 0))[:50]
                 for key, _ in oldest:
                     ARTICLE_PAGE_CACHE.pop(key, None)
+        if background_smart:
+            SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1])
         payload = dict(base_payload)
         if media_only:
             payload["articles"] = [a for a in articles if a.get("media")]
@@ -11101,6 +11307,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         origin_provider_id = str(data.get("provider_id", ""))
         provider = resolve_provider_for_purpose(origin_provider_id, "previews")
         group = str(data.get("group", "")).strip()
+        browse_session = str(data.get("browse_session", "")).strip()
+        cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
+        if cancel_check is not None:
+            cancel_check()
         segments = data.get("segments") or []
         if str(provider.get("id", "")) != origin_provider_id:
             segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
@@ -11118,7 +11328,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         settings = json_read(SETTINGS_FILE, {"preview_limit_mb": DEFAULT_PREVIEW_LIMIT_MB})
         max_mb = max(10, min(4096, int(settings.get("preview_limit_mb", DEFAULT_PREVIEW_LIMIT_MB))))
         try:
-            result = run_preview_task(prepare_preview, provider, group, segments, media, max_mb)
+            result = run_preview_task(prepare_preview, provider, group, segments, media, max_mb, cancel_check)
         except Exception as exc:
             return self._json(422, preview_error_info(exc))
         return self._json(200, result)
@@ -11127,6 +11337,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         origin_provider_id = str(data.get("provider_id", ""))
         provider = resolve_provider_for_purpose(origin_provider_id, "previews")
         group = str(data.get("group", "")).strip()
+        browse_session = str(data.get("browse_session", "")).strip()
+        cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
+        if cancel_check is not None:
+            cancel_check()
         segments = data.get("segments") or []
         if str(provider.get("id", "")) != origin_provider_id:
             segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
@@ -11142,7 +11356,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         settings = json_read(SETTINGS_FILE, {"preview_limit_mb": DEFAULT_PREVIEW_LIMIT_MB})
         max_mb = max(10, min(4096, int(settings.get("preview_limit_mb", DEFAULT_PREVIEW_LIMIT_MB))))
         try:
-            result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb)
+            result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb, cancel_check)
         except Exception as exc:
             return self._json(422, preview_error_info(exc))
         return self._json(200, result)
@@ -11151,6 +11365,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         origin_provider_id = str(data.get("provider_id", ""))
         provider = resolve_provider_for_purpose(origin_provider_id, "previews")
         group = str(data.get("group", "")).strip()
+        browse_session = str(data.get("browse_session", "")).strip()
+        cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
+        if cancel_check is not None:
+            cancel_check()
         segments = data.get("segments") or []
         if str(provider.get("id", "")) != origin_provider_id:
             segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
@@ -11171,7 +11389,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 "partial": False, "cached": True, "method": "persistent-cache",
             })
         try:
-            result = run_preview_task(prepare_video_thumbnail, provider, group, segments, media)
+            result = run_preview_task(prepare_video_thumbnail, provider, group, segments, media, cancel_check)
         except Exception as exc:
             return self._json(422, preview_error_info(exc))
         return self._json(200, result)
@@ -11565,7 +11783,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             try:
                 segments = item.get("segments") or []
                 media = item.get("media") or {}
-                result = run_preview_task(prepare_preview, provider, group, segments, media, max_mb)
+                result = run_preview_task(prepare_preview, provider, group, segments, media, max_mb, cancel_check)
                 source = Path(_preview_tokens[result["token"]]["path"])
                 name = re.sub(r"[^A-Za-z0-9._ -]+", "_", result["filename"]).strip() or source.name
                 dest = DOWNLOAD_DIR / name

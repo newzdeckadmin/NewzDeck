@@ -1,6 +1,6 @@
-NewzDeck v3.6.6 updates preserve user state under %LOCALAPPDATA%\NewzDeck.
+NewzDeck v3.6.7 updates preserve user state under %LOCALAPPDATA%\NewzDeck.
 
-Installed users should normally run NewzDeck_v3.6.6_Setup.exe over the existing
+Installed users should normally run NewzDeck_v3.6.7_Setup.exe over the existing
 installation or use the verified in-app updater when offered. Setup preserves the
 v3.6.1/v3.6.2 service and tray shutdown protections, so manual service removal or
 tray shutdown should not normally be required.

@@ -360,7 +360,7 @@ func logLine(start time.Time, format string, args ...any) {
 	defer f.Close()
 	msg := fmt.Sprintf(format, args...)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	_, _ = fmt.Fprintf(f, "%s [startup-v3.6.6 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
+	_, _ = fmt.Fprintf(f, "%s [startup-v3.6.7 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
 }
 
 func acquireStartupMutex() (uintptr, bool) {
@@ -749,7 +749,7 @@ func provisionRuntime(start time.Time) error {
 	logLine(start, "downloading official CPython 3.12.10 embeddable runtime")
 	client := &http.Client{Timeout: 3 * time.Minute}
 	req, _ := http.NewRequest("GET", pythonRuntimeURL, nil)
-	req.Header.Set("User-Agent", "NewzDeck/3.6.6")
+	req.Header.Set("User-Agent", "NewzDeck/3.6.7")
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("CPython download failed: %w", err)
