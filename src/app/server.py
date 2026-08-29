@@ -160,8 +160,9 @@ MAX_GROUP_PAGE_SIZE = 5000
 DEFAULT_ARTICLE_LIMIT = 300
 DEFAULT_PREVIEW_LIMIT_MB = 512
 VIDEO_THUMB_SAMPLE_MB = 24
-PREVIEW_WORKER_COUNT = 24
+PREVIEW_WORKER_COUNT = 80
 PREVIEW_SOCKET_TIMEOUT = 7.0
+PREVIEW_CONNECTION_IDLE_CLOSE_SECONDS = 3.0
 NAME_RESOLUTION_WORKER_COUNT = 3
 NAME_RESOLUTION_PROBE_BYTES = 96 * 1024
 NAME_RESOLUTION_SOCKET_TIMEOUT = 4.5
@@ -242,7 +243,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.5"
+APP_VERSION = "3.6.6"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -3386,21 +3387,66 @@ def _provider_connection_key(provider: dict[str, Any]) -> tuple[Any, ...]:
         int(provider.get("port", 563)), bool(provider.get("ssl", True)), provider.get("username", ""),
     )
 
+def _cancel_preview_idle_timer(holder: dict[str, Any] | None) -> None:
+    if not holder:
+        return
+    timer = holder.pop("idle_timer", None)
+    holder["idle_marker"] = None
+    if timer is not None:
+        try:
+            timer.cancel()
+        except Exception:
+            pass
+
 def _close_worker_client() -> None:
     holder = getattr(_preview_worker_local, "holder", None)
+    _cancel_preview_idle_timer(holder)
     if holder and holder.get("client"):
         try:
             holder["client"].close()
         except Exception:
             pass
+        holder["closed"] = True
     _preview_worker_local.holder = None
+
+def _arm_preview_worker_idle_close() -> None:
+    """Release an idle preview socket quickly after a browsing burst.
+
+    High-concurrency gallery browsing may temporarily use most of a provider's
+    configured connection budget. Keep sockets warm while work is flowing, but
+    close each worker's NNTP session a few seconds after its last task so a real
+    download can reclaim the provider connection budget promptly.
+    """
+    holder = getattr(_preview_worker_local, "holder", None)
+    if not holder or not holder.get("client") or holder.get("closed"):
+        return
+    _cancel_preview_idle_timer(holder)
+    marker = object()
+    holder["idle_marker"] = marker
+    client = holder["client"]
+    def expire() -> None:
+        if holder.get("idle_marker") is not marker:
+            return
+        if time.monotonic() - float(holder.get("last_used", 0.0)) < PREVIEW_CONNECTION_IDLE_CLOSE_SECONDS - 0.05:
+            return
+        try:
+            client.close()
+        except Exception:
+            pass
+        holder["closed"] = True
+        holder["idle_timer"] = None
+    timer = threading.Timer(PREVIEW_CONNECTION_IDLE_CLOSE_SECONDS, expire)
+    timer.daemon = True
+    holder["idle_timer"] = timer
+    timer.start()
 
 def _preview_worker_client(provider: dict[str, Any], group: str, force_reconnect: bool = False) -> NntpClient:
     """Return a warm NNTP connection owned exclusively by the current preview worker."""
     key = _provider_connection_key(provider)
     holder = getattr(_preview_worker_local, "holder", None)
+    _cancel_preview_idle_timer(holder)
     now = time.monotonic()
-    stale = bool(holder and now - float(holder.get("last_used", now)) > 90)
+    stale = bool(holder and (holder.get("closed") or now - float(holder.get("last_used", now)) > 90))
     if force_reconnect or stale or not holder or holder.get("key") != key:
         _close_worker_client()
         password = unprotect_secret(provider.get("password_protected", ""))
@@ -3409,7 +3455,7 @@ def _preview_worker_client(provider: dict[str, Any], group: str, force_reconnect
             provider.get("username", ""), password, timeout=PREVIEW_SOCKET_TIMEOUT, probe_capabilities=False,
         )
         client.connect()
-        holder = {"key": key, "client": client, "group": "", "last_used": now}
+        holder = {"key": key, "client": client, "group": "", "last_used": now, "closed": False}
         _preview_worker_local.holder = holder
     client = holder["client"]
     if holder.get("group") != group:
@@ -3959,7 +4005,12 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
         }
 
 def run_preview_task(func, *args):
-    return PREVIEW_EXECUTOR.submit(func, *args).result()
+    def _run():
+        try:
+            return func(*args)
+        finally:
+            _arm_preview_worker_idle_close()
+    return PREVIEW_EXECUTOR.submit(_run).result()
 
 def cleanup_preview_cache(max_age_hours: int = 12, *, force: bool = False):
     """Rate-limit and background full-preview cache maintenance.

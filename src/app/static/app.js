@@ -3,12 +3,12 @@ const state = {
   selectedGroup: '', articles: [], selectedArticleKey: '', selectedItems: new Map(), selectionAnchorKey: '', articlePage: 1, articlePaging: null, articleSearchTerm: '',
   loadedPages: new Set(), continuousMode: true, continuousLoading: false, thumbnailSize: 'medium', browseScrollTop: 0,
   viewMode: 'gallery', previewCache: new Map(), previewPromises: new Map(), imageThumbCache: new Map(), imageThumbPromises: new Map(), videoThumbCache: new Map(), videoThumbPromises: new Map(), thumbQueued: new Set(), thumbQueue: [],
-  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(),
+  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(),
   downloadSnapshot: {paused:false,jobs:[],collections:[],counts:{},folder:''}, downloadedIndex: new Set(), queuedIndex: new Set(), downloadIndexSignature:'', downloadFilter:'active', downloadSearchTerm:'', selectedDownloads:new Set(), downloadSelectionAnchor:'', expandedDownloads:new Set(), expandedCollections:new Set(), postProgressMemory:new Map(), activeView:'browse', downloadOrganization:'flat',
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionTimer:null, nameResolutionAutoRemaining:24,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.5';
+const UI_VERSION = '3.6.6';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -309,16 +309,42 @@ function renderProviderSelect(){ const items=state.providers.filter(p=>p.enabled
 function activeDownloadTraffic(){
   return (state.downloadSnapshot?.jobs||[]).some(j=>['downloading','retry_wait','cancelling'].includes(String(j.status||'')));
 }
+function previewStartingConcurrency(connections){return connections<=2?1:connections<=5?2:connections<=10?5:connections<=20?9:connections<=40?13:connections<=60?16:20}
+function previewDownloadConcurrency(connections){const reserve=connections<=2?1:Math.max(1,Math.min(4,Math.ceil(connections*.04)));return Math.max(1,reserve-(reserve>1?1:0))}
+function previewIdleCeiling(connections,floor){const reserve=connections<=4?1:Math.max(2,Math.ceil(connections*.12));return Math.max(floor,Math.min(80,Math.max(1,connections-reserve)))}
+function applyPreviewConcurrency(connections,value,mode){
+  state.thumbConcurrency=Math.max(1,Math.min(80,Math.round(value||1)));
+  state.videoThumbConcurrency=Math.max(1,Math.min(4,connections>=48?4:connections>=24?3:connections>=12?2:1,state.thumbConcurrency));
+  state.setCoverConcurrency=state.groupRelatedMedia&&!state.activeMediaSetKey?Math.max(1,state.thumbConcurrency-Math.min(4,state.thumbConcurrency-1)):Math.min(6,state.thumbConcurrency);
+  state.previewConcurrencyMode=mode;
+}
+function resetPreviewRamp(connections,downloadsBusy){
+  const floor=Math.max(1,Math.min(80,previewStartingConcurrency(connections))),ceiling=previewIdleCeiling(connections,floor),step=Math.max(1,Math.min(8,Math.ceil(connections*.10))),mode=downloadsBusy?'download-reserve':'browse-adaptive';
+  const current=downloadsBusy?previewDownloadConcurrency(connections):floor;
+  state.previewRamp={providerId:state.providerId,connections,floor,ceiling,step,current,mode,windowStarted:performance.now(),completed:0,failed:0,lastRate:0,cooldownUntil:0};
+  applyPreviewConcurrency(connections,current,mode);
+}
+function recordPreviewSample(elapsedMs,ok){
+  const r=state.previewRamp;if(!r||r.mode!=='browse-adaptive'||activeDownloadTraffic())return;
+  const now=performance.now(),priorSamples=r.completed+r.failed;if(!priorSamples)r.windowStarted=Math.max(r.windowStarted,now-Math.max(0,Number(elapsedMs)||0));
+  if(ok)r.completed++;else r.failed++;
+  const sampleCount=r.completed+r.failed,elapsed=Math.max(.25,(now-r.windowStarted)/1000);
+  if(elapsed<1.6||sampleCount<6)return;
+  const rate=r.completed/elapsed,failureRate=r.failed/Math.max(1,sampleCount),backlog=state.thumbQueue.length+state.thumbActive;let next=r.current;
+  if(failureRate>=.18){next=Math.max(r.floor,r.current-r.step);r.cooldownUntil=now+5000}
+  else if(now>=r.cooldownUntil&&backlog>Math.max(r.current+2,Math.ceil(r.current*1.15))&&r.current<r.ceiling){
+    if(!r.lastRate||rate>=r.lastRate*.88)next=Math.min(r.ceiling,r.current+r.step);
+    else if(rate<r.lastRate*.70&&r.current>r.floor){next=Math.max(r.floor,r.current-r.step);r.cooldownUntil=now+3500}
+  }else if(r.lastRate&&rate<r.lastRate*.55&&r.current>r.floor&&backlog>r.floor){next=Math.max(r.floor,r.current-r.step);r.cooldownUntil=now+3500}
+  r.lastRate=rate;r.windowStarted=now;r.completed=0;r.failed=0;
+  if(next!==r.current){r.current=next;applyPreviewConcurrency(r.connections,next,'browse-adaptive');pumpThumbQueue()}
+}
 function recalculatePreviewConcurrency(){
   const p=state.providers.find(p=>p.id===state.providerId);if(!p)return;
-  const connections=Math.max(1,Number(p.connections||20));const downloadsBusy=activeDownloadTraffic();
-  let desired;
-  if(downloadsBusy){const reserve=connections<=2?1:Math.max(1,Math.min(4,Math.ceil(connections*.04)));desired=Math.max(1,reserve-(reserve>1?1:0))}
-  else desired=connections<=2?1:connections<=5?2:connections<=10?5:connections<=20?9:connections<=40?13:connections<=60?16:20;
-  state.thumbConcurrency=Math.max(1,Math.min(24,desired));
-  state.videoThumbConcurrency=Math.max(1,Math.min(3,connections>=40?3:connections>=16?2:1,state.thumbConcurrency));
-  state.setCoverConcurrency=state.groupRelatedMedia&&!state.activeMediaSetKey?Math.max(1,state.thumbConcurrency-Math.min(3,state.thumbConcurrency-1)):Math.min(4,state.thumbConcurrency);
-  state.previewConcurrencyMode=downloadsBusy?'download-reserve':'browse-fast';
+  const connections=Math.max(1,Number(p.connections||20)),downloadsBusy=activeDownloadTraffic(),mode=downloadsBusy?'download-reserve':'browse-adaptive',r=state.previewRamp;
+  if(!r||r.providerId!==state.providerId||r.connections!==connections||r.mode!==mode)resetPreviewRamp(connections,downloadsBusy);
+  else if(downloadsBusy){r.current=previewDownloadConcurrency(connections);applyPreviewConcurrency(connections,r.current,mode)}
+  else applyPreviewConcurrency(connections,r.current,mode);
   pumpThumbQueue();
 }
 function updateProviderState(){
@@ -1069,15 +1095,16 @@ function pumpThumbQueue(){
     let pos=-1,best=Number.POSITIVE_INFINITY;
     for(let i=0;i<state.thumbQueue.length;i++){const t=state.thumbQueue[i];if(t.kind==='video'&&state.thumbVideoActive>=state.videoThumbConcurrency)continue;if(t.role==='set-cover'&&state.thumbSetActive>=state.setCoverConcurrency)continue;const score=liveThumbnailTaskScore(t);if(score<best){best=score;pos=i}}
     if(pos<0)return;
-    const task=state.thumbQueue.splice(pos,1)[0];state.thumbActive++;state.thumbActiveTasks.set(task.qkey,Date.now());if(task.kind==='video')state.thumbVideoActive++;if(task.role==='set-cover')state.thumbSetActive++;
+    const task=state.thumbQueue.splice(pos,1)[0],sampleStarted=performance.now();state.thumbActive++;state.thumbActiveTasks.set(task.qkey,Date.now());if(task.kind==='video')state.thumbVideoActive++;if(task.role==='set-cover')state.thumbSetActive++;
     (async()=>{
+      let sampleOK=false;
       try{
         if(task.generation!==state.galleryGeneration||task.group!==state.selectedGroup||task.provider!==state.providerId)return;
         const a=state.articles[task.index];if(!a)return;
-        const data=task.kind==='video'?await fetchVideoThumbnail(a):await fetchImageThumbnail(a);
+        const data=task.kind==='video'?await fetchVideoThumbnail(a):await fetchImageThumbnail(a);sampleOK=true;
         if(task.generation===state.galleryGeneration&&task.group===state.selectedGroup&&task.provider===state.providerId)updateThumbnailDom(task.index,data,task.role);
       }catch(e){if(task.generation===state.galleryGeneration&&task.group===state.selectedGroup&&task.provider===state.providerId)markThumbnailError(task.index,e,task.kind,task.role);}
-      finally{state.thumbActive--;state.thumbActiveTasks.delete(task.qkey);if(task.kind==='video')state.thumbVideoActive--;if(task.role==='set-cover')state.thumbSetActive--;state.thumbQueued.delete(task.qkey||task.pkey);pumpThumbQueue();scheduleThumbnailDemandScan();}
+      finally{state.thumbActive--;state.thumbActiveTasks.delete(task.qkey);if(task.kind==='video')state.thumbVideoActive--;if(task.role==='set-cover')state.thumbSetActive--;state.thumbQueued.delete(task.qkey||task.pkey);recordPreviewSample(performance.now()-sampleStarted,sampleOK);pumpThumbQueue();scheduleThumbnailDemandScan();}
     })();
   }
 }

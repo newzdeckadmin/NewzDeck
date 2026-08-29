@@ -1,18 +1,20 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.5",
-  "base_version": "3.6.4",
-  "release": "Windows Taskbar Identity Reliability",
-  "adapter_version": "3.6.5",
+  "version": "3.6.6",
+  "base_version": "3.6.5",
+  "release": "Adaptive Preview Connection Scaling",
+  "adapter_version": "3.6.6",
   "changes": [
-    "Fixes the running NewzDeck window showing the Microsoft Edge/Chrome taskbar icon on fresh Windows installations.",
-    "Assigns the hosted Chromium NewzDeck application window the explicit NewzDeck.Desktop AppUserModelID plus NewzDeck relaunch command, display name, and icon metadata.",
-    "Applies the NewzDeck icon to the hosted window for taskbar/Alt-Tab/title surfaces while leaving unrelated browser windows untouched.",
-    "Reapplies the identity for a bounded startup window because Chromium can populate or replace window properties after the HWND first appears.",
-    "Preserves the existing Edge/Chrome localhost application-host architecture and uses the same NewzDeck.exe launch path; no separate taskbar shim is shipped in production.",
-    "Preserves all accepted v3.6.4 Newsgroup Package Browser & Binary Reconstruction behavior and earlier installer/runtime/download/Automation/Discover fixes."
+    "Raises the backend preview worker ceiling from 24 to 80 for high-connection providers.",
+    "Starts gallery browsing at the proven v3.6.5 concurrency and ramps upward only while a real thumbnail backlog exists and measured throughput remains healthy.",
+    "Reserves roughly 12% of configured NNTP connections for headers, name resolution, and interaction; a 55-connection provider can ramp from 16 toward 48 concurrent previews.",
+    "Steps preview concurrency down when thumbnail failures rise or throughput materially regresses instead of blindly saturating the provider.",
+    "Closes warm preview NNTP sockets about 3 seconds after a browsing burst goes idle so downloads can reclaim provider sessions quickly.",
+    "Immediately returns to the small download-reserve preview budget when active download/retry/cancel traffic appears.",
+    "Preserves v3.6.5 Windows taskbar identity reliability and all v3.6.4 package-browser behavior."
   ],
   "regression_guards": [
+    "v3.6.5 Windows Taskbar Identity Reliability remains preserved.",
     "v3.6.4 Newsgroup Package Browser & Binary Reconstruction remains preserved.",
     "v3.6.3 Automation Sidebar Startup & Cache Reliability remains preserved.",
     "v3.6.2 Tray Upgrade Lock Reliability remains preserved.",
@@ -21,5 +23,5 @@
     "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
     "Private SAB downloads, Smart Import, Automation behavior, Discover/TMDB integration, provider state, and Metadata Server v0.3.3 compatibility remain preserved."
   ],
-  "name": "Windows Taskbar Identity Reliability"
+  "name": "Adaptive Preview Connection Scaling"
 }

@@ -1,24 +1,24 @@
-NewzDeck v3.6.5
-Windows Taskbar Identity Reliability
+NewzDeck v3.6.6
+Adaptive Preview Connection Scaling
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
-and personal media automation application. v3.6.5 builds on the accepted
-v3.6.4 package-browser release with a focused Windows desktop identity fix.
+and personal media automation application. v3.6.6 builds on v3.6.5 with
+adaptive high-concurrency thumbnail and preview browsing.
 
-WHAT'S NEW IN v3.6.5
+WHAT'S NEW IN v3.6.6
 
-- The running NewzDeck application now uses NewzDeck branding in the Windows
-  taskbar instead of inheriting Microsoft Edge/Chrome's icon on fresh systems.
-- The launcher assigns the hosted NewzDeck window the explicit NewzDeck.Desktop
-  AppUserModelID plus NewzDeck relaunch command, display name, and icon metadata.
-- Window/taskbar identity is reapplied briefly during Chromium startup so later
-  host initialization cannot silently restore the browser icon.
-- Only a newly created visible Edge/Chrome window titled NewzDeck is modified;
-  unrelated browser windows are left untouched.
-- All v3.6.4 Newsgroup Package Browser & Binary Reconstruction behavior remains
-  preserved, including package reconstruction, deobfuscation, sorting, queueing,
-  and the persistent Min size browsing cutoff.
+- Image-heavy newsgroups can use substantially more configured NNTP connections
+  while the provider is otherwise idle.
+- Preview concurrency ramps upward only under sustained demand and healthy
+  measured throughput, with automatic failure/throughput backoff.
+- Roughly 12% of provider connections remain reserved for headers, name
+  resolution, and interaction.
+- Active downloads immediately reclaim priority and preview scheduling falls
+  back to the small download-reserve budget.
+- Warm preview connections close after roughly three seconds of idle time.
+- v3.6.5 Windows taskbar identity and v3.6.4 package-browser behavior remain
+  preserved.
 WHAT YOU NEED
 
 - Windows 10 or Windows 11, 64-bit

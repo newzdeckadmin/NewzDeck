@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.5** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.6** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.5_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.6_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,15 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.5 highlights
+## v3.6.6 highlights
 
-v3.6.5 is a focused Windows desktop-integration release built on v3.6.4. It fixes the running application being represented by Microsoft Edge/Chrome in the Windows taskbar on fresh installations.
+v3.6.6 is a browsing-performance release built on v3.6.5. It lets image-heavy newsgroups use much more of a high-connection NNTP account while preserving download priority.
 
-- **NewzDeck taskbar identity:** the hosted application window is assigned the explicit `NewzDeck.Desktop` AppUserModelID plus NewzDeck relaunch metadata.
-- **Correct running-app icon:** taskbar, Alt-Tab, and window icon surfaces use NewzDeck branding instead of the browser host icon.
-- **Chromium startup race protection:** identity/icon metadata is reapplied briefly while the hosted application window finishes initializing.
-- **Safe isolation:** only the newly created Edge/Chrome NewzDeck application window is modified; unrelated browser windows are untouched.
-- **v3.6.4 preserved:** the complete Newsgroup Package Browser & Binary Reconstruction release remains unchanged.
+- **Adaptive preview scaling:** starts at the proven preview concurrency and ramps upward only while real thumbnail demand exists and measured performance remains healthy.
+- **Higher preview ceiling:** up to 80 backend preview workers, with roughly 12% of provider connections reserved for headers, name resolution, and interaction.
+- **55-connection example:** preview work can ramp from 16 toward 48 concurrent requests under sustained healthy demand.
+- **Automatic backoff:** failure rate and throughput regression can reduce concurrency instead of blindly saturating the provider.
+- **Download priority:** active downloads immediately return browsing to the small connection reserve.
+- **Fast idle release:** warm preview NNTP sessions close after roughly three idle seconds.
+- **v3.6.5 preserved:** Windows taskbar identity reliability remains intact.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.5_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.6_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
