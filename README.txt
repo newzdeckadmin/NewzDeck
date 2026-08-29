@@ -1,47 +1,24 @@
-NewzDeck v3.6.4
-Newsgroup Package Browser & Binary Reconstruction
+NewzDeck v3.6.5
+Windows Taskbar Identity Reliability
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
-and personal media automation application. v3.6.4 builds on the accepted
-v3.6.3 baseline with a major Newsgroup browsing overhaul focused on useful
-package-level browsing, multipart reconstruction, obfuscation recovery,
-downloadability, filtering, and layout reliability.
+and personal media automation application. v3.6.5 builds on the accepted
+v3.6.4 package-browser release with a focused Windows desktop identity fix.
 
-WHAT'S NEW IN v3.6.4
+WHAT'S NEW IN v3.6.5
 
-- All Posts is now a wide, metadata-first Package browser. Images and Video keep
-  their Gallery/List thumbnail experience and media Preview pane.
-- Packages / Raw posts lets advanced users switch between reconstructed releases
-  and the underlying Usenet article/file rows.
-- Multipart RAR, legacy RAR, split ZIP/7-Zip/numeric files, PAR2 sets, and matching
-  sidecars can collapse into one package with expandable original filenames and
-  subjects.
-- Complete non-image/video binaries are first-class selectable/queueable downloads.
-  Healthy grouped sets enter Downloads under one collection identity.
-- Package health distinguishes likely-complete sets from incomplete articles,
-  missing archive volumes, and sets with PAR2 recovery data. Incomplete fragments
-  are hidden from Downloadable view but remain available in troubleshooting views.
-- Sorting includes Newest, Oldest, Largest, Smallest, Name A-Z, Most files, and
-  Best health.
-- A persistent Min size filter is always visible in All Posts > Packages. It accepts
-  MB/GB values including decimals; 0 disables it. The cutoff uses reconstructed
-  binary/package size rather than individual yEnc segment size.
-- Obfuscated yEnc streams are reconstructed from part/total structure before they
-  reach the browser, including conservative anonymous reconstruction when both the
-  visible subject and From identity are randomized.
-- Bounded header-only XOVER expansion can scan enough surrounding headers to finish
-  very large multipart binaries without downloading BODY payloads merely to browse.
-- Low-bandwidth name resolution can recover filenames from yEnc control headers,
-  PAR2/SFV metadata, and bounded RAR4/RAR5/ZIP/best-effort 7-Zip header inspection.
-- Structural package reconstruction can connect randomized binaries using recovered
-  title hints, counters, posting sequence/proximity, and conservative size patterns.
-- Opening or reopening a newsgroup now starts from a fresh page 1 load rather than
-  restoring a stale page/session position; useful display preferences remain saved.
-- Newsgroup toolbar wrapping/alignment and UNSEEN/NEW badge containment are corrected.
-- Newsgroup deobfuscation remains provider-agnostic: there is no Easynews web
-  scraping/integration and no Newznab/indexer reconciliation traffic while browsing.
-
+- The running NewzDeck application now uses NewzDeck branding in the Windows
+  taskbar instead of inheriting Microsoft Edge/Chrome's icon on fresh systems.
+- The launcher assigns the hosted NewzDeck window the explicit NewzDeck.Desktop
+  AppUserModelID plus NewzDeck relaunch command, display name, and icon metadata.
+- Window/taskbar identity is reapplied briefly during Chromium startup so later
+  host initialization cannot silently restore the browser icon.
+- Only a newly created visible Edge/Chrome window titled NewzDeck is modified;
+  unrelated browser windows are left untouched.
+- All v3.6.4 Newsgroup Package Browser & Binary Reconstruction behavior remains
+  preserved, including package reconstruction, deobfuscation, sorting, queueing,
+  and the persistent Min size browsing cutoff.
 WHAT YOU NEED
 
 - Windows 10 or Windows 11, 64-bit

@@ -1,7 +1,7 @@
 // NewzDeck desktop launcher v3.5.33 — Source-Complete Runtime & Handoff
 //
-// v3.5.33 keeps the proven v3.5.32 fast startup path but brings first-run CPython
-// provisioning into this published launcher source. The legacy opaque Bootstrap/Core
+// v3.6.5 preserves the source-complete runtime/handoff path and adds Windows taskbar
+// identity for the browser-hosted application window. The legacy opaque Bootstrap/Core
 // executables are no longer required or shipped.
 package main
 
@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -42,6 +43,274 @@ var user32 = syscall.NewLazyDLL("user32.dll")
 var procMessageBoxW = user32.NewProc("MessageBoxW")
 var iphlpapi = syscall.NewLazyDLL("iphlpapi.dll")
 var procGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
+
+// v3.6.5 taskbar identity support. Edge/Chrome still render NewzDeck's localhost
+// UI, but the hosted application window is assigned an explicit NewzDeck Windows
+// identity so Explorer uses NewzDeck branding instead of the browser's taskbar icon.
+type taskbarGUID struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+
+type taskbarPROPERTYKEY struct {
+	Fmtid taskbarGUID
+	Pid   uint32
+}
+
+type taskbarPROPVARIANT struct {
+	Vt        uint16
+	Reserved1 uint16
+	Reserved2 uint16
+	Reserved3 uint16
+	Data      [2]uintptr
+}
+
+type taskbarIPropertyStore struct {
+	Vtbl *taskbarIPropertyStoreVtbl
+}
+
+type taskbarIPropertyStoreVtbl struct {
+	QueryInterface uintptr
+	AddRef         uintptr
+	Release        uintptr
+	GetCount       uintptr
+	GetAt          uintptr
+	GetValue       uintptr
+	SetValue       uintptr
+	Commit         uintptr
+}
+
+var shell32 = syscall.NewLazyDLL("shell32.dll")
+var ole32 = syscall.NewLazyDLL("ole32.dll")
+var procEnumWindows = user32.NewProc("EnumWindows")
+var procIsWindowVisible = user32.NewProc("IsWindowVisible")
+var procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
+var procGetClassNameW = user32.NewProc("GetClassNameW")
+var procGetWindowTextLengthW = user32.NewProc("GetWindowTextLengthW")
+var procGetWindowTextW = user32.NewProc("GetWindowTextW")
+var procSendMessageTimeoutW = user32.NewProc("SendMessageTimeoutW")
+var procLoadImageW = user32.NewProc("LoadImageW")
+var procOpenProcess = kernel32.NewProc("OpenProcess")
+var procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+var procSHGetPropertyStoreForWindow = shell32.NewProc("SHGetPropertyStoreForWindow")
+var procSetCurrentProcessExplicitAUMID = shell32.NewProc("SetCurrentProcessExplicitAppUserModelID")
+var procCoInitializeEx = ole32.NewProc("CoInitializeEx")
+var procCoUninitialize = ole32.NewProc("CoUninitialize")
+
+const (
+	taskbarProcessQueryLimitedInformation = 0x1000
+	taskbarWMSetIcon                      = 0x0080
+	taskbarIconSmall                      = 0
+	taskbarIconBig                        = 1
+	taskbarImageIcon                      = 1
+	taskbarLRLoadFromFile                 = 0x0010
+	taskbarLRDefaultSize                  = 0x0040
+	taskbarSMTOAbortIfHung                = 0x0002
+	taskbarVTLPWSTR                       = 31
+	taskbarCOINITApartmentThreaded        = 0x2
+)
+
+var taskbarIIDPropertyStore = taskbarGUID{0x886D8EEB, 0x8CF2, 0x4446, [8]byte{0x8D, 0x02, 0xCD, 0xBA, 0x1D, 0xBD, 0xCF, 0x99}}
+var taskbarAppUserModelFmtid = taskbarGUID{0x9F4C2855, 0x9F79, 0x4B39, [8]byte{0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}}
+var taskbarPkeyRelaunchCommand = taskbarPROPERTYKEY{taskbarAppUserModelFmtid, 2}
+var taskbarPkeyRelaunchIcon = taskbarPROPERTYKEY{taskbarAppUserModelFmtid, 3}
+var taskbarPkeyRelaunchName = taskbarPROPERTYKEY{taskbarAppUserModelFmtid, 4}
+var taskbarPkeyAppID = taskbarPROPERTYKEY{taskbarAppUserModelFmtid, 5}
+
+func taskbarHRESULTFailed(hr uintptr) bool { return int32(uint32(hr)) < 0 }
+
+func taskbarSetCurrentAUMID(start time.Time, id string) {
+	p, err := syscall.UTF16PtrFromString(id)
+	if err != nil {
+		return
+	}
+	hr, _, _ := procSetCurrentProcessExplicitAUMID.Call(uintptr(unsafe.Pointer(p)))
+	if taskbarHRESULTFailed(hr) {
+		logLine(start, "taskbar SetCurrentProcessExplicitAppUserModelID failed hr=0x%08x", uint32(hr))
+	}
+}
+
+func taskbarPropVariantString(s string) (taskbarPROPVARIANT, *uint16, error) {
+	p, err := syscall.UTF16PtrFromString(s)
+	if err != nil {
+		return taskbarPROPVARIANT{}, nil, err
+	}
+	return taskbarPROPVARIANT{Vt: taskbarVTLPWSTR, Data: [2]uintptr{uintptr(unsafe.Pointer(p)), 0}}, p, nil
+}
+
+func taskbarSetStoreString(store *taskbarIPropertyStore, key *taskbarPROPERTYKEY, value string) error {
+	pv, keep, err := taskbarPropVariantString(value)
+	if err != nil {
+		return err
+	}
+	hr, _, _ := syscall.SyscallN(store.Vtbl.SetValue, uintptr(unsafe.Pointer(store)), uintptr(unsafe.Pointer(key)), uintptr(unsafe.Pointer(&pv)))
+	runtime.KeepAlive(keep)
+	if taskbarHRESULTFailed(hr) {
+		return fmt.Errorf("SetValue hr=0x%08x", uint32(hr))
+	}
+	return nil
+}
+
+func taskbarReleaseStore(store *taskbarIPropertyStore) {
+	if store == nil || store.Vtbl == nil {
+		return
+	}
+	_, _, _ = syscall.SyscallN(store.Vtbl.Release, uintptr(unsafe.Pointer(store)))
+}
+
+func taskbarCommitStore(store *taskbarIPropertyStore) error {
+	hr, _, _ := syscall.SyscallN(store.Vtbl.Commit, uintptr(unsafe.Pointer(store)))
+	if taskbarHRESULTFailed(hr) {
+		return fmt.Errorf("Commit hr=0x%08x", uint32(hr))
+	}
+	return nil
+}
+
+func taskbarProcessImage(pid uint32) string {
+	h, _, _ := procOpenProcess.Call(taskbarProcessQueryLimitedInformation, 0, uintptr(pid))
+	if h == 0 {
+		return ""
+	}
+	defer procCloseHandle.Call(h)
+	buf := make([]uint16, 1024)
+	size := uint32(len(buf))
+	r, _, _ := procQueryFullProcessImageNameW.Call(h, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	if r == 0 || size == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:size])
+}
+
+func taskbarWindowClass(hwnd uintptr) string {
+	buf := make([]uint16, 256)
+	n, _, _ := procGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if n == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:n])
+}
+
+func taskbarWindowTitle(hwnd uintptr) string {
+	n, _, _ := procGetWindowTextLengthW.Call(hwnd)
+	if n == 0 {
+		return ""
+	}
+	buf := make([]uint16, n+1)
+	got, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), n+1)
+	if got == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:got])
+}
+
+func taskbarBrowserWindows() map[uintptr]bool {
+	found := map[uintptr]bool{}
+	cb := syscall.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
+		visible, _, _ := procIsWindowVisible.Call(hwnd)
+		if visible == 0 {
+			return 1
+		}
+		class := taskbarWindowClass(hwnd)
+		if !strings.HasPrefix(class, "Chrome_WidgetWin_") {
+			return 1
+		}
+		var pid uint32
+		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+		if pid == 0 {
+			return 1
+		}
+		image := strings.ToLower(filepath.Base(taskbarProcessImage(pid)))
+		if image == "msedge.exe" || image == "chrome.exe" {
+			found[hwnd] = true
+		}
+		return 1
+	})
+	procEnumWindows.Call(cb, 0)
+	return found
+}
+
+func taskbarApplyWindowIdentity(hwnd uintptr) error {
+	var store *taskbarIPropertyStore
+	hr, _, _ := procSHGetPropertyStoreForWindow.Call(hwnd, uintptr(unsafe.Pointer(&taskbarIIDPropertyStore)), uintptr(unsafe.Pointer(&store)))
+	if taskbarHRESULTFailed(hr) || store == nil {
+		return fmt.Errorf("SHGetPropertyStoreForWindow hr=0x%08x", uint32(hr))
+	}
+	defer taskbarReleaseStore(store)
+
+	exe := filepath.Join(appDir(), "NewzDeck.exe")
+	icon := filepath.Join(appDir(), "NewzDeck.ico") + ",0"
+	relaunch := `"` + exe + `"`
+	if err := taskbarSetStoreString(store, &taskbarPkeyAppID, "NewzDeck.Desktop"); err != nil {
+		return fmt.Errorf("AppID: %w", err)
+	}
+	if err := taskbarSetStoreString(store, &taskbarPkeyRelaunchCommand, relaunch); err != nil {
+		return fmt.Errorf("RelaunchCommand: %w", err)
+	}
+	if err := taskbarSetStoreString(store, &taskbarPkeyRelaunchName, "NewzDeck"); err != nil {
+		return fmt.Errorf("RelaunchName: %w", err)
+	}
+	if err := taskbarSetStoreString(store, &taskbarPkeyRelaunchIcon, icon); err != nil {
+		return fmt.Errorf("RelaunchIcon: %w", err)
+	}
+	if err := taskbarCommitStore(store); err != nil {
+		return err
+	}
+
+	iconPath, _ := syscall.UTF16PtrFromString(filepath.Join(appDir(), "NewzDeck.ico"))
+	hIcon, _, _ := procLoadImageW.Call(0, uintptr(unsafe.Pointer(iconPath)), taskbarImageIcon, 0, 0, taskbarLRLoadFromFile|taskbarLRDefaultSize)
+	if hIcon != 0 {
+		var ignored uintptr
+		procSendMessageTimeoutW.Call(hwnd, taskbarWMSetIcon, taskbarIconBig, hIcon, taskbarSMTOAbortIfHung, 250, uintptr(unsafe.Pointer(&ignored)))
+		procSendMessageTimeoutW.Call(hwnd, taskbarWMSetIcon, taskbarIconSmall, hIcon, taskbarSMTOAbortIfHung, 250, uintptr(unsafe.Pointer(&ignored)))
+	}
+	return nil
+}
+
+func taskbarPatchNewWindow(start time.Time, before map[uintptr]bool) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	hr, _, _ := procCoInitializeEx.Call(0, taskbarCOINITApartmentThreaded)
+	if !taskbarHRESULTFailed(hr) {
+		defer procCoUninitialize.Call()
+	}
+
+	deadline := time.Now().Add(18 * time.Second)
+	patched := map[uintptr]bool{}
+	firstPatch := time.Time{}
+	for time.Now().Before(deadline) {
+		for hwnd := range taskbarBrowserWindows() {
+			if before[hwnd] {
+				continue
+			}
+			title := taskbarWindowTitle(hwnd)
+			if !strings.Contains(strings.ToLower(title), "newzdeck") {
+				continue
+			}
+			if err := taskbarApplyWindowIdentity(hwnd); err != nil {
+				logLine(start, "taskbar identity failed for window 0x%x title=%q: %v", hwnd, title, err)
+				continue
+			}
+			if !patched[hwnd] {
+				logLine(start, "assigned NewzDeck.Desktop taskbar identity to browser window 0x%x title=%q", hwnd, title)
+			}
+			patched[hwnd] = true
+			if firstPatch.IsZero() {
+				firstPatch = time.Now()
+			}
+		}
+		if !firstPatch.IsZero() && time.Since(firstPatch) > 5*time.Second {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if len(patched) == 0 {
+		logLine(start, "taskbar identity: no new Edge/Chrome NewzDeck application window found before timeout")
+	} else {
+		logLine(start, "taskbar identity applied to %d NewzDeck browser window(s)", len(patched))
+	}
+}
 
 const errorAlreadyExists = 183
 const (
@@ -91,7 +360,7 @@ func logLine(start time.Time, format string, args ...any) {
 	defer f.Close()
 	msg := fmt.Sprintf(format, args...)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	_, _ = fmt.Fprintf(f, "%s [startup-v3.5.33 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
+	_, _ = fmt.Fprintf(f, "%s [startup-v3.6.5 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
 }
 
 func acquireStartupMutex() (uintptr, bool) {
@@ -364,10 +633,15 @@ func findBrowser() string {
 	return ""
 }
 
-func openDesktopApp(port int) error {
+func openDesktopApp(start time.Time, port int) error {
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	if browser := findBrowser(); browser != "" {
-		return launchDetached(browser, nil, "--app="+url, "--start-maximized")
+		before := taskbarBrowserWindows()
+		if err := launchDetached(browser, nil, "--app="+url, "--start-maximized"); err != nil {
+			return err
+		}
+		taskbarPatchNewWindow(start, before)
+		return nil
 	}
 	rundll := filepath.Join(strings.TrimSpace(os.Getenv("SystemRoot")), "System32", "rundll32.exe")
 	if _, err := os.Stat(rundll); err != nil {
@@ -475,7 +749,7 @@ func provisionRuntime(start time.Time) error {
 	logLine(start, "downloading official CPython 3.12.10 embeddable runtime")
 	client := &http.Client{Timeout: 3 * time.Minute}
 	req, _ := http.NewRequest("GET", pythonRuntimeURL, nil)
-	req.Header.Set("User-Agent", "NewzDeck/3.5.33")
+	req.Header.Set("User-Agent", "NewzDeck/3.6.5")
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("CPython download failed: %w", err)
@@ -533,6 +807,7 @@ func fatal(start time.Time, format string, args ...any) {
 
 func main() {
 	started := time.Now()
+	taskbarSetCurrentAUMID(started, "NewzDeck.Desktop")
 	version := localVersion()
 	if version == "" {
 		fatal(started, "NewzDeck could not read version.txt.")
@@ -563,7 +838,7 @@ func main() {
 				return
 			}
 			logLine(started, "current-version backend already healthy on port %d (service=%v); attaching UI directly", p, h.ServiceMode)
-			if err := openDesktopApp(p); err != nil {
+			if err := openDesktopApp(started, p); err != nil {
 				fatal(started, "NewzDeck could not open its application window: %v", err)
 				return
 			}
@@ -602,7 +877,7 @@ func main() {
 		logLine(started, "service backend won startup race on port %d; attaching UI", p)
 	}
 	logLine(started, "backend healthy on port %d; opening UI immediately", p)
-	if err := openDesktopApp(p); err != nil {
+	if err := openDesktopApp(started, p); err != nil {
 		fatal(started, "NewzDeck could not open its application window.\n\n%v", err)
 		return
 	}
