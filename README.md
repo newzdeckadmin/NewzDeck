@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.2** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.3** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.2_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.3_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,16 +35,16 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.2 highlights
+## v3.6.3 highlights
 
-v3.6.2 is an installed-upgrade reliability hotfix built on v3.6.1. It preserves the accepted v3.6.0 UI/UX Overhaul and v3.6.1 background-service shutdown fix.
+v3.6.3 is a focused startup/UI reliability release built on v3.6.2. It preserves the accepted v3.6.0 interface and the v3.6.1/v3.6.2 installed-upgrade fixes.
 
-- **Tray process shutdown is now authoritative:** Setup captures the real `NewzDeckTray.exe` process before asking its hidden window to close and waits for the process itself to exit, rather than assuming a vanished window means the executable is already unlocked.
-- **Bounded hung-tray recovery:** if the tray does not exit after a generous graceful wait, Setup terminates only the process owning the NewzDeck tray window and waits again before file overlay.
-- **Fail-safe tray upgrade gate:** if the tray process still cannot be confirmed stopped, Setup aborts before replacing files instead of reaching `DeleteFile failed; code 5`.
-- **Delayed-exit tray regression coverage:** the Windows upgrade smoke helper now deliberately keeps `NewzDeckTray.exe` alive for six seconds after its hidden window disappears, reproducing the race that escaped v3.6.1.
-- **v3.6.1 service fix preserved:** Setup still uses the installed service helper and waits for a confirmed `STOPPED` state before replacing `NewzDeckService.exe`.
-- **v3.6.0 UI preserved:** navigation, readability, Newsgroups tabs, Discover details, Automation alignment, and the application-wide visual overhaul remain unchanged.
+- **Automation sidebar counts load at startup:** TV, Movies, and Wanted populate without requiring the user to open an Automation page first.
+- **Lightweight count endpoint:** sidebar badges load independently of the full Automation summary and provider/newsgroup startup.
+- **Startup race protection:** transient empty snapshots cannot erase a valid positive sidebar count while startup settles.
+- **Automation editor wiring restored:** missing Quality Profile and Newznab Indexer handlers no longer abort browser initialization.
+- **Clear Preview Cache:** Settings → Storage & Cache now has a dedicated action for full previews, separate from thumbnail cache clearing.
+- **v3.6.2/v3.6.1 installer fixes preserved:** authoritative tray-process and service shutdown remain unchanged.
 
 ## Requirements
 
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.2_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.3_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -1,11 +1,12 @@
-NewzDeck v3.6.2
-Tray Upgrade Lock Reliability
+NewzDeck v3.6.3
+Automation Sidebar Startup & Cache Reliability
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
-and personal media automation application. v3.6.2 preserves the accepted v3.6.0
-UI/UX overhaul and v3.6.1 service fix while hardening installed upgrades so Setup
-waits for the actual tray process to exit before replacing NewzDeckTray.exe.
+and personal media automation application. v3.6.3 preserves the accepted v3.6.0
+UI/UX overhaul and the v3.6.1/v3.6.2 installer reliability fixes while improving
+Automation sidebar startup, restoring Automation editor actions, and adding a
+separate full-preview cache clearing control.
 
 WHAT YOU NEED
 
@@ -17,7 +18,7 @@ WHAT YOU NEED
 INSTALLING NEWZDECK
 
 For most users, the recommended download is:
-  NewzDeck_v3.6.2_Setup.exe
+  NewzDeck_v3.6.3_Setup.exe
 
 Run Setup and then start NewzDeck normally from the Start Menu or desktop
 shortcut.

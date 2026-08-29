@@ -1391,6 +1391,7 @@ select{color-scheme:dark}
 }
 .sidebar .nav-item:hover .nav-count{background:#1d526d!important;color:#fff!important}
 .sidebar .nav-item.active .nav-count{background:#23627e!important;border-color:rgba(125,226,250,.34)!important;color:#fff!important}
+.sidebar .nav-item .nav-count.hidden{display:none!important}
 
 /* Discover title modal: show a deliberate full-width backdrop instead of the
    old negative-margin crop/overlay treatment. */

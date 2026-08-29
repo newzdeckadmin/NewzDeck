@@ -234,7 +234,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.2"
+APP_VERSION = "3.6.3"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -9518,6 +9518,17 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._json(200, {"providers": [public_provider(p) for p in get_providers()]})
         if parsed.path == "/api/downloads":
             return self._json(200, DOWNLOAD_MANAGER.snapshot())
+        if parsed.path == "/api/automation/sidebar-counts":
+            try:
+                counts = dict(MEDIA_AUTOMATION.sidebar_counts() or {})
+                counts["source"] = "automation"
+                return self._json(200, counts)
+            except Exception as exc:
+                try:
+                    DIAGNOSTICS.event("warning", "media-automation", "Automation sidebar counts failed", error=str(exc))
+                except Exception:
+                    pass
+                return self._json(503, {"error": "Automation sidebar counts are not ready", "detail": _user_safe_error_message(exc), "version": APP_VERSION})
         if parsed.path == "/api/automation/summary":
             try:
                 return self._json(200, MEDIA_AUTOMATION.summary())
@@ -9677,6 +9688,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.thumbnail_invalidate_api(data)
             if parsed.path == "/api/cache/clear":
                 return self.cache_clear_api(data)
+            if parsed.path == "/api/cache/preview/clear":
+                return self.preview_cache_clear_api(data)
             if parsed.path == "/api/downloads/add":
                 return self.downloads_add_api(data)
             if parsed.path == "/api/downloads/control":
@@ -10178,6 +10191,33 @@ class AppHandler(SimpleHTTPRequestHandler):
                     pass
         _mark_thumbnail_stats_dirty()
         return self._json(200, {"ok": True, "removed": removed, **thumbnail_cache_stats(force=True)})
+
+    def preview_cache_clear_api(self, data: dict[str, Any]):
+        removed = 0
+        removed_bytes = 0
+        errors = 0
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            for path in list(CACHE_DIR.iterdir()):
+                try:
+                    if path.is_file() or path.is_symlink():
+                        try:
+                            removed_bytes += int(path.stat().st_size)
+                        except OSError:
+                            pass
+                        path.unlink(missing_ok=True)
+                        removed += 1
+                except OSError:
+                    errors += 1
+        except OSError:
+            errors += 1
+        return self._json(200, {
+            "ok": errors == 0,
+            "removed": removed,
+            "removed_bytes": removed_bytes,
+            "errors": errors,
+            "folder": str(CACHE_DIR),
+        })
 
     def downloads_add_api(self, data: dict[str, Any]):
         provider_id = str(data.get("provider_id", ""))

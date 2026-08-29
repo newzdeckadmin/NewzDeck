@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all',
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.2';
+const UI_VERSION = '3.6.3';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -1641,7 +1641,7 @@ async function installSelectedUpdate(){
 }
 
 $('manageProvidersBtn').onclick=openProviderModal;$('settingsBtn').onclick=()=>openSettingsModal('general');$('aboutBtn').onclick=openAboutModal;els.aboutCloseBtn.onclick=closeAboutModal;els.aboutModal.addEventListener('click',e=>{if(e.target===els.aboutModal)closeAboutModal()});els.openDataFolderBtn.onclick=async()=>{try{await api('/api/app/open-data',{})}catch(e){toast(e.message,'error')}};if(els.checkUpdatesBtn)els.checkUpdatesBtn.onclick=()=>checkOnlineUpdates(true);if(els.installOnlineUpdateBtn)els.installOnlineUpdateBtn.onclick=installOnlineUpdate;els.updatePackageInput.onchange=()=>{const f=els.updatePackageInput.files?.[0];els.updatePackageName.textContent=f?`${f.name} • ${formatBytes(f.size)}`:'No package selected';els.installUpdateBtn.disabled=!f};els.installUpdateBtn.onclick=installSelectedUpdate;document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeProviderModal());els.providerModal.addEventListener('click',e=>{if(e.target===els.providerModal)closeProviderModal()});$('newProviderBtn').onclick=newProvider;$('providerRole').onchange=()=>{if($('providerRole').value==='recovery'){$('providerUseBrowsing').checked=false;$('providerUsePreviews').checked=false;$('providerUseDownloads').checked=false;$('providerUseRecovery').checked=true}};
-els.settingsCloseBtn.onclick=closeSettingsModal;els.settingsCancelBtn.onclick=closeSettingsModal;els.settingsSaveBtn.onclick=saveSettingsModal;els.settingsModal.addEventListener('click',e=>{if(e.target===els.settingsModal)closeSettingsModal()});document.querySelectorAll('[data-settings-tab]').forEach(b=>b.onclick=()=>{switchSettingsTab(b.dataset.settingsTab);if(b.dataset.settingsTab==='background')refreshServiceSettings()});$('settingsChooseFolderBtn').onclick=settingsChooseDownloadFolder;$('settingsChooseWatchFolderBtn').onclick=settingsChooseWatchFolder;$('settingsBackupBtn').onclick=exportConfigBackup;$('settingsRestoreBtn').onclick=()=>$('settingsRestoreInput').click();$('settingsRestoreInput').onchange=()=>restoreConfigBackup($('settingsRestoreInput').files?.[0]);$('settingsClearThumbCacheBtn').onclick=async()=>{try{const r=await api('/api/cache/clear',{});toast(`Cleared ${Number(r.removed||0).toLocaleString()} cached thumbnails.`,'success')}catch(e){toast(e.message,'error')}};$('settingsOpenDataBtn').onclick=async()=>{try{await api('/api/app/open-data',{})}catch(e){toast(e.message,'error')}};$('settingsProvidersBtn').onclick=()=>{closeSettingsModal();openProviderModal()};$('settingsDiagnosticsBtn').onclick=()=>{closeSettingsModal();setMainView('diagnostics')};if($('installServiceBtn'))$('installServiceBtn').onclick=installBackgroundService;if($('startServiceBtn'))$('startServiceBtn').onclick=()=>serviceSettingsControl('start');if($('stopServiceBtn'))$('stopServiceBtn').onclick=()=>serviceSettingsControl('stop');if($('restartServiceBtn'))$('restartServiceBtn').onclick=()=>serviceSettingsControl('restart');if($('repairServiceBtn'))$('repairServiceBtn').onclick=()=>serviceSettingsControl('repair');if($('launchTrayBtn'))$('launchTrayBtn').onclick=()=>serviceSettingsControl('launch_tray');if($('settingsTrayAutostart'))$('settingsTrayAutostart').onchange=async()=>{try{const r=await api('/api/service/control',{action:'tray_autostart',enabled:$('settingsTrayAutostart').checked});renderServiceSettings(r)}catch(e){toast(e.message,'error')}};
+els.settingsCloseBtn.onclick=closeSettingsModal;els.settingsCancelBtn.onclick=closeSettingsModal;els.settingsSaveBtn.onclick=saveSettingsModal;els.settingsModal.addEventListener('click',e=>{if(e.target===els.settingsModal)closeSettingsModal()});document.querySelectorAll('[data-settings-tab]').forEach(b=>b.onclick=()=>{switchSettingsTab(b.dataset.settingsTab);if(b.dataset.settingsTab==='background')refreshServiceSettings()});$('settingsChooseFolderBtn').onclick=settingsChooseDownloadFolder;$('settingsChooseWatchFolderBtn').onclick=settingsChooseWatchFolder;$('settingsBackupBtn').onclick=exportConfigBackup;$('settingsRestoreBtn').onclick=()=>$('settingsRestoreInput').click();$('settingsRestoreInput').onchange=()=>restoreConfigBackup($('settingsRestoreInput').files?.[0]);$('settingsClearThumbCacheBtn').onclick=async()=>{try{const r=await api('/api/cache/clear',{});state.imageThumbCache.clear();state.videoThumbCache.clear();state.imageThumbPromises.clear();state.videoThumbPromises.clear();toast(`Cleared ${Number(r.removed||0).toLocaleString()} cached thumbnails.`,'success')}catch(e){toast(e.message,'error')}};$('settingsClearPreviewCacheBtn').onclick=async()=>{try{const r=await api('/api/cache/preview/clear',{});state.previewCache.clear();state.previewPromises.clear();resetPreview();toast(`Cleared ${Number(r.removed||0).toLocaleString()} cached preview file${Number(r.removed||0)===1?'':'s'} (${formatBytes(Number(r.removed_bytes||0))}).`,'success')}catch(e){toast(e.message,'error')}};$('settingsOpenDataBtn').onclick=async()=>{try{await api('/api/app/open-data',{})}catch(e){toast(e.message,'error')}};$('settingsProvidersBtn').onclick=()=>{closeSettingsModal();openProviderModal()};$('settingsDiagnosticsBtn').onclick=()=>{closeSettingsModal();setMainView('diagnostics')};if($('installServiceBtn'))$('installServiceBtn').onclick=installBackgroundService;if($('startServiceBtn'))$('startServiceBtn').onclick=()=>serviceSettingsControl('start');if($('stopServiceBtn'))$('stopServiceBtn').onclick=()=>serviceSettingsControl('stop');if($('restartServiceBtn'))$('restartServiceBtn').onclick=()=>serviceSettingsControl('restart');if($('repairServiceBtn'))$('repairServiceBtn').onclick=()=>serviceSettingsControl('repair');if($('launchTrayBtn'))$('launchTrayBtn').onclick=()=>serviceSettingsControl('launch_tray');if($('settingsTrayAutostart'))$('settingsTrayAutostart').onchange=async()=>{try{const r=await api('/api/service/control',{action:'tray_autostart',enabled:$('settingsTrayAutostart').checked});renderServiceSettings(r)}catch(e){toast(e.message,'error')}};
 els.providerSelect.onchange=()=>{const oldGroup=state.selectedGroup,oldProvider=state.providerId;captureCurrentGroupState();if(oldGroup)endGroupVisit(oldGroup,oldProvider);if(state.groupSearchJob&&['queued','scanning','cancelling'].includes(state.groupSearchJob.status))api('/api/group-search/cancel',{id:state.groupSearchJob.id}).catch(()=>{});if(state.groupSearchPollTimer){clearInterval(state.groupSearchPollTimer);state.groupSearchPollTimer=null}closeMediaViewer();state.providerId=els.providerSelect.value;state.groups=[];state.groupsTotal=0;state.trackedGroupStatus={};startTrackedGroupRefresh();state.selectedGroup='';state.articles=[];state.selectedArticleKey='';state.selectedItems.clear();state.selectionAnchorKey='';state.articlePage=1;state.articlePaging=null;state.loadedPages.clear();state.articleSearchTerm='';state.searchMode=false;state.groupSearchJob=null;state.continuousLoading=false;state.activeBrowserTabId='';els.articleSearch.value='';state.galleryGeneration++;state.thumbQueue=[];state.thumbQueued.clear();renderBrowserTabs();saveUiSettings();updateProviderState();renderGroups();els.groupsMoreWrap.classList.add('hidden');els.articleTitle.textContent='Articles';els.articleEyebrow.textContent='NO GROUP SELECTED';els.articleSummary.classList.add('hidden');els.entireGroupSearchBtn.disabled=true;updateSelectionBar();updateArticlePaging();updateArticleSearchUi();resetPreview();};
 $('groupSearchBtn').onclick=()=>loadGroups();els.groupAllBtn.onclick=()=>{state.groupMode='all';renderGroups()};els.groupFavoritesBtn.onclick=()=>{state.groupMode='favorites';renderGroups()};els.groupRecentBtn.onclick=()=>{state.groupMode='recent';renderGroups()};if(els.newBookmarkFolderBtn)els.newBookmarkFolderBtn.onclick=createBookmarkFolder;if(els.clearRecentBtn)els.clearRecentBtn.onclick=clearCurrentProviderRecentGroups;
 $('refreshGroupsBtn').onclick=()=>loadGroups({refresh:true});els.groupSearch.addEventListener('keydown',e=>{if(e.key==='Enter')loadGroups()});let groupSearchDebounce=null;els.groupSearch.addEventListener('input',()=>{clearTimeout(groupSearchDebounce);groupSearchDebounce=setTimeout(()=>loadGroups(),280)});els.groupSort.onchange=()=>loadGroups();els.loadMoreGroupsBtn.onclick=()=>loadGroups({append:true});
@@ -1756,7 +1756,54 @@ async function loadAutomation({quiet=false,render=true,background=false}={}){
   }
   catch(e){state.automationLoadError=e.message||'Automation could not be loaded.';if(state.activeView==='automation'&&render&&!background)renderAutomation({animate:false});if(!quiet)toast(state.automationLoadError,'error');return false;}
 }
-function renderAutomationBadges(){const c=state.automation?.counts||{};const set=(id,n)=>{const e=$(id);if(!e)return;e.textContent=Number(n||0);e.classList.toggle('hidden',!Number(n||0))};set('tvNavBadge',c.tv);set('movieNavBadge',c.movies);set('wantedNavBadge',Number(c.missing||0)+Number(c.upgrades||0));if($('autoTvCount'))$('autoTvCount').textContent=Number(c.tv||0);if($('autoMovieCount'))$('autoMovieCount').textContent=Number(c.movies||0);if($('autoMissingCount'))$('autoMissingCount').textContent=Number(c.missing||0);if($('autoUpgradeCount'))$('autoUpgradeCount').textContent=Number(c.upgrades||0);if($('autoIndexerCount'))$('autoIndexerCount').textContent=Number(c.indexers||0)}
+const AUTOMATION_BADGE_CACHE_KEY='newzdeckAutomationSidebarCountsV2';
+let automationLastPositiveBadgeCounts=null;
+let automationSidebarLastResponse=null;
+let automationStartupPrimeGeneration=0;
+let automationSidebarStartupUntil=0;
+function normalizedAutomationBadgeCounts(c={}){return {tv:Number(c.tv||0),movies:Number(c.movies||0),missing:Number(c.missing||0),upgrades:Number(c.upgrades||0),indexers:c.indexers==null?null:Number(c.indexers||0)}}
+function automationBadgeMediaTotal(c={}){const v=normalizedAutomationBadgeCounts(c);return v.tv+v.movies}
+function automationBadgeWantedTotal(c={}){const v=normalizedAutomationBadgeCounts(c);return v.missing+v.upgrades}
+function rememberAutomationBadgeCounts(c={}){try{const v=normalizedAutomationBadgeCounts(c);localStorage.setItem(AUTOMATION_BADGE_CACHE_KEY,JSON.stringify({...v,ts:Date.now()}))}catch(_e){}}
+function restoreAutomationBadgeCounts(){try{const raw=JSON.parse(localStorage.getItem(AUTOMATION_BADGE_CACHE_KEY)||'null');if(raw&&typeof raw==='object'&&automationBadgeMediaTotal(raw)>0){automationLastPositiveBadgeCounts=normalizedAutomationBadgeCounts(raw);applyAutomationBadgeCounts(raw,{remember:false,preservePositive:false});return true}}catch(_e){}return false}
+function applyAutomationBadgeCounts(c={},options={}){
+  let values=normalizedAutomationBadgeCounts(c);
+  const preservePositive=options.preservePositive!==false;
+  const positive=automationBadgeMediaTotal(values)>0;
+  if(positive)automationLastPositiveBadgeCounts={...values};
+  else if(preservePositive&&automationLastPositiveBadgeCounts&&automationBadgeMediaTotal(automationLastPositiveBadgeCounts)>0)values={...automationLastPositiveBadgeCounts};
+  const set=(id,n)=>{const e=$(id);if(!e)return;const value=Number(n||0);e.textContent=String(value);if(value>0){e.classList.remove('hidden');e.hidden=false;e.style.setProperty('display','inline-flex','important')}else{e.classList.add('hidden');e.hidden=true;e.style.setProperty('display','none','important')}};
+  set('tvNavBadge',values.tv);set('movieNavBadge',values.movies);set('wantedNavBadge',values.missing+values.upgrades);
+  if($('autoTvCount'))$('autoTvCount').textContent=values.tv;if($('autoMovieCount'))$('autoMovieCount').textContent=values.movies;if($('autoMissingCount'))$('autoMissingCount').textContent=values.missing;if($('autoUpgradeCount'))$('autoUpgradeCount').textContent=values.upgrades;if($('autoIndexerCount')&&values.indexers!=null)$('autoIndexerCount').textContent=values.indexers;
+  if(options.remember!==false&&automationBadgeMediaTotal(values)>0)rememberAutomationBadgeCounts(values);
+  return values;
+}
+function renderAutomationBadges(){applyAutomationBadgeCounts(state.automation?.counts||{},{preservePositive:Date.now()<automationSidebarStartupUntil})}
+async function loadAutomationSidebarCounts(){
+  try{
+    const counts=await api('/api/automation/sidebar-counts',null,{timeoutMs:5000,timeoutMessage:'Automation sidebar counts are still loading.'});
+    automationSidebarLastResponse=counts||{};applyAutomationBadgeCounts(counts||{},{preservePositive:true});return counts||{};
+  }catch(_e){return null}
+}
+function primeAutomationSidebarCounts(){
+  restoreAutomationBadgeCounts();
+  const generation=++automationStartupPrimeGeneration;
+  automationSidebarStartupUntil=Date.now()+45000;
+  const delays=[0,350,800,1500,2600,4200,6500,9500,14000,21000,30000,42000];
+  for(const delay of delays)setTimeout(async()=>{
+    if(generation!==automationStartupPrimeGeneration)return;
+    const counts=await loadAutomationSidebarCounts();
+    if(generation!==automationStartupPrimeGeneration)return;
+    // Do not consider a transient zero snapshot authoritative during startup.
+    // Continue the scheduled probes until a populated media-library snapshot is seen.
+    if(counts&&automationBadgeMediaTotal(counts)>0)automationLastPositiveBadgeCounts=normalizedAutomationBadgeCounts(counts);
+  },delay);
+  // Full Automation summary is useful for Discover/Automation later, but it must
+  // never be allowed to erase a positive sidebar snapshot while startup settles.
+  setTimeout(()=>void loadAutomation({quiet:true,render:false,background:true}),500);
+  setTimeout(()=>void loadAutomation({quiet:true,render:false,background:true}),5000);
+  setTimeout(()=>void loadAutomation({quiet:true,render:false,background:true}),15000);
+}
 async function activateAutomationTab(tab){state.automationTab=tab||'tv';document.querySelectorAll('#automationTabs [data-auto-tab]').forEach(b=>b.classList.toggle('active',b.dataset.autoTab===state.automationTab));document.querySelectorAll('.sidebar [data-auto-tab]').forEach(b=>b.classList.toggle('active',state.activeView==='automation'&&b.dataset.autoTab===state.automationTab));if(state.activeView!=='automation')setMainView('automation');if(!state.automation){$('automationContent').innerHTML=automationEmpty('◌','Loading automation…','Reading your media automation configuration.');await loadAutomation({quiet:false});}renderAutomation();}
 function setAutomationTab(tab){void activateAutomationTab(tab)}
 function openAutomationSetup(){void activateAutomationTab('setup')}
@@ -1849,6 +1896,153 @@ function renderAutomationHealth(){
   $('clearAllReleaseBlacklist')?.addEventListener('click',()=>clearAutomationBlacklist('',''));
 }
 async function retryAutomationImport(collectionId,button){const old=button?.textContent||'';if(button){button.disabled=true;button.textContent='Retrying…'}try{const r=await api('/api/automation/import/retry',{collection_id:collectionId});toast(r.message||'Import retry started.','success');setTimeout(async()=>{await loadAutomation({quiet:true});renderAutomation()},900)}catch(e){toast(e.message,'error')}finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}}
+
+// Automation profile/indexer editor handlers.
+// These were referenced by the UI wiring but missing from the browser bundle,
+// which aborted top-level script execution before initializeApp() could run.
+function qualityProfileLines(value=''){return String(value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean)}
+function refreshQualityCutoff(selected=''){
+  const select=$('qualityProfileCutoff');if(!select)return;
+  const qualities=qualityProfileLines($('qualityProfileQualities')?.value||'');
+  const current=String(selected||select.value||'');
+  select.innerHTML=qualities.map(q=>`<option value="${escapeHtml(q)}">${escapeHtml(q)}</option>`).join('');
+  select.value=qualities.includes(current)?current:(qualities[0]||'');
+}
+function qualityProfileFormatsText(rows=[]){
+  return (Array.isArray(rows)?rows:[]).map(f=>`${String(f?.name||'Preference').trim()} | ${(f?.contains||[]).join(', ')} | ${Number(f?.score||0)}`).join('\n');
+}
+function parseQualityProfileFormats(value=''){
+  return qualityProfileLines(value).map(line=>{
+    const parts=line.split('|').map(x=>x.trim()),name=parts[0]||'Preference';
+    const contains=String(parts[1]||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const score=Number(parts[2]||0);
+    return {name,contains,score:Number.isFinite(score)?Math.trunc(score):0};
+  }).filter(x=>x.contains.length||x.name);
+}
+function openQualityProfile(id=''){
+  const p=(state.automation?.profiles||[]).find(x=>String(x.id)===String(id))||null;
+  $('qualityProfileId').value=p?.id||'';
+  $('qualityProfileTitle').textContent=p?'Edit Quality Profile':'New Quality Profile';
+  $('qualityProfileName').value=p?.name||'';
+  $('qualityProfileQualities').value=(p?.qualities||['2160p','1080p','720p','WEB']).join('\n');
+  $('qualityProfileMinSize').value=Number(p?.min_size_mb||0);
+  $('qualityProfileMaxSize').value=Number(p?.max_size_gb||0);
+  $('qualityProfileFormats').value=qualityProfileFormatsText(p?.custom_formats||[]);
+  $('qualityProfileGroups').value=(p?.preferred_groups||[]).join('\n');
+  $('qualityProfileRejectTerms').value=(p?.reject_terms||[]).join('\n');
+  refreshQualityCutoff(p?.cutoff||'');
+  $('qualityProfileDelete').classList.toggle('hidden',!p);
+  $('qualityProfileModal').classList.remove('hidden');
+  setTimeout(()=>$('qualityProfileName')?.focus(),30);
+}
+async function saveQualityProfile(){
+  const button=$('qualityProfileSave'),old=button?.textContent||'Save profile';
+  const payload={
+    id:$('qualityProfileId')?.value||'',
+    name:$('qualityProfileName')?.value.trim()||'',
+    qualities:qualityProfileLines($('qualityProfileQualities')?.value||''),
+    cutoff:$('qualityProfileCutoff')?.value||'',
+    min_size_mb:Number($('qualityProfileMinSize')?.value||0),
+    max_size_gb:Number($('qualityProfileMaxSize')?.value||0),
+    custom_formats:parseQualityProfileFormats($('qualityProfileFormats')?.value||''),
+    preferred_groups:qualityProfileLines($('qualityProfileGroups')?.value||''),
+    reject_terms:qualityProfileLines($('qualityProfileRejectTerms')?.value||'')
+  };
+  if(button){button.disabled=true;button.textContent='Saving…'}
+  try{
+    await api('/api/automation/profile/save',payload);
+    await loadAutomation({quiet:true,render:false});
+    $('qualityProfileModal').classList.add('hidden');
+    if(state.activeView==='automation'&&state.automationTab==='profiles')renderAutomation({animate:false});
+    toast('Quality profile saved.','success');
+  }catch(e){toast(e.message,'error')}
+  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+}
+async function deleteQualityProfile(){
+  const id=$('qualityProfileId')?.value||'';if(!id)return;
+  const name=$('qualityProfileName')?.value.trim()||'this quality profile';
+  if(!confirm(`Delete ${name}? Existing library items keep their current profile assignment until you choose another profile.`))return;
+  const button=$('qualityProfileDelete'),old=button?.textContent||'Delete';
+  if(button){button.disabled=true;button.textContent='Deleting…'}
+  try{
+    await api('/api/automation/profile/delete',{id});
+    await loadAutomation({quiet:true,render:false});
+    $('qualityProfileModal').classList.add('hidden');
+    if(state.activeView==='automation'&&state.automationTab==='profiles')renderAutomation({animate:false});
+    toast('Quality profile deleted.','success');
+  }catch(e){toast(e.message,'error')}
+  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+}
+function openIndexerModal(id=''){
+  const x=(state.automation?.indexers||[]).find(v=>String(v.id)===String(id))||null;
+  $('indexerId').value=x?.id||'';
+  $('indexerModalTitle').textContent=x?'Edit Indexer':'Add Indexer';
+  $('indexerName').value=x?.name||'';
+  $('indexerEnabled').value=x?.enabled===false?'false':'true';
+  $('indexerUrl').value=x?.url||'';
+  $('indexerApiKey').value='';
+  $('indexerApiKey').placeholder=x?.api_key_configured?'Saved key • leave blank to keep':'API key';
+  $('indexerTvCategories').value=x?.categories_tv||'5000';
+  $('indexerMovieCategories').value=x?.categories_movies||'2000';
+  $('indexerDelete').classList.toggle('hidden',!x);
+  $('indexerTest').classList.toggle('hidden',!x);
+  const result=$('indexerTestResult');result.className='test-result hidden';result.textContent='';
+  $('indexerModal').classList.remove('hidden');
+  setTimeout(()=>$('indexerName')?.focus(),30);
+}
+function indexerEditorPayload(){
+  const id=$('indexerId')?.value||'',saved=(state.automation?.indexers||[]).find(x=>String(x.id)===String(id));
+  return {
+    id,
+    name:$('indexerName')?.value.trim()||'',
+    enabled:$('indexerEnabled')?.value!=='false',
+    url:$('indexerUrl')?.value.trim()||'',
+    api_key:$('indexerApiKey')?.value.trim()||'',
+    allow_empty_key:!!saved?.api_key_configured,
+    categories_tv:$('indexerTvCategories')?.value.trim()||'5000',
+    categories_movies:$('indexerMovieCategories')?.value.trim()||'2000'
+  };
+}
+async function saveIndexer(){
+  const button=$('indexerSave'),old=button?.textContent||'Save indexer';
+  if(button){button.disabled=true;button.textContent='Saving…'}
+  try{
+    const d=await api('/api/automation/indexer/save',indexerEditorPayload());
+    await loadAutomation({quiet:true,render:false});
+    if(d?.indexer?.id)$('indexerId').value=d.indexer.id;
+    $('indexerModal').classList.add('hidden');
+    if(state.activeView==='automation'&&state.automationTab==='indexers')renderAutomation({animate:false});
+    toast('Indexer saved.','success');
+  }catch(e){toast(e.message,'error')}
+  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+}
+async function testIndexer(){
+  const id=$('indexerId')?.value||'',result=$('indexerTestResult'),button=$('indexerTest'),old=button?.textContent||'Test';
+  if(!id){result.className='test-result error';result.textContent='Save this indexer before testing the connection.';return}
+  if(button){button.disabled=true;button.textContent='Testing…'}
+  result.className='test-result';result.textContent='Testing Newznab capabilities…';
+  try{
+    const d=await api('/api/automation/indexer/test',{id});
+    result.className='test-result success';result.textContent=`Connected${d?.latency_ms?` • ${Math.round(Number(d.latency_ms))} ms`:''}${d?.server?` • ${d.server}`:''}`;
+  }catch(e){result.className='test-result error';result.textContent=e.message}
+  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+}
+async function deleteIndexer(){
+  const id=$('indexerId')?.value||'';if(!id)return;
+  const name=$('indexerName')?.value.trim()||'this indexer';
+  if(!confirm(`Delete ${name}?`))return;
+  const button=$('indexerDelete'),old=button?.textContent||'Delete';
+  if(button){button.disabled=true;button.textContent='Deleting…'}
+  try{
+    await api('/api/automation/indexer/delete',{id});
+    await loadAutomation({quiet:true,render:false});
+    $('indexerModal').classList.add('hidden');
+    if(state.activeView==='automation'&&state.automationTab==='indexers')renderAutomation({animate:false});
+    toast('Indexer deleted.','success');
+  }catch(e){toast(e.message,'error')}
+  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+}
+
 function renderAutomationProfiles(){const ps=state.automation?.profiles||[];$('automationTitle').textContent='Quality Profiles';$('automationSubtitle').textContent='Define acceptable qualities, upgrade cutoffs, and preferred release terms.';$('automationAddBtn').classList.add('hidden');$('automationScanBtn').classList.add('hidden');$('automationContent').innerHTML=`<div class="automation-section-head"><div><div class="eyebrow">DECISION ENGINE</div><h2>${ps.length} quality profile${ps.length===1?'':'s'}</h2></div><button class="primary-btn" id="newQualityProfileBtn">＋ New profile</button></div><div class="profile-grid">${ps.map(p=>`<article class="profile-card" data-profile="${escapeHtml(p.id)}"><div><h3>${escapeHtml(p.name)}</h3><p>Cutoff: <b>${escapeHtml(p.cutoff||'—')}</b></p></div><ol>${(p.qualities||[]).slice(0,8).map(q=>`<li class="${q===p.cutoff?'cutoff':''}">${escapeHtml(q)}${q===p.cutoff?' <span>cutoff</span>':''}</li>`).join('')}</ol><div class="profile-formats">${(p.custom_formats||[]).map(f=>`<span>${escapeHtml(f.name)} ${Number(f.score||0)>=0?'+':''}${Number(f.score||0)}</span>`).join('')||'<span>No preferred terms</span>'}${Number(p.min_size_mb||0)?`<span>Min ${Number(p.min_size_mb)} MB</span>`:''}${Number(p.max_size_gb||0)?`<span>Max ${Number(p.max_size_gb)} GB</span>`:''}${(p.preferred_groups||[]).length?`<span>${(p.preferred_groups||[]).length} preferred group${p.preferred_groups.length===1?'':'s'}</span>`:''}${(p.reject_terms||[]).length?`<span>${(p.reject_terms||[]).length} reject term${p.reject_terms.length===1?'':'s'}</span>`:''}</div><button class="secondary-btn" data-edit-profile="${escapeHtml(p.id)}">Edit profile</button></article>`).join('')}</div>`;$('newQualityProfileBtn').onclick=()=>openQualityProfile();document.querySelectorAll('[data-edit-profile]').forEach(b=>b.onclick=()=>openQualityProfile(b.dataset.editProfile))}
 function renderAutomationIndexers(){const idx=state.automation?.indexers||[];$('automationTitle').textContent='Indexers';$('automationSubtitle').textContent='Connect Newznab indexers for interactive and automatic TV/movie release searches.';$('automationAddBtn').classList.add('hidden');$('automationScanBtn').classList.add('hidden');$('automationContent').innerHTML=`<div class="automation-section-head"><div><div class="eyebrow">NEWZNAB</div><h2>${idx.length} indexer${idx.length===1?'':'s'}</h2></div><button class="primary-btn" id="newIndexerBtn">＋ Add indexer</button></div>${idx.length?`<div class="indexer-list">${idx.map(x=>`<div class="indexer-row"><span class="indexer-state ${x.enabled?'on':'off'}"></span><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(x.url)} • TV ${escapeHtml(x.categories_tv||'5000')} • Movies ${escapeHtml(x.categories_movies||'2000')}</small></div><span class="indexer-key">${x.api_key_configured?'API key saved':'No API key'}</span><button class="secondary-btn compact" data-edit-indexer="${escapeHtml(x.id)}">Edit</button></div>`).join('')}</div>`:automationEmpty('⌁','No indexers configured','Add a Newznab-compatible indexer to search for TV and movie releases.')}`;$('newIndexerBtn').onclick=()=>openIndexerModal();document.querySelectorAll('[data-edit-indexer]').forEach(b=>b.onclick=()=>openIndexerModal(b.dataset.editIndexer))}
 function rootRows(kind,roots){const label=kind==='tv'?'TV':'Movie';return `<div class="automation-root-list" data-root-kind="${kind}">${roots.length?roots.map((r,i)=>`<div><strong title="${escapeHtml(r)}">${escapeHtml(r)}</strong><button type="button" class="danger-lite" data-remove-root="${kind}" data-root-index="${i}">Remove</button></div>`).join(''):'<p>No root folders configured.</p>'}</div><div class="automation-root-actions"><button type="button" class="secondary-btn" data-add-root="${kind}">＋ Add root folder</button><div class="automation-root-path-row"><input data-root-path="${kind}" placeholder="Or enter a full ${label} folder path…"><button type="button" class="secondary-btn" data-add-root-path="${kind}">Add path</button></div></div><small class="metadata-provider-note">${roots.length} configured root${roots.length===1?'':'s'} • Multiple drives and UNC paths are supported.</small>`}
@@ -2067,11 +2261,15 @@ async function ensureAuthoritativeRuntime(){
   if(!(await ensureBackendVersion()))return;
   if(!(await ensureAuthoritativeRuntime()))return;
   ensureDesktopTaskbarIdentity();
+  // Prime Automation sidebar state independently of provider/newsgroup startup.
+  // The immediate call plus two bounded warm-up refreshes handles a service that
+  // is still restoring its media library when the desktop UI first connects.
+  primeAutomationSidebarCounts();
   await loadUiSettings();
   await loadDownloads();
   const desiredTab=state.browserTabs.find(t=>t.id===state.activeBrowserTabId)||state.browserTabs[0]||null;
   if(desiredTab?.provider_id)localStorage.setItem('providerId',desiredTab.provider_id);
-  await loadProviders();await loadAutomation({quiet:true});startTrackedGroupRefresh();
+  await loadProviders();startTrackedGroupRefresh();
   setInterval(()=>{if(state.activeView==='automation')loadAutomation({quiet:true,render:false,background:true})},10000);
   renderBrowserTabs();updateMutedPostersButton();updateSelectionBar();
   const tab=state.browserTabs.find(t=>t.id===state.activeBrowserTabId)||state.browserTabs.find(t=>t.provider_id===state.providerId)||null;

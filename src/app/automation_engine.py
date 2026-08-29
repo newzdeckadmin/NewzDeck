@@ -271,7 +271,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.2'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.3'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -3930,6 +3930,33 @@ class MediaAutomationEngine:
                         events.append({**common,'date':d,'kind':'tv','season':sn,'episode':en,'episode_name':name,'label':str(item.get('title') or 'Untitled'),'subtitle':f'{code}{" — "+name if name else ""}','status':status,'status_label':status_label,'has_file':has_file,'cutoff_met':cutoff_met,'quality':str(ep.get('file_quality') or ''),'air_date':d})
         events.sort(key=lambda x:(x.get('date') or '',x.get('kind') or '',x.get('label') or '',int(x.get('season') or 0),int(x.get('episode') or 0)))
         return events[:1000]
+
+    def sidebar_counts(self):
+        """Return only the small count payload needed by persistent navigation.
+
+        Startup should not need to build the full Automation summary (calendar,
+        history, runtime health, indexer details, etc.) just to paint TV/Movie/
+        Wanted badges. Keep this derived from the same library/Wanted rules so the
+        sidebar cannot disagree with the full Automation view.
+        """
+        warnings=[]
+        try:
+            lib=self._library()
+            if not isinstance(lib,list): lib=[]
+        except Exception as exc:
+            lib=[];warnings.append(f'Library could not be read: {exc}')
+        try:
+            wanted=self.wanted()
+        except Exception as exc:
+            wanted={'missing':[],'upgrades':[]};warnings.append(f'Wanted view could not be calculated: {exc}')
+        return {
+            'tv':sum(isinstance(x,dict) and x.get('kind')=='tv' for x in lib),
+            'movies':sum(isinstance(x,dict) and x.get('kind')=='movie' for x in lib),
+            'missing':len(wanted.get('missing') or []),
+            'upgrades':len(wanted.get('upgrades') or []),
+            'loaded':True,
+            'warnings':warnings,
+        }
 
     def summary(self):
         warnings=[]

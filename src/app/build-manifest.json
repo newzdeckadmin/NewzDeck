@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.2",
-  "base_version": "3.6.1",
-  "release": "Tray Upgrade Lock Reliability",
-  "adapter_version": "3.6.2",
+  "version": "3.6.3",
+  "base_version": "3.6.2",
+  "release": "Automation Sidebar Startup & Cache Reliability",
+  "adapter_version": "3.6.3",
   "changes": [
-    "Fixes installed upgrades failing with DeleteFile failed; code 5 (Access is denied) while replacing NewzDeckTray.exe after the tray window had already disappeared.",
-    "Changes Setup tray shutdown from window-only polling to process-authoritative shutdown: Setup captures the tray process ID/handle before WM_CLOSE and waits for that process to signal exit before overlaying files.",
-    "Adds a bounded forced-termination fallback for an unresponsive process owning the NewzDeck tray window, followed by a second bounded process-exit wait; Setup aborts before overlay if shutdown still cannot be confirmed.",
-    "Strengthens the Windows installer smoke test so NewzDeckTray.exe deliberately remains alive and file-locked for six seconds after its hidden window is destroyed, reproducing the race that escaped v3.6.1.",
-    "Preserves the v3.6.1 confirmed background-service stop gate, the accepted v3.6.0 UI/UX Overhaul, and all established runtime/download/Automation/Smart Import/Discover behavior."
+    "Fixes Library sidebar badges not populating at application startup until an Automation section was opened.",
+    "Adds a lightweight Automation sidebar-count endpoint so TV, Movies, and Wanted navigation badges can load independently of the full Automation summary and provider/newsgroup startup.",
+    "Caches the last positive Automation navigation counts, keeps startup retries bounded, and prevents transient empty snapshots from erasing valid sidebar counts while startup settles.",
+    "Restores missing Quality Profile and Newznab Indexer editor handlers that could abort app.js top-level execution before initializeApp() ran.",
+    "Adds Settings > Storage & Cache > Clear preview cache, clearing only full-preview cache files and browser preview memory while leaving thumbnails and user data intact.",
+    "Corrects the high-contrast sidebar badge CSS so the hidden state wins until real non-zero counts are available."
   ],
   "regression_guards": [
+    "v3.6.2 Tray Upgrade Lock Reliability remains preserved.",
     "v3.6.1 Installer Upgrade Reliability service-stop fix remains preserved.",
-    "v3.6.0 UI/UX Overhaul remains preserved without presentation changes.",
+    "v3.6.0 UI/UX Overhaul remains preserved.",
     "v3.5.52 Authoritative Service Runtime Handoff remains preserved.",
-    "v3.5.51 BOM-safe provider loading remains preserved.",
-    "v3.5.49 Smooth Post-Processing Motion remains preserved.",
-    "v3.5.47 Session 0 SAB Launch Fix remains preserved.",
-    "Private SAB queue/history, Smart Import, Automation, Discover metadata behavior, authoritative runtime behavior, and Metadata Server v0.3.3 compatibility remain unchanged except for version identifiers and installer tray shutdown coordination."
+    "Private SAB downloads, Smart Import, Automation behavior, Discover/TMDB integration, provider state, and Metadata Server v0.3.3 compatibility remain unchanged."
   ],
-  "name": "Tray Upgrade Lock Reliability"
+  "name": "Automation Sidebar Startup & Cache Reliability"
 }
