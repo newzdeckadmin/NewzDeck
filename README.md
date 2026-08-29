@@ -41,7 +41,7 @@ v3.6.4 is a major Newsgroup browsing release built on v3.6.3. It replaces the fr
 
 - **Package-first All Posts:** connected multipart binaries and release sets are presented as expandable packages, with Raw posts available as an advanced fallback.
 - **Obfuscated multipart reconstruction:** opaque and anonymous yEnc streams are reconstructed from header structure before they reach the normal browser.
-- **Provider-independent name recovery:** yEnc, PAR2/SFV, and bounded archive-header inspection can recover useful filenames without Easynews web scraping or Newznab/indexer reconciliation.
+- **Provider-independent name recovery:** yEnc, PAR2/SFV, and bounded archive-header inspection can recover useful filenames without web scraping or Newznab/indexer reconciliation.
 - **Practical binary downloading:** complete non-media binaries and healthy grouped sets are selectable and queueable as first-class downloads.
 - **Package health, sorting, and filtering:** incomplete fragments stay out of the normal Downloadable view; package sorting and a persistent reconstructed-size Min size cutoff are built into the browser.
 - **Fresh, stable browsing:** newsgroups reopen at a fresh page 1, All Posts uses the wider no-preview layout, and toolbar/read-state badge containment issues are corrected.
