@@ -48,27 +48,67 @@ class ReleaseFetchError(RuntimeError):
         self.error_code = str(error_code or 'nzb_fetch_failed')
 
 
-def _read(path: Path, default):
+# JSON state is shared by UI polling, Automation scans, metadata refresh, Smart
+# Import, and background reconciliation threads. On Windows, replacing a file
+# while another thread still has the destination open can fail with WinError 5
+# or a sharing violation even though both operations belong to NewzDeck. Keep
+# same-file reads and atomic writes mutually exclusive, then tolerate a short
+# external sharing window (for example Defender/indexing) before surfacing an
+# actual save failure.
+_JSON_IO_LOCKS_GUARD = threading.Lock()
+_JSON_IO_LOCKS: dict[str, threading.RLock] = {}
+
+def _json_io_lock(path: Path) -> threading.RLock:
     try:
-        if not path.exists(): return default
-        with path.open('r', encoding='utf-8') as f: return json.load(f)
-    except Exception: return default
+        key = str(Path(path).resolve(strict=False))
+    except Exception:
+        key = str(path)
+    if os.name == 'nt':
+        key = key.casefold()
+    with _JSON_IO_LOCKS_GUARD:
+        lock = _JSON_IO_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _JSON_IO_LOCKS[key] = lock
+        return lock
+
+def _read(path: Path, default):
+    with _json_io_lock(path):
+        try:
+            if not path.exists(): return default
+            with path.open('r', encoding='utf-8') as f: return json.load(f)
+        except Exception: return default
+
+def _replace_json_with_retry(tmp: Path, path: Path) -> None:
+    deadline = time.monotonic() + 2.0
+    delay = 0.015
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError as exc:
+            winerror = getattr(exc, 'winerror', None)
+            errno_value = getattr(exc, 'errno', None)
+            retryable = winerror in {5, 32, 33} or (os.name == 'nt' and errno_value == 13)
+            if not retryable or time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(0.25, delay * 1.7)
 
 def _write(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-
-    tmp = path.with_name(path.name + f'.{os.getpid()}.{threading.get_ident()}.tmp')
-    try:
-        with tmp.open('w', encoding='utf-8') as f:
-            json.dump(value, f, indent=2, ensure_ascii=False)
-            f.flush()
-        os.replace(tmp, path)
-    finally:
+    with _json_io_lock(path):
+        tmp = path.with_name(path.name + f'.{os.getpid()}.{threading.get_ident()}.tmp')
         try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-
+            with tmp.open('w', encoding='utf-8') as f:
+                json.dump(value, f, indent=2, ensure_ascii=False)
+                f.flush()
+            _replace_json_with_retry(tmp, path)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
@@ -271,7 +311,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.13'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.14'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'

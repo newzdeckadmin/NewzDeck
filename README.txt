@@ -1,22 +1,22 @@
-NewzDeck v3.6.13
-Download Continuity & Automation Clarity
+NewzDeck v3.6.14
+Automation Save Reliability & Responsiveness
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.13
+WHAT'S NEW IN v3.6.14
 
-- Active download cards remain stable through temporary SAB queue-slot gaps while
-  transfer progress proves the package is still downloading.
-- Remove/Cancel is verified against SAB before NewzDeck hides the card, preventing
-  a removed item from continuing as an invisible background transfer.
-- Older explicit removal tombstones are reconciled if their SAB job is still live.
-- Wanted explains when existing backlog or quality upgrades are paused by Automation
-  settings instead of leaving monitored items unexplained.
-- Season packs are fallback-only. Individual episodes are searched first, a partially
-  complete season never triggers a full pack, and packs cannot overlap member episodes.
-- Diagnostics reports Active-card continuity bridges and hidden-transfer cleanup.
+- Automation JSON state reads and writes are serialized per file so Windows no
+  longer races a media-library.json reader against the final atomic replacement.
+- Short-lived Windows access/sharing violations during atomic JSON replacement
+  receive bounded retries instead of immediately surfacing WinError 5.
+- Changing a show's monitoring type now confirms Saved as soon as the authoritative
+  media update has actually been persisted.
+- Wanted, Calendar, health, counts, and other broader Automation state refresh in
+  the background after the persisted Save instead of delaying the notification.
+- Season and episode monitoring toggles likewise no longer block on a full summary
+  rebuild.
 
-v3.6.12 installer-owned update restoration, v3.6.11 SAB ownership/Smart Import
-continuity, v3.6.10 source-freshness protections, and accepted v3.6.8 browsing work
-remain preserved.
+v3.6.13 download continuity, verified Remove/Cancel, hidden-transfer recovery,
+Wanted policy clarity, and fallback-only season packs remain preserved, along with
+the v3.6.12 installer-owned update lifecycle and prior source-freshness protections.

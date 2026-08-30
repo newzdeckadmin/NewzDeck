@@ -1,23 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.13",
-  "base_version": "3.6.12",
-  "release": "Download Continuity & Automation Clarity",
-  "adapter_version": "3.6.13",
+  "version": "3.6.14",
+  "base_version": "3.6.13",
+  "release": "Automation Save Reliability & Responsiveness",
+  "adapter_version": "3.6.14",
   "changes": [
-    "Wanted now explains when existing missing backlog is paused by Continuous Automation settings and links directly to the relevant setup.",
-    "SAB-backed Active downloads retain bounded presentation ownership across longer transient queue-slot gaps while real byte progress or foreground activity proves the transfer is continuing.",
-    "Remove and Cancel require SAB queue absence before NewzDeck hides the card or records an explicit removal tombstone, preventing hidden transfers that continue consuming bandwidth.",
-    "Existing explicit removal tombstones that still point to a live SAB job are reconciled by reissuing the user stop/delete intent.",
-    "Automatic season packs are fallback-only: individual episodes are searched first, partially complete seasons never trigger a full pack, and packs cannot overlap active member episodes.",
-    "Diagnostics reports Active-card continuity bridges and hidden-transfer cleanup activity."
+    "Automation JSON state reads and atomic writes are serialized per file so Windows cannot catch NewzDeck replacing media-library.json while another NewzDeck thread still has that destination open.",
+    "Atomic JSON replacement retries short-lived Windows access/sharing violations with bounded backoff instead of immediately surfacing WinError 5 for transient file-handle contention.",
+    "Automation media Save confirms success immediately after the authoritative media update has been persisted instead of waiting for a full Automation summary rebuild.",
+    "Wanted, Calendar, health, counts, and related Automation summary state refresh asynchronously after a successful media Save.",
+    "Season and episode monitoring toggles also refresh the larger Automation summary asynchronously rather than blocking their UI handlers."
   ],
   "regression_guards": [
-    "The Active continuity lease is bounded and cannot override explicit pause, propagation retry, terminal history, or a different foreground package.",
-    "A failed or unconfirmed SAB Remove/Cancel keeps the NewzDeck ownership record visible and returns an error instead of creating a hidden transfer.",
-    "Season packs are generated only for fully aired seasons whose monitored episodes are all missing and whose individual searches have returned no acceptable release.",
-    "A queued season pack reserves all member episode targets for the remainder of the Automation cycle.",
-    "v3.6.12 installer-owned runtime restore, v3.6.11 SAB ownership/Smart Import continuity, and v3.6.10 Python source-freshness protections remain preserved."
+    "Automation state writes remain atomic; the fix does not fall back to in-place JSON truncation/overwrite.",
+    "The Saved notification is emitted only after /api/automation/media/update returns successfully, so the faster acknowledgement is not an optimistic or fake save.",
+    "The returned authoritative media item is merged into local UI state before the background Automation summary refresh.",
+    "JSON replace retries are bounded to a short window and only retry Windows permission/sharing-style failures.",
+    "v3.6.13 download continuity, verified Remove/Cancel, hidden-transfer reconciliation, Wanted policy visibility, and fallback-only season-pack arbitration remain preserved.",
+    "v3.6.12 installer-owned update restoration and prior source-freshness protections remain preserved."
   ],
-  "name": "Download Continuity & Automation Clarity"
+  "name": "Automation Save Reliability & Responsiveness"
 }

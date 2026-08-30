@@ -1,12 +1,12 @@
-NewzDeck v3.6.13
-Download Continuity & Automation Clarity
+NewzDeck v3.6.14
+Automation Save Reliability & Responsiveness
 Updating
 
 INSTALLED NEWZDECK
 ------------------
 Use NewzDeck > About & Updates > Install Update.
 
-The v3.6.12 installer-owned update lifecycle remains authoritative in v3.6.13:
+The installer-owned update lifecycle introduced in v3.6.12 remains authoritative:
   1. Capture whether the background service and tray are present/running.
   2. Close the browser-hosted NewzDeck app window from the signed-in Setup session.
   3. Stop the tray and background service.
@@ -16,9 +16,10 @@ The v3.6.12 installer-owned update lifecycle remains authoritative in v3.6.13:
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.13 additionally preserves live download ownership through transient SAB queue
-presentation gaps, verifies Remove/Cancel before hiding jobs, and makes season packs
-fallback-only.
+v3.6.14 hardens Automation's local JSON persistence against transient Windows
+file-handle contention and makes monitoring-setting Save feedback immediate after
+the authoritative write succeeds. The larger Automation summary refresh continues
+asynchronously afterward.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and

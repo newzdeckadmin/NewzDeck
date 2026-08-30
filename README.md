@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.13** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.14** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.13_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.14_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.12 highlights
+## v3.6.14 highlights
 
-v3.6.12 is an installed Update Center lifecycle hotfix built on v3.6.11.
+v3.6.14 is an Automation state reliability and responsiveness hotfix built on v3.6.13.
 
-- **Setup-owned runtime restore:** after a successful in-app update, Inno Setup itself owns service, tray, and app restoration instead of depending on the pre-update coordinator.
-- **Browser-hosted app close:** Setup invokes the newly installed native helper from the signed-in Setup session to close a still-open NewzDeck Edge/Chrome app-mode window.
-- **Service really restarts:** the existing background service is repaired and started after file replacement.
-- **Tray comes back:** Setup captures pre-upgrade tray state and restores the new tray after the service handoff.
-- **App reopens last:** `/update` installs relaunch NewzDeck at `ssDone`, after Setup post-install work is complete.
-- **No second coordinator UAC pass:** the external coordinator no longer performs service/tray/app restoration after Setup.
-- **v3.6.11 preserved:** SAB ownership/completion continuity and Smart Import reconciliation remain unchanged.
+- **Windows-safe Automation state saves:** same-file JSON reads and atomic writes are serialized so NewzDeck cannot race its own `media-library.json` reader against the final replace.
+- **Bounded access/sharing retries:** short-lived Windows access-denied/sharing violations during atomic replacement are retried before surfacing a real error.
+- **Atomicity is preserved:** state is still written to a temporary file and atomically replaced rather than rewritten in place.
+- **Faster monitoring saves:** the Automation detail dialog reports success immediately after the authoritative media update is persisted.
+- **Background summary refresh:** Wanted, Calendar, health, counts, and related aggregate state update asynchronously instead of delaying the Saved notification.
+- **Responsive episode toggles:** season and episode monitoring changes no longer synchronously block on a full Automation summary rebuild.
+- **v3.6.13 preserved:** download continuity, verified Remove/Cancel, hidden-transfer cleanup, Wanted policy clarity, and fallback-only season packs remain intact.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.13_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.14_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
