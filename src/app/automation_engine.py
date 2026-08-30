@@ -311,7 +311,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.14'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.15'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -331,10 +331,15 @@ class MediaAutomationEngine:
         self.get_providers = get_providers
         self.version = version
         self.lock = threading.RLock()
+        self.runtime_update_lock = threading.RLock()
         self.auto_run_lock = threading.Lock()
         self.auto_thread = None
+        self.auto_progress_lock = threading.RLock()
+        self.auto_progress: dict[str,Any] = {}
         self.reconcile_lock = threading.Lock()
         self.reconcile_thread = None
+        self.metadata_refresh_run_lock = threading.Lock()
+        self.metadata_refresh_thread = None
         self.release_feed_cache: list[dict[str,Any]] = []
         self.release_feed_cache_ts = 0.0
         self.metadata_circuit_lock = threading.RLock()
@@ -513,16 +518,97 @@ class MediaAutomationEngine:
         return x
 
     def _save_auto_runtime(self, value):
-        if not isinstance(value,dict): value={}
-        targets=value.get('targets') if isinstance(value.get('targets'),dict) else {}
-        cutoff=time.time()-(45*86400)
-        cleaned={}
-        for key,rec in targets.items():
-            if not isinstance(rec,dict): continue
-            stamp=max(float(rec.get('last_search_ts') or 0),float(rec.get('last_grab_ts') or 0),float(rec.get('updated_ts') or 0))
-            if stamp<=0 or stamp>=cutoff: cleaned[str(key)]=rec
-        value['targets']=cleaned
-        _write(self.automation_runtime_file,value)
+        with self.runtime_update_lock:
+            if not isinstance(value,dict): value={}
+            targets=value.get('targets') if isinstance(value.get('targets'),dict) else {}
+            cutoff=time.time()-(45*86400)
+            cleaned={}
+            for key,rec in targets.items():
+                if not isinstance(rec,dict): continue
+                stamp=max(float(rec.get('last_search_ts') or 0),float(rec.get('last_grab_ts') or 0),float(rec.get('updated_ts') or 0))
+                if stamp<=0 or stamp>=cutoff: cleaned[str(key)]=rec
+            value['targets']=cleaned
+            _write(self.automation_runtime_file,value)
+
+    @staticmethod
+    def _runtime_target_stamp(rec:dict[str,Any]|None) -> float:
+        if not isinstance(rec,dict): return 0.0
+        stamps=[float(rec.get('updated_ts') or 0),float(rec.get('last_search_ts') or 0),float(rec.get('last_grab_ts') or 0)]
+        for row in rec.get('blacklist') or []:
+            if isinstance(row,dict):
+                try: stamps.append(float(row.get('failed_ts') or 0))
+                except Exception: pass
+        return max(stamps or [0.0])
+
+    def _merge_auto_runtime_concurrent(self, value:dict[str,Any]) -> dict[str,Any]:
+        """Merge newer concurrent target/maintenance state before a long cycle saves.
+
+        Automatic cycles can spend time searching indexers while Smart Import,
+        failure reconciliation, metadata refresh, and library reconciliation keep
+        running. Never let a cycle that loaded automation-runtime.json minutes ago
+        overwrite a newer per-target failure/queue state or newer maintenance stamp.
+        """
+        with self.runtime_update_lock:
+            latest=self._auto_runtime()
+            merged=dict(value or {})
+            targets=merged.get('targets') if isinstance(merged.get('targets'),dict) else {}
+            latest_targets=latest.get('targets') if isinstance(latest.get('targets'),dict) else {}
+            for key,newer in latest_targets.items():
+                if not isinstance(newer,dict): continue
+                current=targets.get(key) if isinstance(targets.get(key),dict) else None
+                if current is None or self._runtime_target_stamp(newer)>self._runtime_target_stamp(current):
+                    targets[str(key)]=copy.deepcopy(newer)
+                    continue
+                # Blacklists are append-only safety memory. Preserve a concurrent
+                # failed-release record even when the scheduler updated another
+                # field on the same target slightly later.
+                existing=[x for x in current.get('blacklist') or [] if isinstance(x,dict)]
+                seen={(str(x.get('guid') or '').casefold(),str(x.get('title') or '').casefold(),str(x.get('collection_id') or '')) for x in existing}
+                for row in newer.get('blacklist') or []:
+                    if not isinstance(row,dict): continue
+                    sig=(str(row.get('guid') or '').casefold(),str(row.get('title') or '').casefold(),str(row.get('collection_id') or ''))
+                    if sig not in seen:
+                        existing.append(copy.deepcopy(row)); seen.add(sig)
+                if existing: current['blacklist']=existing[-80:]
+            merged['targets']=targets
+            merged['handled_failure_collections']=list(dict.fromkeys(
+                [str(x) for x in latest.get('handled_failure_collections') or []] +
+                [str(x) for x in merged.get('handled_failure_collections') or []]
+            ))[-500:]
+            for ts_key,result_key in (
+                ('last_library_scan_ts','last_library_scan_result'),
+                ('last_metadata_refresh_ts','last_metadata_result'),
+                ('last_feed_poll_ts','last_feed_count'),
+            ):
+                if float(latest.get(ts_key) or 0)>float(merged.get(ts_key) or 0):
+                    merged[ts_key]=latest.get(ts_key)
+                    if result_key in latest: merged[result_key]=copy.deepcopy(latest.get(result_key))
+            return merged
+
+    def _save_auto_runtime_merged(self, value:dict[str,Any]) -> dict[str,Any]:
+        with self.runtime_update_lock:
+            merged=self._merge_auto_runtime_concurrent(value)
+            self._save_auto_runtime(merged)
+            return merged
+
+    def _patch_auto_runtime(self, **fields:Any) -> dict[str,Any]:
+        with self.runtime_update_lock:
+            rt=self._auto_runtime()
+            rt.update(fields)
+            self._save_auto_runtime(rt)
+            return rt
+
+    def _set_auto_progress(self, **fields:Any) -> None:
+        with self.auto_progress_lock:
+            if fields.pop('clear',False):
+                self.auto_progress={}
+                return
+            self.auto_progress.update(fields)
+            self.auto_progress['updated_ts']=time.time()
+
+    def _auto_progress_snapshot(self) -> dict[str,Any]:
+        with self.auto_progress_lock:
+            return copy.deepcopy(self.auto_progress)
 
     def _iso_epoch(self, value: Any) -> float:
         text=str(value or '').strip()
@@ -692,19 +778,22 @@ class MediaAutomationEngine:
         try: path.unlink(missing_ok=True)
         except OSError: pass
 
-    def _auto_active_targets(self) -> set[str]:
+    def _auto_active_targets(self, snapshot:dict[str,Any]|None=None) -> set[str]:
         """Reserve a target until its completed download has finished Smart Import."""
         active=set()
-        try:
-            snap=self.download_manager.snapshot()
-        except Exception:
-            rt=self._auto_runtime(); now=time.time()
-            for key,rec in (rt.get('targets') or {}).items():
-                if not isinstance(rec,dict): continue
-                status=str(rec.get('status') or ''); last_grab=float(rec.get('last_grab_ts') or 0)
-                if status in {'grabbed','queued','downloading','processing','importing'} and last_grab>0 and now-last_grab<12*3600:
-                    active.add(str(key))
-            return active
+        if snapshot is None:
+            try:
+                snap=self.download_manager.snapshot()
+            except Exception:
+                rt=self._auto_runtime(); now=time.time()
+                for key,rec in (rt.get('targets') or {}).items():
+                    if not isinstance(rec,dict): continue
+                    status=str(rec.get('status') or ''); last_grab=float(rec.get('last_grab_ts') or 0)
+                    if status in {'grabbed','queued','downloading','processing','importing'} and last_grab>0 and now-last_grab<12*3600:
+                        active.add(str(key))
+                return active
+        else:
+            snap=snapshot
         for job in snap.get('jobs') or []:
             if not isinstance(job,dict): continue
             ctx=job.get('automation_context') if isinstance(job.get('automation_context'),dict) else {}
@@ -717,7 +806,7 @@ class MediaAutomationEngine:
                 if key: active.add(key)
         return active
 
-    def _auto_download_states(self) -> dict[str,dict[str,Any]]:
+    def _auto_download_states(self, snapshot:dict[str,Any]|None=None) -> dict[str,dict[str,Any]]:
         """Return the best live queue/post-processing state for each Automation target.
 
         Season-pack jobs are mirrored onto their member episode target keys so Wanted
@@ -725,8 +814,11 @@ class MediaAutomationEngine:
         """
         states={}
         priority={'processing':6,'downloading':5,'retrying':4,'queued':3,'cancelling':2,'waiting':1}
-        try: snap=self.download_manager.snapshot()
-        except Exception: return states
+        if snapshot is None:
+            try: snap=self.download_manager.snapshot()
+            except Exception: return states
+        else:
+            snap=snapshot
         for job in snap.get('jobs') or []:
             if not isinstance(job,dict): continue
             ctx=job.get('automation_context') if isinstance(job.get('automation_context'),dict) else {}
@@ -1032,19 +1124,39 @@ class MediaAutomationEngine:
         quiet=self._quiet_hours_state(cfg)
         feed_interval=max(2,int(cfg.get('automatic_feed_interval_minutes') or 5))*60
         last_feed=float(rt.get('last_feed_poll_ts') or 0)
-        thread=self.auto_thread
+        thread=self.auto_thread; running=bool(thread and thread.is_alive())
+        now=time.time(); snapshot_ok=False; snap={}
+        try:
+            snap=self.download_manager.snapshot(); snapshot_ok=True
+        except Exception:
+            snap={}
+        live_states=self._auto_download_states(snap) if snapshot_ok else {}
         target_states={}
         rows=[]
         for key,rec in (rt.get('targets') or {}).items():
             if not isinstance(rec,dict): continue
             rows.append((float(rec.get('updated_ts') or rec.get('last_search_ts') or 0),str(key),rec))
+        liveish={'queued','grabbed','queueing','downloading','processing','importing','cancelling'}
         for _,key,rec in sorted(rows,reverse=True)[:120]:
-            target_states[key]={'status':str(rec.get('status') or ''),'message':str(rec.get('message') or ''),'updated_ts':float(rec.get('updated_ts') or 0),'last_grab_title':str(rec.get('last_grab_title') or ''),'last_selection_reason':str(rec.get('last_selection_reason') or ''),'last_candidates':list(rec.get('last_candidates') or [])[:5]}
-        for key,live in self._auto_download_states().items():
+            status=str(rec.get('status') or ''); message=str(rec.get('message') or '')
+            stamp=max(float(rec.get('updated_ts') or 0),float(rec.get('last_grab_ts') or 0))
+            # Live download state is authoritative for queue/download badges. A
+            # persisted QUEUED/GRABBED marker is only a short handoff hint; if the
+            # download manager has had no matching job for 75 seconds, Wanted must
+            # stop claiming that the item is queued.
+            if snapshot_ok and status in liveish and key not in live_states and stamp>0 and now-stamp>=75:
+                status='retrying'
+                message='Previously queued job is no longer present — rechecking'
+            target_states[key]={'status':status,'message':message,'updated_ts':float(rec.get('updated_ts') or 0),'last_grab_title':str(rec.get('last_grab_title') or ''),'last_selection_reason':str(rec.get('last_selection_reason') or ''),'last_candidates':list(rec.get('last_candidates') or [])[:5]}
+        for key,live in live_states.items():
             target_states[key]={**target_states.get(key,{}),**live}
+        active_count=len(self._auto_active_targets(snap)) if snapshot_ok else len(self._auto_active_targets())
+        progress=self._auto_progress_snapshot() if running else {}
         return {
             'enabled':bool(cfg.get('automatic_grab_enabled')),
-            'running':bool(thread and thread.is_alive()),
+            'running':running,
+            'running_seconds':max(0,now-float(progress.get('started_ts') or now)) if running else 0,
+            'progress':progress,
             'last_cycle_ts':last,
             'next_cycle_ts':next_ts,
             'last_result':str(rt.get('last_result') or ''),
@@ -1054,7 +1166,7 @@ class MediaAutomationEngine:
             'last_grab_count':int(rt.get('last_grab_count') or 0),
             'last_metadata_refresh_ts':float(rt.get('last_metadata_refresh_ts') or 0),
             'last_library_scan_ts':float(rt.get('last_library_scan_ts') or 0),
-            'active_targets':len(self._auto_active_targets()),
+            'active_targets':active_count,
             'target_states':target_states,
             'blacklist_count':sum(len((r or {}).get('blacklist') or []) for r in (rt.get('targets') or {}).values() if isinstance(r,dict)),
             'indexer_health':list(self.automation_health().get('indexer_health') or []),
@@ -1269,19 +1381,27 @@ class MediaAutomationEngine:
             return {'ok':False,'disabled':True,'message':'Automatic downloads are disabled'}
         rt=self._auto_runtime(); now=time.time(); last_grabs=[]; searches=0; grabs=0; skipped=0; feed_matches=0; errors=[]
         try:
+            self._set_auto_progress(phase='starting',detail='Preparing Continuous Automation',processed=0,total=0,target='')
             blacklisted_now=self._sync_automatic_failures(rt)
             if blacklisted_now: self._save_auto_runtime(rt)
+
+            # Bulk library scans and metadata refreshes can take minutes on large
+            # libraries or slow metadata connections. They have their own workers;
+            # launch them when due but never make release searching wait for them.
             metadata_due=force or now-float(rt.get('last_metadata_refresh_ts') or 0)>=max(1,int(cfg.get('automatic_metadata_refresh_hours') or 6))*3600
             if metadata_due:
-                meta=self.refresh_monitored_metadata(force=True); rt['last_metadata_refresh_ts']=time.time(); rt['last_metadata_result']=meta
+                try: self.maybe_refresh_monitored_metadata(force=force)
+                except Exception as exc: errors.append(f'Metadata refresh: {exc}')
             scan_due=force or now-float(rt.get('last_library_scan_ts') or 0)>=max(5,int(cfg.get('automatic_library_scan_minutes') or 30))*60
             if scan_due:
-                try: rt['last_library_scan_result']=self.scan_library(); rt['last_library_scan_ts']=time.time()
+                try: self.maybe_reconcile_library(force=force)
                 except Exception as exc: errors.append(f'Library scan: {exc}')
 
+            self._set_auto_progress(phase='release-feed',detail='Checking release feed')
             feed_due=force or now-float(rt.get('last_feed_poll_ts') or 0)>=max(2,int(cfg.get('automatic_feed_interval_minutes') or 5))*60
             feed_rows=self._poll_release_feed(rt,cfg,force=feed_due)
 
+            self._set_auto_progress(phase='wanted',detail='Building Wanted targets')
             wanted=self.wanted(); missing_rows=[dict(x,auto_type='missing') for x in wanted.get('missing') or []]
             lib={str(x.get('id') or ''):x for x in self._library() if isinstance(x,dict)}
             rows=[]
@@ -1294,18 +1414,30 @@ class MediaAutomationEngine:
             # fallback and are evaluated last, after the episode targets have had
             # a chance to find/queue acceptable releases in this same cycle.
             rows.sort(key=lambda x:(0 if x.get('season_pack') else 1,str(x.get('date') or ''),str(x.get('label') or '')),reverse=True)
+            self._set_auto_progress(phase='targets',detail='Evaluating Wanted targets',processed=0,total=len(rows),target='')
             active=self._auto_active_targets(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets
             queue_depth=max(1,int(cfg.get('automatic_queue_depth') or 25)); max_grabs=max(0,queue_depth-len(active)); max_searches=max(12,min(250,max(1,max_grabs)*5))
             release_delay=max(0,int(cfg.get('automatic_release_delay_minutes') or 0))*60
             quiet=self._quiet_hours_state(cfg)
             if quiet.get('active') and not force:
                 rt.update({'last_cycle_ts':time.time(),'last_searches':0,'last_grab_count':0,'last_grabs':[],'last_error':' | '.join(errors[:5]),'last_result':f"Quiet hours active until {datetime.fromtimestamp(float(quiet.get('resume_ts') or 0)).strftime('%H:%M') if quiet.get('resume_ts') else quiet.get('end')} • monitored feed {len(feed_rows)} recent release(s)",'last_active_target_count':len(active),'last_feed_matches':0,'targets':targets,'quiet_active':True})
-                self._save_auto_runtime(rt)
+                rt=self._save_auto_runtime_merged(rt)
+                self._set_auto_progress(phase='complete',detail='Quiet hours active',processed=len(rows),total=len(rows),target='')
                 return {'ok':True,'quiet':True,'searched':0,'grabbed':0,'skipped':len(rows),'feed_count':len(feed_rows),'errors':errors}
             rt['quiet_active']=False
 
-            for row in rows:
+            for row_index,row in enumerate(rows,1):
                 if grabs>=max_grabs or searches>=max_searches: break
+                now=time.time()
+                self._set_auto_progress(
+                    phase='target',
+                    detail='Checking Wanted target',
+                    processed=row_index-1,
+                    total=len(rows),
+                    target=str(row.get('label') or ''),
+                    searches=searches,
+                    grabs=grabs,
+                )
                 item=lib.get(str(row.get('item_id') or ''))
                 if not item or not self._auto_backlog_eligible(row,item,cfg): skipped+=1; continue
                 root=self._resolve_root(item)
@@ -1381,15 +1513,28 @@ class MediaAutomationEngine:
                     continue
                 rel=dict(candidates[0]); rel.update({'automatic':True,'target_key':key,'auto_type':row.get('auto_type') or 'missing','season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'pack_known_episode_numbers':list(row.get('pack_known_episode_numbers') or [])})
                 grabbed=self.grab_release(rel)
+                if bool(grabbed.get('already_queued')):
+                    skipped+=1
+                    if bool(grabbed.get('reservation_only')):
+                        # A short cross-runtime claim means somebody is queueing the
+                        # target, not that SAB has accepted a job. Do not lie to
+                        # Wanted with a QUEUED badge until a live job exists.
+                        rec.update({'status':'queueing','message':str(grabbed.get('reason') or 'Another NewzDeck runtime is queueing this target'),'updated_ts':time.time(),'next_search_ts':time.time()+45})
+                    else:
+                        rec.update({'status':'queued','message':str(grabbed.get('reason') or 'Download already queued by another NewzDeck runtime'),'updated_ts':time.time(),'last_collection_id':str(grabbed.get('collection_id') or rec.get('last_collection_id') or '')})
+                    # Reserve the target only for this cycle so a pack/member target
+                    # cannot overlap while the other queue operation settles.
+                    active.add(key)
+                    if bool(row.get('season_pack')):
+                        for en in row.get('pack_episode_numbers') or []:
+                            try: active.add(f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}")
+                            except Exception: pass
+                    continue
                 active.add(key)
                 if bool(row.get('season_pack')):
                     for en in row.get('pack_episode_numbers') or []:
                         try: active.add(f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}")
                         except Exception: pass
-                if bool(grabbed.get('already_queued')):
-                    skipped+=1
-                    rec.update({'status':'queued','message':str(grabbed.get('reason') or 'Download already queued by another NewzDeck runtime'),'updated_ts':time.time(),'last_collection_id':str(grabbed.get('collection_id') or rec.get('last_collection_id') or '')})
-                    continue
                 grabs+=1
                 guid=str(rel.get('guid') or rel.get('download_url') or ''); attempted.append({'guid':guid,'title':str(rel.get('title') or ''),'ts':now})
                 rec.update({'status':'grabbed','message':f"Queued {rel.get('title')}",'last_grab_ts':now,'last_grab_guid':guid,'last_grab_title':str(rel.get('title') or ''),'last_collection_id':str(grabbed.get('collection_id') or ''),'next_search_ts':0,'attempted_releases':attempted[-8:],'last_indexer':str(rel.get('indexer') or ''),'last_effective_score':int(rel.get('automation_effective_score') or rel.get('score') or 0),'last_selection_reason':' • '.join(list(rel.get('reasons') or [])[:4]),'no_match_count':0,'selection_source':'feed' if from_feed else 'scheduled-search'})
@@ -1398,12 +1543,15 @@ class MediaAutomationEngine:
 
             active_after=len(self._auto_active_targets())
             rt.update({'last_cycle_ts':time.time(),'last_searches':searches,'last_grab_count':grabs,'last_grabs':last_grabs,'last_error':' | '.join(errors[:5]),'last_result':f'Feed {len(feed_rows)} recent • {feed_matches} matched • searched {searches} target(s) • queued {grabs} • Automation queue {active_after}/{queue_depth} • skipped {skipped}','last_active_target_count':active_after,'last_feed_matches':feed_matches,'targets':targets})
-            self._save_auto_runtime(rt)
+            rt=self._save_auto_runtime_merged(rt)
+            self._set_auto_progress(phase='complete',detail='Cycle complete',processed=len(rows),total=len(rows),target='',searches=searches,grabs=grabs)
             if searches or grabs or errors or feed_matches: self._event('auto-cycle',rt['last_result'],errors=len(errors),feed_matches=feed_matches)
             return {'ok':True,'searched':searches,'grabbed':grabs,'skipped':skipped,'feed_count':len(feed_rows),'feed_matches':feed_matches,'grabs':last_grabs,'errors':errors}
         except Exception as exc:
             rt.update({'last_cycle_ts':time.time(),'last_error':str(exc),'last_result':f'Automation cycle failed: {exc}'})
-            self._save_auto_runtime(rt); self._event('auto-error',f'Automatic download cycle failed: {exc}')
+            rt=self._save_auto_runtime_merged(rt)
+            self._set_auto_progress(phase='error',detail=str(exc)[:240])
+            self._event('auto-error',f'Automatic download cycle failed: {exc}')
             raise
 
     @contextlib.contextmanager
@@ -1444,25 +1592,52 @@ class MediaAutomationEngine:
 
     def _automatic_worker(self, force:bool=False):
         if not self.auto_run_lock.acquire(blocking=False): return
+        self._set_auto_progress(clear=True)
+        self._set_auto_progress(started_ts=time.time(),phase='starting',detail='Starting Continuous Automation',processed=0,total=0,target='',force=bool(force))
         try:
             with self._automatic_process_guard() as owner:
                 if owner:
                     self._automatic_cycle(force=force)
+                else:
+                    self._set_auto_progress(phase='handoff',detail='Another NewzDeck runtime owns this Automation cycle')
         finally:
             self.auto_run_lock.release()
 
     def _reconcile_worker(self):
         if not self.reconcile_lock.acquire(blocking=False): return
         try:
-            result=self.scan_library(); rt=self._auto_runtime(); rt['last_library_scan_ts']=time.time(); rt['last_library_scan_result']={'matched':result.get('matched',0),'files_scanned':result.get('files_scanned',0),'changes':len(result.get('changes') or []),'offline_roots':len(result.get('offline_roots') or [])}; self._save_auto_runtime(rt)
+            result=self.scan_library()
+            self._patch_auto_runtime(
+                last_library_scan_ts=time.time(),
+                last_library_scan_result={'matched':result.get('matched',0),'files_scanned':result.get('files_scanned',0),'changes':len(result.get('changes') or []),'offline_roots':len(result.get('offline_roots') or [])},
+            )
         finally: self.reconcile_lock.release()
 
-    def maybe_reconcile_library(self):
+    def maybe_reconcile_library(self, force:bool=False):
         if self.reconcile_thread and self.reconcile_thread.is_alive(): return {'started':False,'running':True}
         if not self._library(): return {'started':False,'empty':True}
         cfg=self.public_config(); rt=self._auto_runtime(); interval=max(5,int(cfg.get('automatic_library_scan_minutes') or 30))*60
-        if float(rt.get('last_library_scan_ts') or 0)>0 and time.time()-float(rt.get('last_library_scan_ts') or 0)<interval: return {'started':False,'due':False}
+        if not force and float(rt.get('last_library_scan_ts') or 0)>0 and time.time()-float(rt.get('last_library_scan_ts') or 0)<interval: return {'started':False,'due':False}
         self.reconcile_thread=threading.Thread(target=self._reconcile_worker,name='newzdeck-library-reconcile',daemon=True); self.reconcile_thread.start(); return {'started':True}
+
+    def _metadata_refresh_worker(self):
+        if not self.metadata_refresh_run_lock.acquire(blocking=False): return
+        try:
+            result=self.refresh_monitored_metadata(force=True)
+            self._patch_auto_runtime(last_metadata_refresh_ts=time.time(),last_metadata_result=result,last_metadata_error='')
+        except Exception as exc:
+            self._patch_auto_runtime(last_metadata_error=str(exc)[:600])
+            self._event('metadata-refresh-error',f'Background Automation metadata refresh failed: {exc}')
+        finally:
+            self.metadata_refresh_run_lock.release()
+
+    def maybe_refresh_monitored_metadata(self, force:bool=False):
+        if self.metadata_refresh_thread and self.metadata_refresh_thread.is_alive(): return {'started':False,'running':True}
+        if not self._library(): return {'started':False,'empty':True}
+        cfg=self.public_config(); rt=self._auto_runtime(); interval=max(1,int(cfg.get('automatic_metadata_refresh_hours') or 6))*3600
+        if not force and float(rt.get('last_metadata_refresh_ts') or 0)>0 and time.time()-float(rt.get('last_metadata_refresh_ts') or 0)<interval: return {'started':False,'due':False}
+        self.metadata_refresh_thread=threading.Thread(target=self._metadata_refresh_worker,name='newzdeck-metadata-refresh',daemon=True)
+        self.metadata_refresh_thread.start(); return {'started':True}
 
     def maybe_run_automatic(self):
         cfg=self.public_config()
@@ -4396,9 +4571,9 @@ class MediaAutomationEngine:
         idx=next((x for x in self._indexers() if (idx_id and str(x.get('id') or '')==idx_id) or (idx_name and str(x.get('name') or '')==idx_name)),None)
         headers={'User-Agent':f'NewzDeck/{self.version}','Accept':'application/x-nzb,application/xml,text/xml,*/*'}
 
-        def fetch(target):
+        def fetch(target, timeout_seconds:float=60.0):
             req=urllib.request.Request(target,headers=headers)
-            with urllib.request.urlopen(req,timeout=60) as r:
+            with urllib.request.urlopen(req,timeout=max(1.0,float(timeout_seconds))) as r:
                 length=int(r.headers.get('Content-Length') or 0)
                 if length>100*1024*1024: raise ValueError('Indexer NZB is larger than 100 MB')
                 raw=r.read(100*1024*1024+1)
@@ -4478,13 +4653,23 @@ class MediaAutomationEngine:
             return ''
 
         failures=[]; bad_post_signal=False; service_signal=False; auth_signal=False
+        automatic_fetch=bool(data.get('automatic'))
+        automatic_deadline=time.monotonic()+45.0 if automatic_fetch else 0.0
         for label,target in unique:
+            if automatic_fetch and time.monotonic()>=automatic_deadline:
+                failures.append('Automatic NZB retrieval budget expired before another fallback attempt')
+                service_signal=True
+                break
             # NZB retrieval is idempotent. Retry one remote reset locally before
             # falling through to the next same-indexer Newznab retrieval form.
             # This prevents a single TCP reset from becoming a raw WinError toast.
             for fetch_try in range(2):
                 try:
-                    return fetch(target)
+                    timeout_seconds=60.0
+                    if automatic_fetch:
+                        remaining=max(1.0,automatic_deadline-time.monotonic())
+                        timeout_seconds=min(15.0,remaining)
+                    return fetch(target,timeout_seconds)
                 except urllib.error.HTTPError as exc:
                     code=int(getattr(exc,'code',0) or 0)
                     failures.append(f'{label}: HTTP {code}')
@@ -4642,6 +4827,7 @@ class MediaAutomationEngine:
                             'ok':True,'already_queued':True,
                             'collection_id':str(job.get('collection_id') or job.get('id') or ''),
                             'collection_name':str(job.get('collection_name') or title),
+                            'reservation_only':False,
                             'reason':'This media target is already downloading or being imported.'
                         }
             except Exception:
@@ -4655,6 +4841,7 @@ class MediaAutomationEngine:
                     'ok':True,'already_queued':True,
                     'collection_id':str((reservation_payload or {}).get('collection_id') or ''),
                     'collection_name':title,
+                    'reservation_only':True,
                     'reason':'Another NewzDeck runtime is already queueing this media target.'
                 }
 

@@ -1,23 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.14",
-  "base_version": "3.6.13",
-  "release": "Automation Save Reliability & Responsiveness",
-  "adapter_version": "3.6.14",
+  "version": "3.6.15",
+  "base_version": "3.6.14",
+  "release": "Wanted State Reconciliation & Responsive Automation",
+  "adapter_version": "3.6.15",
   "changes": [
-    "Automation JSON state reads and atomic writes are serialized per file so Windows cannot catch NewzDeck replacing media-library.json while another NewzDeck thread still has that destination open.",
-    "Atomic JSON replacement retries short-lived Windows access/sharing violations with bounded backoff instead of immediately surfacing WinError 5 for transient file-handle contention.",
-    "Automation media Save confirms success immediately after the authoritative media update has been persisted instead of waiting for a full Automation summary rebuild.",
-    "Wanted, Calendar, health, counts, and related Automation summary state refresh asynchronously after a successful media Save.",
-    "Season and episode monitoring toggles also refresh the larger Automation summary asynchronously rather than blocking their UI handlers."
+    "Wanted queue/download badges reconcile against the live download snapshot; stale persisted QUEUED/GRABBED states no longer claim an item is queued after the live job disappears.",
+    "Cross-runtime grab reservations display QUEUEING rather than QUEUED until the live download engine exposes a real job.",
+    "Continuous Automation reports current phase/target progress and Next Cycle shows In progress while a worker is active.",
+    "Bulk metadata refresh and library reconciliation run on their background workers instead of blocking the release-search critical path.",
+    "Automatic NZB retrieval uses a bounded 45-second per-release wall budget with individual automatic requests capped at 15 seconds; manual Interactive Search/Grab retains the existing generous request behavior.",
+    "Long-running Automation cycles merge newer concurrent failure/blacklist and maintenance runtime state before persisting their final snapshot."
   ],
   "regression_guards": [
-    "Automation state writes remain atomic; the fix does not fall back to in-place JSON truncation/overwrite.",
-    "The Saved notification is emitted only after /api/automation/media/update returns successfully, so the faster acknowledgement is not an optimistic or fake save.",
-    "The returned authoritative media item is merged into local UI state before the background Automation summary refresh.",
-    "JSON replace retries are bounded to a short window and only retry Windows permission/sharing-style failures.",
-    "v3.6.13 download continuity, verified Remove/Cancel, hidden-transfer reconciliation, Wanted policy visibility, and fallback-only season-pack arbitration remain preserved.",
-    "v3.6.12 installer-owned update restoration and prior source-freshness protections remain preserved."
+    "Live download-manager state remains authoritative and overrides persisted Wanted target display state.",
+    "A 75-second handoff grace preserves legitimate just-queued jobs before a persisted queue marker is considered stale.",
+    "Season-pack member reservation continues to prevent pack/episode overlap.",
+    "Library scans and metadata refreshes still run automatically when due; they are decoupled only from the release-search critical path.",
+    "v3.6.14 Windows-safe Automation JSON persistence and responsive Save acknowledgements remain preserved.",
+    "v3.6.13 verified Remove/Cancel, hidden-transfer reconciliation, Active-card continuity, Wanted policy clarity, and fallback-only season packs remain preserved."
   ],
-  "name": "Automation Save Reliability & Responsiveness"
+  "name": "Wanted State Reconciliation & Responsive Automation"
 }

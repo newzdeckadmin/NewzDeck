@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.14** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.15** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.14_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.15_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,18 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.14 highlights
+## v3.6.15 highlights
 
-v3.6.14 is an Automation state reliability and responsiveness hotfix built on v3.6.13.
+v3.6.15 is a Continuous Automation and Wanted-state reliability release built on v3.6.14.
 
-- **Windows-safe Automation state saves:** same-file JSON reads and atomic writes are serialized so NewzDeck cannot race its own `media-library.json` reader against the final replace.
-- **Bounded access/sharing retries:** short-lived Windows access-denied/sharing violations during atomic replacement are retried before surfacing a real error.
-- **Atomicity is preserved:** state is still written to a temporary file and atomically replaced rather than rewritten in place.
-- **Faster monitoring saves:** the Automation detail dialog reports success immediately after the authoritative media update is persisted.
-- **Background summary refresh:** Wanted, Calendar, health, counts, and related aggregate state update asynchronously instead of delaying the Saved notification.
-- **Responsive episode toggles:** season and episode monitoring changes no longer synchronously block on a full Automation summary rebuild.
-- **v3.6.13 preserved:** download continuity, verified Remove/Cancel, hidden-transfer cleanup, Wanted policy clarity, and fallback-only season packs remain intact.
+- **Live Downloads is authoritative:** stale persisted QUEUED/GRABBED-style Wanted badges no longer survive after the corresponding live job disappears.
+- **Safe handoff grace:** newly queued jobs receive a 75-second visibility window before an absent live job is treated as stale.
+- **Honest QUEUEING state:** cross-runtime reservations no longer claim a download is already queued before the live engine exposes it.
+- **Useful cycle progress:** Wanted shows the current phase/target instead of an opaque multi-minute CHECKING state.
+- **Accurate Next Cycle:** an active worker shows In progress rather than Due now.
+- **Maintenance is decoupled:** metadata refresh and library reconciliation run in background workers instead of blocking release searching.
+- **Bounded automatic NZB retrieval:** one problematic release cannot hold Continuous Automation indefinitely.
+- **v3.6.14 preserved:** Windows-safe Automation JSON saves and responsive monitoring-setting Save feedback remain intact.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.14_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.15_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -2480,7 +2480,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.14",
+            "adapter_version": "3.6.15",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,

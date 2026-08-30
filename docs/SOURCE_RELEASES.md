@@ -4,11 +4,11 @@ NewzDeck is free and open-source software. Current Windows releases are built fr
 
 This page exists for people who want to understand how the public source relates to released Windows binaries. You do not need this information to install or use NewzDeck.
 
-## Current release: v3.6.14
+## Current release: v3.6.15
 
-**v3.6.14 is the current stable production release.**
+**v3.6.15 is the current stable production release.**
 
-The `v3.6.14` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.15` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -25,6 +25,7 @@ The Python backend, Automation engine, SAB adapter, and browser interface are al
 
 ## Recent production releases
 
+- **v3.6.15 — Wanted State Reconciliation & Responsive Automation.** Makes live Downloads authoritative for Wanted queue state, adds honest QUEUEING handoff state and per-target cycle progress, decouples metadata/library maintenance from release searching, bounds automatic NZB retrieval, and prevents stale long-cycle runtime snapshots from overwriting newer failure/maintenance state.
 - **v3.6.14 — Automation Save Reliability & Responsiveness.** Serializes Automation JSON reads/writes per file, adds bounded Windows sharing/access retry around atomic replacement, and returns truthful Save feedback immediately after persistence while the larger Automation summary refreshes asynchronously.
 - **v3.6.13 — Download Continuity & Automation Clarity.** Adds bounded SAB Active-card continuity, verified Remove/Cancel with hidden-transfer reconciliation, Wanted policy visibility, and fallback-only season packs with member-target reservation.
 - **v3.6.12 — Installer-Owned Runtime Restore.** Makes Setup authoritative for closing the browser-hosted UI after overlay, repairing and starting the service, restoring the tray, and reopening NewzDeck after `/update`; production CI exercises the update restore path.

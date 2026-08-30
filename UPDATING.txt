@@ -1,5 +1,5 @@
-NewzDeck v3.6.14
-Automation Save Reliability & Responsiveness
+NewzDeck v3.6.15
+Wanted State Reconciliation & Responsive Automation
 Updating
 
 INSTALLED NEWZDECK
@@ -16,10 +16,10 @@ The installer-owned update lifecycle introduced in v3.6.12 remains authoritative
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.14 hardens Automation's local JSON persistence against transient Windows
-file-handle contention and makes monitoring-setting Save feedback immediate after
-the authoritative write succeeds. The larger Automation summary refresh continues
-asynchronously afterward.
+v3.6.15 reconciles Wanted queue state against the live download engine, exposes
+real Continuous Automation progress, decouples maintenance from release searching,
+and bounds automatic NZB retrieval so stale queue state or slow release retrieval
+cannot leave Wanted looking permanently stuck.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and
