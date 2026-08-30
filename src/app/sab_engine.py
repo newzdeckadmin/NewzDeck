@@ -496,7 +496,7 @@ class SabDownloadManager:
         self._active_bridge_open: set[str] = set()
         self._active_continuity_bridges = 0
         self._active_continuity_last_ts = 0.0
-        # v3.6.17: SAB can briefly report the *whole queue* as Paused during
+        # v3.6.18: SAB can briefly report the *whole queue* as Paused during
         # internal queue/file transitions even though NewzDeck never requested a
         # pause and the underlying transfer resumes moments later. The older Active
         # continuity lease intentionally treats any pause as authoritative, so that
@@ -509,7 +509,7 @@ class SabDownloadManager:
         self._unexpected_sab_pause_grace_seconds = 12.0
         self._unexpected_sab_pause_last_resume_request_ts = 0.0
         self._resume_intent_event = threading.Event()
-        # v3.6.17 canonical Downloads-state invariants.
+        # v3.6.18 canonical Downloads-state invariants.
         # SAB aggregate counters are retained for diagnostics, but user-facing
         # Remaining/counts are derived from the same visible job set as the cards.
         self._snapshot_consistency_mismatches = 0
@@ -821,7 +821,7 @@ class SabDownloadManager:
     def _delete_sab_job_verified(self, nzo_id: str, *, delete_files: bool = True) -> tuple[bool, str]:
         """Stop/delete one SAB job and prove a live transfer is gone before hiding it.
 
-        v3.6.17 hardens terminal-history removal as well as live queue removal:
+        v3.6.18 hardens terminal-history removal as well as live queue removal:
         transient localhost API reads are retried, a terminal Failed/Completed
         history record can prove that the job is no longer transferring when Queue
         itself is briefly unreadable, and history cleanup remains secondary to the
@@ -1223,7 +1223,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.17"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.18"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1517,7 +1517,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.17 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.18 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1734,7 +1734,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.17 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck 3.6.18 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -2581,7 +2581,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.17",
+            "adapter_version": "3.6.18",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -3230,7 +3230,14 @@ class SabDownloadManager:
         self._last_snapshot_ts = 0
         return len(additions) + len(repairs)
 
-    def _bridge_unexpected_sab_pause(self, qroot: dict[str, Any], engine: dict[str, Any], now: float) -> dict[str, Any] | None:
+    def _bridge_unexpected_sab_pause(
+        self,
+        qroot: dict[str, Any],
+        engine: dict[str, Any],
+        now: float,
+        *,
+        has_transfer_work: bool,
+    ) -> dict[str, Any] | None:
         """Hold the last coherent live view through a transient SAB global pause.
 
         NewzDeck is the user-facing owner of Pause/Resume. If NewzDeck's durable
@@ -3251,7 +3258,7 @@ class SabDownloadManager:
         prior_active = int(prior_counts.get("downloading", 0) or 0)
         prior_age = max(0.0, now - float(self._last_snapshot_ts or 0.0))
 
-        if local_paused or not raw_paused or prior_active <= 0 or prior is None:
+        if local_paused or not raw_paused or not has_transfer_work or prior_active <= 0 or prior is None:
             self._unexpected_sab_pause_since = 0.0
             self._unexpected_sab_pause_bridge_open = False
             return None
@@ -3303,17 +3310,25 @@ class SabDownloadManager:
         stale["telemetry"] = telemetry
         return stale
 
-    def _observe_engine_pause_intent(self, qroot: dict[str, Any], now: float) -> bool:
-        """Track SAB's raw pause separately from NewzDeck's durable user intent.
-
-        NewzDeck owns the private SAB engine. ``snapshot.paused`` therefore means
-        *the user asked NewzDeck to pause*, not merely that SAB emitted one raw
-        aggregate Paused sample. When intent is Running, persistently reassert Resume
-        through the background coordinator while exposing the mismatch as telemetry.
-        """
+    def _observe_engine_pause_intent(
+        self,
+        qroot: dict[str, Any],
+        now: float,
+        *,
+        has_transfer_work: bool,
+    ) -> bool:
+        """Recover raw SAB Pause only when transfer work actually exists."""
         local_paused = bool(self.state.get("paused", False))
         raw_status = str((qroot or {}).get("status") or "").strip().casefold()
         raw_paused = bool((qroot or {}).get("paused", False)) or raw_status == "paused"
+
+        # SAB may legitimately idle as aggregate Paused with an empty queue. That
+        # is not a fault and must not create a Resume -> idle -> Resume loop.
+        if not has_transfer_work:
+            self._engine_pause_mismatch_since = 0.0
+            self._resume_intent_event.clear()
+            return False
+
         mismatch = bool(raw_paused and not local_paused)
         if mismatch:
             if self._engine_pause_mismatch_since <= 0:
@@ -3631,7 +3646,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.17 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.18 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -3658,7 +3673,17 @@ class SabDownloadManager:
                         self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
             self._adopt_untracked_slots(qslots, hslots)
             self._kick_completed_automation_imports(qslots, hslots)
-            bridged_pause = self._bridge_unexpected_sab_pause(qroot, engine, now)
+            bridge_remaining_hint = _mb_to_bytes(qroot.get("mbleft"))
+            if bridge_remaining_hint <= 0:
+                bridge_remaining_hint = sum(
+                    _mb_to_bytes(x.get("mbleft")) for x in qslots if isinstance(x, dict)
+                )
+            bridged_pause = self._bridge_unexpected_sab_pause(
+                qroot,
+                engine,
+                now,
+                has_transfer_work=bool(qslots) or bridge_remaining_hint > 0,
+            )
             if bridged_pause is not None:
                 return bridged_pause
         except Exception as exc:
@@ -3673,7 +3698,6 @@ class SabDownloadManager:
         total_speed = _kb_to_bps(qroot.get("kbpersec"))
         aggregate_status = str(qroot.get("status") or "").casefold()
         queue_paused = bool(qroot.get("paused", False)) or aggregate_status == "paused"
-        engine_pause_mismatch = self._observe_engine_pause_intent(qroot, now)
 
         # SAB exposes both an aggregate queue state and per-slot state. During a
         # healthy transfer the aggregate queue can remain Downloading while the
@@ -3693,6 +3717,12 @@ class SabDownloadManager:
         queue_remaining_hint = _mb_to_bytes(qroot.get("mbleft"))
         if queue_remaining_hint <= 0:
             queue_remaining_hint = sum(_mb_to_bytes(x.get("mbleft")) for x in qslots if isinstance(x, dict))
+        has_engine_transfer_work = bool(qslots) or queue_remaining_hint > 0
+        engine_pause_mismatch = self._observe_engine_pause_intent(
+            qroot,
+            now,
+            has_transfer_work=has_engine_transfer_work,
+        )
         provider_health = self._recover_zero_socket_transfer(
             queue_active=queue_active_signal, queue_paused=queue_paused, total_speed=total_speed,
             remaining_bytes=queue_remaining_hint,
@@ -4077,7 +4107,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.17", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.18", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -4088,6 +4118,12 @@ class SabDownloadManager:
                                 "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts),
                                 "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open),
                                 "engine_queue_paused_raw": bool(queue_paused),
+                                "engine_has_transfer_work": bool(has_engine_transfer_work),
+                                "engine_idle_paused": bool(
+                                    queue_paused
+                                    and not has_engine_transfer_work
+                                    and not self.state.get("paused", False)
+                                ),
                                 "engine_pause_mismatch": bool(engine_pause_mismatch),
                                 "engine_pause_mismatch_seconds": max(0.0, now - self._engine_pause_mismatch_since) if self._engine_pause_mismatch_since > 0 else 0.0,
                                 "engine_pause_reassert_count": int(self._engine_pause_reassert_count),

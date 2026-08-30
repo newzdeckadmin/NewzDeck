@@ -1,27 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.17",
-  "base_version": "3.6.16",
-  "release": "Downloads State Integrity & Smart Import Recovery",
-  "adapter_version": "3.6.17",
-  "name": "Downloads State Integrity & Smart Import Recovery",
+  "version": "3.6.18",
+  "base_version": "3.6.17",
+  "release": "Idle-Aware Engine Pause Recovery",
+  "adapter_version": "3.6.18",
+  "name": "Idle-Aware Engine Pause Recovery",
   "changes": [
-    "Downloads Remaining, counts, speed, ETA, and queue presentation are derived from the same canonical visible job set used to render cards; raw SAB aggregate remaining is retained only for diagnostics.",
-    "Every live SAB Queue slot must produce a visible NewzDeck card. A slot that escapes normal ownership adoption is surfaced as a recovery/stopping card instead of remaining a hidden transfer.",
-    "NewzDeck's durable user Pause/Resume intent is the user-facing pause state. A raw internal SAB Paused condition is tracked separately and recovered by the background coordinator.",
-    "The Downloads footer reports an unexpected engine pause as recovery rather than falsely claiming the user paused the queue.",
-    "Smart Import claims validate their owning process PID. Imports orphaned by an update/service restart are reclaimed immediately rather than waiting for the historical lease to expire.",
-    "Smart Import writes a progress heartbeat; a live import with no progress heartbeat for 90 seconds is visibly marked IMPORT STALLED.",
-    "Diagnostics exposes raw-vs-visible remaining bytes, snapshot consistency corrections, engine-pause recovery, and dead-runtime import-reclaim counters."
+    "Engine-pause recovery now requires actual transfer work: a live SAB Queue slot or non-zero raw engine remaining bytes.",
+    "An empty private SAB engine may settle into aggregate Paused/idle state without NewzDeck repeatedly reasserting Resume or displaying an engine recovery warning.",
+    "The bounded coherent Active-snapshot bridge also requires transfer-work evidence, so a genuinely drained queue cannot retain stale Active cards merely because SAB idles as Paused.",
+    "Diagnostics distinguishes benign idle SAB-paused state from a real pause mismatch that has transfer work waiting.",
+    "All v3.6.17 canonical Downloads-state, no-hidden-live-job, pause-intent, and Smart Import recovery behavior remains preserved."
   ],
   "regression_guards": [
-    "User-facing Remaining can never be sourced solely from SAB aggregate remaining.",
-    "If visible Active/Queued/Retry/Stopping jobs are all zero, transfer Remaining is zero even if SAB returns an inconsistent aggregate byte count.",
-    "Every live SAB queue slot is represented before counts and Remaining are finalized.",
-    "A real user-requested Pause remains durable and immediate.",
-    "A live Smart Import owner PID retains its claim; only a dead owner is reclaimed automatically.",
-    "Import-stall detection does not start a duplicate import while the owner process is still alive.",
-    "v3.6.16 verified Remove/Cancel and Active-continuity protections remain preserved.",
-    "v3.6.15 Wanted-state reconciliation and v3.6.14 Automation JSON-save protections remain preserved."
+    "No Resume reassertion occurs when SAB has no Queue slots and zero remaining transfer bytes.",
+    "Unexpected SAB Pause still triggers recovery when transfer work exists and NewzDeck user intent is Running.",
+    "A real NewzDeck user Pause remains authoritative regardless of queue workload.",
+    "A drained queue cannot be kept Active by the pause bridge.",
+    "v3.6.17 visible-job canonicalization, Remaining invariants, and dead-runtime Smart Import reclaim remain unchanged.",
+    "v3.6.16 verified Remove/Cancel and Active continuity remain preserved."
   ]
 }

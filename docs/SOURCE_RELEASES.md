@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.17
+## Current release: v3.6.18
 
-**v3.6.17 is the current stable production release.**
+**v3.6.18 is the current stable production release.**
 
-The `v3.6.17` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.18` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.18 - Idle-Aware Engine Pause Recovery.** Makes private-SAB Pause recovery workload-aware so an empty engine may idle as Paused without cycling Resume/recovery, while preserving v3.6.17 canonical Downloads-state and Smart Import recovery invariants.
 
 - **v3.6.17 - Downloads State Integrity & Smart Import Recovery.** Unifies Downloads around one canonical visible-job state model, prevents contradictory SAB aggregate Remaining values, guarantees every live SAB Queue slot has a visible card, separates user Pause intent from engine pause state, and reclaims Smart Imports orphaned by dead runtimes.
 

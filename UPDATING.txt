@@ -1,5 +1,5 @@
-NewzDeck v3.6.17
-Downloads State Integrity & Smart Import Recovery
+NewzDeck v3.6.18
+Idle-Aware Engine Pause Recovery
 Updating
 
 INSTALLED NEWZDECK
@@ -16,8 +16,8 @@ The installer-owned update lifecycle introduced in v3.6.12 remains authoritative
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.17 unifies Downloads around one canonical visible-job state model and adds
-dead-runtime Smart Import recovery. Normal installed updates preserve user data.
+v3.6.18 makes SAB engine-pause recovery idle-aware while preserving v3.6.17's
+canonical Downloads state and Smart Import recovery model.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and
