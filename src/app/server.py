@@ -246,7 +246,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.8"
+APP_VERSION = "3.6.9"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -793,7 +793,7 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
 
 def _launch_update_setup(staged: Path) -> None:
     launcher_pid = int(os.environ.get("NEWZDECK_LAUNCHER_PID", os.environ.get("USENET_BROWSER_LAUNCHER_PID", "0")) or 0)
-    args = ["/update"]
+    args = ["/update", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS"]
     if launcher_pid > 0 and not SERVICE_MODE:
         args.append(f"/waitpid={launcher_pid}")
     if SERVICE_MODE:
@@ -957,30 +957,13 @@ _taskbar_identity_lock = threading.Lock()
 _taskbar_identity_last_launch = 0.0
 
 def _launch_taskbar_identity() -> bool:
-    """Give the Edge-hosted NewzDeck app window NewzDeck taskbar identity/icon.
+    """Compatibility no-op for the retired picker-based taskbar helper.
 
-    The existing native picker is a dual-purpose desktop helper in v2.6.0. The
-    --taskbar-fix mode applies an explicit AppUserModelID, relaunch icon, and
-    window icon to the NewzDeck app-mode window and remains alive while that
-    window exists so Windows can keep the native icon handle valid.
+    NewzDeck v3.6.5+ assigns taskbar identity from NewzDeck.exe itself. Keeping
+    NewzDeckPicker.exe alive in --taskbar-fix mode created a file lock that could
+    block verified in-app upgrades, so v3.6.9 deliberately stops launching it.
     """
-    global _taskbar_identity_last_launch
-    if sys.platform != 'win32' or not PICKER_HELPER_EXE.exists():
-        return False
-    with _taskbar_identity_lock:
-        now=time.monotonic()
-        if now-_taskbar_identity_last_launch < 3.0:
-            return True
-        _taskbar_identity_last_launch=now
-    args=['--taskbar-fix']
-    if SERVICE_MODE:
-        return _launch_process_in_active_user_session(str(PICKER_HELPER_EXE), subprocess.list2cmdline(args))
-    try:
-        subprocess.Popen([str(PICKER_HELPER_EXE)]+args,cwd=str(APP_DIR),
-                         creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        return True
-    except Exception:
-        return False
+    return False
 
 def _native_folder_picker(initial_path: str, title: str, timeout: float = 125.0) -> dict[str, Any]:
     """Open NewzDeck's native Windows folder picker in the signed-in desktop session.

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.8** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.9** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.8_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.9_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,18 +35,16 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.8 highlights
+## v3.6.9 highlights
 
-v3.6.8 is a cumulative image-browsing performance and gallery-quality release built on v3.6.7 and validated through six portable acceptance revisions. It keeps the high-throughput preview engine while reducing long-session UI pressure, deep-page navigation contention, native thumbnail overhead, repeated cache/filesystem work, and browser rendering hot-path cost.
+v3.6.9 is a focused Windows upgrade-path hotfix built on v3.6.8. It fixes the verified Update Center path when a long-lived NewzDeck native helper is still using an executable that Setup must replace.
 
-- **Long-session stability:** RAM-aware caches, bounded gallery scans, decoded-thumbnail relief, and separate NNTP/decode budgets.
-- **Fast deep-page navigation:** explicit jumps reset stale scroll velocity/prefetch state and hold Continuous append until the destination page is established.
-- **WIC-first persistent thumbnails:** native Windows decode/scale workers stay alive between jobs, with fallback decoding for unusual formats.
-- **Large-image acceleration:** very large visible multipart images can use a small number of coordinated BODY lanes without overriding provider limits or download priority.
-- **Faster revisits:** recent header pages, cached-thumbnail URLs, suppression state, and thumbnail identities are reused from RAM.
-- **Gallery quality:** genuinely tiny source images are persistently suppressed from visual media views instead of being enlarged into blurry cards.
-- **Lower Chromium overhead:** geometry snapshots, constant-time thumbnail element lookup, native blank validation, and normal asynchronous painting eliminate routine DOM searches, canvas readbacks, and forced reflows.
-- **Preserved:** v3.6.7 browsing responsiveness, v3.6.6 adaptive preview scaling, v3.6.5 taskbar reliability, v3.6.4 package reconstruction, private SAB downloads, Automation/Smart Import, and Metadata Server v0.3.3 compatibility.
+- **Picker lock fixed:** Setup explicitly closes the legacy NewzDeckPicker.exe taskbar helper before file replacement.
+- **Persistent helper cleanup:** stale NewzDeckThumb.exe and NewzDeckYenc.exe workers are also terminated after the tray/background-service handoff.
+- **Legacy taskbar helper retired:** the UI/backend no longer launch NewzDeckPicker.exe in long-lived taskbar-fix mode; NewzDeck.exe has owned taskbar identity since v3.6.5.
+- **Update Center defense in depth:** future in-app installer launches request Inno close/force-close handling.
+- **Regression coverage:** Windows CI now starts the real locked Picker taskbar-fix process and requires Setup to close and replace it during an installed upgrade.
+- **v3.6.8 preserved:** all accepted image-browsing performance and gallery-quality improvements remain unchanged.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -68,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.8_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.9_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

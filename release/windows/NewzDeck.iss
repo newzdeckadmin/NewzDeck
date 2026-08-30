@@ -236,6 +236,43 @@ begin
   Sleep(300);
 end;
 
+procedure TerminateUpgradeNativeHelper(const ImageName: String);
+var
+  TaskKill, Params: String;
+  ResultCode: Integer;
+begin
+  TaskKill := ExpandConstant('{sys}\taskkill.exe');
+  if not FileExists(TaskKill) then
+  begin
+    Log('taskkill.exe is unavailable; Restart Manager will handle ' + ImageName + '.');
+    Exit;
+  end;
+
+  Params := '/F /T /IM ' + QuoteArg(ImageName);
+  if not Exec(TaskKill, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Log('Could not launch taskkill.exe for ' + ImageName + '; Restart Manager will handle it.');
+    Exit;
+  end;
+
+  if ResultCode = 0 then
+    Log('Stopped upgrade helper ' + ImageName + '.')
+  else
+    Log('taskkill returned ' + IntToStr(ResultCode) + ' for ' + ImageName + ' (no matching process or an already-exiting process is harmless).');
+end;
+
+procedure StopUpgradeNativeHelpers();
+begin
+  { v3.6.8 can leave NewzDeckPicker.exe alive for the old taskbar-fix path.
+    Persistent native thumbnail/yEnc workers can also briefly outlive their
+    backend owner. Stop only NewzDeck-owned helper image names after the
+    tray/service handoff, then give Windows time to release executable maps. }
+  TerminateUpgradeNativeHelper('NewzDeckPicker.exe');
+  TerminateUpgradeNativeHelper('NewzDeckThumb.exe');
+  TerminateUpgradeNativeHelper('NewzDeckYenc.exe');
+  Sleep(750);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
@@ -254,6 +291,8 @@ begin
     if Result <> '' then
       Exit;
   end;
+
+  StopUpgradeNativeHelpers();
 end;
 
 procedure RepairExistingService();

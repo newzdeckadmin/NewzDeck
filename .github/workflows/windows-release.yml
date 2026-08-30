@@ -71,7 +71,11 @@ jobs:
             "GetEnv('USERPROFILE')",
             "PathCombine(UserProfile, 'Downloads\NewzDeck')",
             "FindWindowByClassName('NewzDeckTrayWindow')",
-            'PostMessage(TrayWindow, WM_CLOSE, 0, 0)'
+            'PostMessage(TrayWindow, WM_CLOSE, 0, 0)',
+            'StopUpgradeNativeHelpers',
+            "TerminateUpgradeNativeHelper('NewzDeckPicker.exe')",
+            "TerminateUpgradeNativeHelper('NewzDeckThumb.exe')",
+            "TerminateUpgradeNativeHelper('NewzDeckYenc.exe')"
           )) {
             if (-not $installer.Contains($required)) {
               throw "Installer is missing required upgrade behavior: $required"
@@ -345,6 +349,17 @@ jobs:
             throw 'Tray-lock smoke helper did not become ready.'
           }
 
+          # Reproduce the real v3.6.8 Update Center regression: the legacy
+          # picker taskbar-fix mode intentionally stays alive while NewzDeck is
+          # open and therefore locks NewzDeckPicker.exe against replacement.
+          $pickerExe = Join-Path $installDir 'NewzDeckPicker.exe'
+          $pickerProcess = Start-Process -FilePath $pickerExe -ArgumentList @('--taskbar-fix') -PassThru
+          Start-Sleep -Milliseconds 750
+          try { $pickerProcess.Refresh() } catch {}
+          if ($pickerProcess.HasExited) {
+            throw 'Picker-lock smoke process exited before the upgrade began.'
+          }
+
           Run-Setup 'Installed upgrade'
 
           try { $dummyProcess.Refresh() } catch {}
@@ -352,6 +367,16 @@ jobs:
             throw 'Installer did not close the existing NewzDeckTrayWindow.'
           }
 
+          try { $pickerProcess.Refresh() } catch {}
+          if (-not $pickerProcess.HasExited) {
+            throw 'Installer did not close the locked NewzDeckPicker.exe process.'
+          }
+
+          $installedPickerHash = (Get-FileHash -LiteralPath (Join-Path $installDir 'NewzDeckPicker.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $payloadPickerHash = (Get-FileHash -LiteralPath (Join-Path $env:PAYLOAD 'NewzDeckPicker.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($installedPickerHash -cne $payloadPickerHash) {
+            throw 'Installer did not replace the locked picker executable.'
+          }
           $installedTrayHash = (Get-FileHash -LiteralPath (Join-Path $installDir 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
           $payloadTrayHash = (Get-FileHash -LiteralPath (Join-Path $env:PAYLOAD 'NewzDeckTray.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($installedTrayHash -cne $payloadTrayHash) {

@@ -1,3 +1,9 @@
-NewzDeck v3.6.8 updates preserve user state under %LOCALAPPDATA%\NewzDeck.
+NewzDeck v3.6.9 updates preserve user state under %LOCALAPPDATA%\NewzDeck.
 
-Installed users should normally run NewzDeck_v3.6.8_Setup.exe over the existing installation or use the verified in-app updater when offered. Manual tray or background-service shutdown should not normally be required.
+Installed users should normally run NewzDeck_v3.6.9_Setup.exe over the existing
+installation or use the verified in-app updater when offered. v3.6.9 hardens the
+upgrade shutdown path so the tray, background service, legacy Picker taskbar helper,
+and persistent native thumbnail/yEnc helpers release application files before Setup
+replaces them. Manual helper shutdown should not normally be required.
+
+Portable users should close NewzDeck before replacing application files.
