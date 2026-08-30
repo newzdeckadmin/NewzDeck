@@ -478,11 +478,12 @@ jobs:
           $runtimeDir = Join-Path $installDir 'runtime'
           New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
           $runtimeHoldSource = Join-Path $env:RUNNER_TEMP 'NewzDeckRuntimeHoldSmoke.go'
-          @'
-package main
-import "time"
-func main() { time.Sleep(120 * time.Second) }
-'@ | Set-Content -LiteralPath $runtimeHoldSource -Encoding utf8
+          $runtimeHoldSourceLines = @(
+            'package main',
+            'import "time"',
+            'func main() { time.Sleep(120 * time.Second) }'
+          )
+          Set-Content -LiteralPath $runtimeHoldSource -Value $runtimeHoldSourceLines -Encoding utf8
           go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o (Join-Path $runtimeDir 'python.exe') $runtimeHoldSource
           if ($LASTEXITCODE -ne 0) {
             throw 'Could not build the runtime-hold smoke helper.'
