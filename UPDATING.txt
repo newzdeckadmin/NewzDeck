@@ -1,5 +1,5 @@
-NewzDeck v3.6.15
-Wanted State Reconciliation & Responsive Automation
+NewzDeck v3.6.16
+Verified Download Control & Active Continuity
 Updating
 
 INSTALLED NEWZDECK
@@ -16,10 +16,9 @@ The installer-owned update lifecycle introduced in v3.6.12 remains authoritative
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.15 reconciles Wanted queue state against the live download engine, exposes
-real Continuous Automation progress, decouples maintenance from release searching,
-and bounds automatic NZB retrieval so stale queue state or slow release retrieval
-cannot leave Wanted looking permanently stuck.
+v3.6.16 hardens verified Failed/Completed Remove/Cancel and prevents transient SAB
+aggregate Pause samples from wiping a recently proven Active queue when NewzDeck
+knows the user did not pause it.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and

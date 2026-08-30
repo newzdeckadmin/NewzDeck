@@ -496,6 +496,19 @@ class SabDownloadManager:
         self._active_bridge_open: set[str] = set()
         self._active_continuity_bridges = 0
         self._active_continuity_last_ts = 0.0
+        # v3.6.16: SAB can briefly report the *whole queue* as Paused during
+        # internal queue/file transitions even though NewzDeck never requested a
+        # pause and the underlying transfer resumes moments later. The older Active
+        # continuity lease intentionally treats any pause as authoritative, so that
+        # one transient aggregate sample could still empty the Active tab. Keep a
+        # separate bounded presentation bridge keyed to NewzDeck's own pause intent.
+        self._unexpected_sab_pause_since = 0.0
+        self._unexpected_sab_pause_bridge_open = False
+        self._unexpected_sab_pause_bridges = 0
+        self._unexpected_sab_pause_last_ts = 0.0
+        self._unexpected_sab_pause_grace_seconds = 12.0
+        self._unexpected_sab_pause_last_resume_request_ts = 0.0
+        self._resume_intent_event = threading.Event()
         # v3.6.13: an explicit Remove/Cancel must not hide a card until SAB has
         # actually stopped owning that NZO id. Earlier code treated the localhost
         # delete call as best-effort, immediately tombstoned the NewzDeck record,
@@ -796,29 +809,78 @@ class SabDownloadManager:
         }
 
     def _delete_sab_job_verified(self, nzo_id: str, *, delete_files: bool = True) -> tuple[bool, str]:
-        """Stop/delete one SAB job and prove it is no longer live before hiding it.
+        """Stop/delete one SAB job and prove a live transfer is gone before hiding it.
 
-        Remove/Cancel is user intent, so NewzDeck must never turn an unverified API
-        attempt into a local tombstone. Queue absence is the authoritative proof that
-        the transfer has stopped; history is then cleaned as a secondary step.
+        v3.6.16 hardens terminal-history removal as well as live queue removal:
+        transient localhost API reads are retried, a terminal Failed/Completed
+        history record can prove that the job is no longer transferring when Queue
+        itself is briefly unreadable, and history cleanup remains secondary to the
+        safety invariant that a live queue job must not be hidden.
         """
         nzo_id = str(nzo_id or "").strip()
         if not nzo_id:
             return False, "Missing SAB job id"
-        if not self._ping(timeout=0.8):
+
+        # A busy SAB localhost API can briefly miss one ping while downloads remain
+        # healthy. Give verified user control a small retry window before failing.
+        ready = False
+        for attempt in range(3):
+            if self._ping(timeout=0.9):
+                ready = True
+                break
+            if attempt < 2:
+                time.sleep(0.12 * (attempt + 1))
+        if not ready:
             self.sync_event.set()
             return False, "Built-in download engine is reconnecting; the download was not removed"
 
-        try:
-            queue_payload = self._api("queue", start=0, limit=500, timeout=2.0)
-            _qroot, qslots = self._queue_slots(queue_payload)
+        def read_slots(mode: str, attempts: int = 3) -> tuple[list[dict[str, Any]] | None, str]:
+            last_error = ""
+            for attempt in range(max(1, attempts)):
+                try:
+                    payload = self._api(mode, start=0, limit=500, timeout=2.2)
+                    if mode == "queue":
+                        _root, slots = self._queue_slots(payload)
+                    else:
+                        _root, slots = self._history_slots(payload)
+                    return list(slots or []), ""
+                except Exception as exc:
+                    last_error = str(exc)
+                    if attempt + 1 < max(1, attempts):
+                        time.sleep(0.12 * (attempt + 1))
+            return None, last_error
+
+        qslots, queue_error = read_slots("queue", attempts=3)
+        hslots, history_error = read_slots("history", attempts=2)
+        history_slot = next(
+            (x for x in (hslots or []) if str(x.get("nzo_id") or x.get("id") or "") == nzo_id),
+            None,
+        )
+        history_status = str((history_slot or {}).get("status") or "").strip().casefold()
+        terminal_history_proof = history_status in {"failed", "completed", "cancelled"}
+
+        if qslots is None:
+            # For a terminal SAB History entry, SAB itself has already declared the
+            # transfer finished. That is sufficient safety proof to let the user
+            # remove the failed/completed card even if Queue had one transient read
+            # failure. Never use this shortcut for non-terminal state.
+            if not terminal_history_proof:
+                detail = f": {queue_error}" if queue_error else ""
+                return False, f"Could not verify the SAB queue before removal{detail}"
+            queue_present = False
+            self._event(
+                "warning",
+                "Used terminal SAB history state to verify removal while Queue was temporarily unreadable",
+                nzo_id=nzo_id,
+                history_status=history_status,
+                queue_error=queue_error[:300],
+            )
+        else:
             queue_present = nzo_id in self._slot_ids(qslots)
-        except Exception as exc:
-            return False, f"Could not read the SAB queue before removal: {exc}"
 
         if queue_present:
             last_error = ""
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     result = self._api(
                         "queue", name="delete", value=nzo_id,
@@ -831,38 +893,58 @@ class SabDownloadManager:
                 except Exception as exc:
                     last_error = str(exc)
 
-                deadline = time.monotonic() + 2.5
+                deadline = time.monotonic() + 3.0
                 while time.monotonic() < deadline:
-                    try:
-                        queue_payload = self._api("queue", start=0, limit=500, timeout=1.5)
-                        _qroot, qslots = self._queue_slots(queue_payload)
-                        if nzo_id not in self._slot_ids(qslots):
+                    verify_slots, verify_error = read_slots("queue", attempts=2)
+                    if verify_slots is not None:
+                        if nzo_id not in self._slot_ids(verify_slots):
                             queue_present = False
                             break
-                    except Exception as exc:
-                        last_error = str(exc)
+                    elif verify_error:
+                        last_error = verify_error
                     time.sleep(0.18)
                 if not queue_present:
                     break
+                if attempt < 2:
+                    time.sleep(0.20 * (attempt + 1))
+
             if queue_present:
                 detail = f": {last_error}" if last_error else ""
                 return False, f"SAB is still transferring this download after the remove request{detail}"
 
-        # If the job completed/failed during the delete handoff, remove its history
-        # entry too. Failure to clear history must not pretend a live transfer remains;
-        # the authoritative safety requirement above is queue absence.
-        try:
-            history_payload = self._api("history", start=0, limit=500, timeout=2.0)
-            _hroot, hslots = self._history_slots(history_payload)
-            if nzo_id in self._slot_ids(hslots):
+        # The live-transfer safety invariant is satisfied. History is presentation
+        # state only, so cleanup is best-effort; a tombstone prevents an old history
+        # row from being re-adopted if SAB rejects or delays that cleanup.
+        if hslots is None and not terminal_history_proof:
+            hslots, history_error = read_slots("history", attempts=2)
+            history_slot = next(
+                (x for x in (hslots or []) if str(x.get("nzo_id") or x.get("id") or "") == nzo_id),
+                None,
+            )
+
+        if history_slot is not None:
+            try:
                 result = self._api(
                     "history", name="delete", value=nzo_id, archive=0,
                     del_files=1 if delete_files else 0, timeout=4,
                 )
                 if not self._sab_mutation_accepted(result):
-                    self._event("warning", "SAB history cleanup was rejected after transfer stopped", nzo_id=nzo_id)
-        except Exception as exc:
-            self._event("warning", "SAB history cleanup failed after transfer stopped", nzo_id=nzo_id, error=str(exc))
+                    self._event(
+                        "warning", "SAB history cleanup was rejected after transfer stopped",
+                        nzo_id=nzo_id,
+                        error=str(result.get("error") or result.get("status") or "")[:300],
+                    )
+            except Exception as exc:
+                self._event(
+                    "warning", "SAB history cleanup failed after transfer stopped",
+                    nzo_id=nzo_id, error=str(exc),
+                )
+        elif history_error:
+            self._event(
+                "warning", "Could not refresh SAB history during removal; live transfer was already proven absent",
+                nzo_id=nzo_id, error=history_error[:300],
+            )
+
         return True, ""
 
     def _enforce_removed_tombstones(self, qslots: list[dict[str, Any]]) -> list[str]:
@@ -1131,7 +1213,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.14"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.16"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1425,7 +1507,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.14 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.16 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1642,7 +1724,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.14 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck 3.6.16 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -2443,6 +2525,15 @@ class SabDownloadManager:
             try:
                 self.ensure_running(blocking=True)
                 self._sync_configuration()
+                if self._resume_intent_event.is_set():
+                    self._resume_intent_event.clear()
+                    self._refresh_shared_state()
+                    if not bool(self.state.get("paused", False)):
+                        try:
+                            self._api("resume", timeout=3)
+                            self._event("info", "Reasserted NewzDeck running queue intent after transient SAB Pause")
+                        except Exception as resume_exc:
+                            self._event("warning", f"Could not reassert SAB queue running state: {resume_exc}")
                 self._flush_pending_submissions(max_items=3)
                 self.sync_event.wait(3.0)
                 self.sync_event.clear()
@@ -2480,7 +2571,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.15",
+            "adapter_version": "3.6.16",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -3129,6 +3220,79 @@ class SabDownloadManager:
         self._last_snapshot_ts = 0
         return len(additions) + len(repairs)
 
+    def _bridge_unexpected_sab_pause(self, qroot: dict[str, Any], engine: dict[str, Any], now: float) -> dict[str, Any] | None:
+        """Hold the last coherent live view through a transient SAB global pause.
+
+        NewzDeck is the user-facing owner of Pause/Resume. If NewzDeck's durable
+        state says the queue is running, but SAB briefly reports aggregate Paused
+        immediately after a proven live snapshot, treat that first bounded interval
+        as an internal engine handoff rather than a user pause. A real NewzDeck pause
+        still wins immediately because ``self.state['paused']`` is set before the
+        control response is rendered.
+
+        After the grace window expires, the raw SAB pause is accepted so genuine
+        engine/disk/provider problems are never hidden indefinitely.
+        """
+        local_paused = bool(self.state.get("paused", False))
+        aggregate_status = str((qroot or {}).get("status") or "").strip().casefold()
+        raw_paused = bool((qroot or {}).get("paused", False)) or aggregate_status == "paused"
+        prior = self._last_snapshot if isinstance(self._last_snapshot, dict) else None
+        prior_counts = (prior or {}).get("counts") if isinstance((prior or {}).get("counts"), dict) else {}
+        prior_active = int(prior_counts.get("downloading", 0) or 0)
+        prior_age = max(0.0, now - float(self._last_snapshot_ts or 0.0))
+
+        if local_paused or not raw_paused or prior_active <= 0 or prior is None:
+            self._unexpected_sab_pause_since = 0.0
+            self._unexpected_sab_pause_bridge_open = False
+            return None
+
+        # Do not bridge a very old remembered snapshot after a real idle/restart.
+        if prior_age > max(20.0, self._active_continuity_seconds):
+            self._unexpected_sab_pause_since = 0.0
+            self._unexpected_sab_pause_bridge_open = False
+            return None
+
+        if self._unexpected_sab_pause_since <= 0:
+            self._unexpected_sab_pause_since = now
+        pause_age = max(0.0, now - self._unexpected_sab_pause_since)
+        if pause_age > self._unexpected_sab_pause_grace_seconds:
+            self._unexpected_sab_pause_bridge_open = False
+            return None
+
+        if not self._unexpected_sab_pause_bridge_open:
+            self._unexpected_sab_pause_bridge_open = True
+            self._unexpected_sab_pause_bridges += 1
+            self._unexpected_sab_pause_last_ts = now
+            self._event(
+                "warning",
+                "Bridging transient SAB global Pause while NewzDeck queue intent is running",
+                active_jobs=prior_active,
+                pause_age_seconds=round(pause_age, 2),
+            )
+
+        # Ask the background coordinator to reassert NewzDeck's running intent.
+        # Never mutate SAB directly from the UI snapshot thread.
+        if now - self._unexpected_sab_pause_last_resume_request_ts >= 2.5:
+            self._unexpected_sab_pause_last_resume_request_ts = now
+            self._resume_intent_event.set()
+            self.sync_event.set()
+
+        stale = dict(prior)
+        stale["paused"] = False
+        stale_engine = dict(stale.get("engine") or {})
+        stale_engine.update({
+            **dict(engine or {}),
+            "unexpected_pause_bridge": True,
+            "unexpected_pause_seconds": round(pause_age, 2),
+        })
+        stale["engine"] = stale_engine
+        telemetry = dict(stale.get("telemetry") or {})
+        telemetry["unexpected_sab_pause_bridges"] = int(self._unexpected_sab_pause_bridges)
+        telemetry["unexpected_sab_pause_last_ts"] = float(self._unexpected_sab_pause_last_ts)
+        telemetry["unexpected_sab_pause_active"] = True
+        stale["telemetry"] = telemetry
+        return stale
+
     def _active_continuity_allowed(self, nzo_id: str, now: float, *, prior_status: str,
                                    queue_paused: bool, foreground_id: str = "",
                                    slot_status: str = "") -> bool:
@@ -3423,7 +3587,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.14 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.16 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -3450,6 +3614,9 @@ class SabDownloadManager:
                         self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
             self._adopt_untracked_slots(qslots, hslots)
             self._kick_completed_automation_imports(qslots, hslots)
+            bridged_pause = self._bridge_unexpected_sab_pause(qroot, engine, now)
+            if bridged_pause is not None:
+                return bridged_pause
         except Exception as exc:
             self._last_error = str(exc)
             if self._last_snapshot is not None:
@@ -3798,13 +3965,16 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.14", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.16", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
                                 "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0,
                                 "active_card_continuity_bridges": int(self._active_continuity_bridges),
                                 "active_card_continuity_last_ts": float(self._active_continuity_last_ts),
+                                "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges),
+                                "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts),
+                                "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open),
                                 "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count),
                                 "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts),
                                 "slot_utilization_pct": (100.0 * actual_active_connections / configured) if active_dl and configured else 0, "inflight_articles": 0,
@@ -3849,9 +4019,11 @@ class SabDownloadManager:
                         self._job_missing_since.pop(nzo, None)
                         self._job_queued_observations.pop(nzo, None)
                     self._save_state()
+            self._last_snapshot = None
             self._last_snapshot_ts = 0
             if failures:
-                raise RuntimeError("Remove was not confirmed; NewzDeck kept the download visible. " + " | ".join(failures[:3]))
+                self._event("warning", "Remove could not be fully verified", failures=failures[:3])
+                raise ValueError("Remove was not confirmed; NewzDeck kept the download visible. " + " | ".join(failures[:3]))
             return self.snapshot()
 
         # Cancel uses the same verified stop invariant. It may be presented differently
@@ -3880,9 +4052,11 @@ class SabDownloadManager:
                         self._job_missing_since.pop(nzo, None)
                         self._job_queued_observations.pop(nzo, None)
                     self._save_state()
+            self._last_snapshot = None
             self._last_snapshot_ts = 0
             if failures:
-                raise RuntimeError("Cancel was not confirmed; NewzDeck kept the download visible. " + " | ".join(failures[:3]))
+                self._event("warning", "Cancel could not be fully verified", failures=failures[:3])
+                raise ValueError("Cancel was not confirmed; NewzDeck kept the download visible. " + " | ".join(failures[:3]))
             return self.snapshot()
 
         # Local Stop All must remain usable during an engine reconnect.
@@ -3895,9 +4069,15 @@ class SabDownloadManager:
 
         self.ensure_running(blocking=True)
         if action == "pause_all":
+            self._unexpected_sab_pause_since = 0.0
+            self._unexpected_sab_pause_bridge_open = False
+            self._resume_intent_event.clear()
             self._api("pause", timeout=4)
             self.state["paused"] = True; self.state["_paused_updated_ts"] = time.time(); self._save_state()
         elif action == "resume_all":
+            self._unexpected_sab_pause_since = 0.0
+            self._unexpected_sab_pause_bridge_open = False
+            self._resume_intent_event.clear()
             self._api("resume", timeout=4)
             self.state["paused"] = False; self.state["_paused_updated_ts"] = time.time(); self._save_state()
         elif action in {"pause", "resume"}:

@@ -1,24 +1,25 @@
-NewzDeck v3.6.15
-Wanted State Reconciliation & Responsive Automation
+NewzDeck v3.6.16
+Verified Download Control & Active Continuity
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.15
+WHAT'S NEW IN v3.6.16
 
-- Wanted now reconciles QUEUED/GRABBED-style badges against the live download
-  engine instead of trusting stale persisted Automation runtime state.
-- A missing live job is allowed a short handoff grace, then the target changes to
-  RETRYING rather than continuing to claim it is queued.
-- Cross-runtime grab reservations display QUEUEING until a real live job appears.
-- Continuous Automation shows useful phase/target progress and Next Cycle reports
-  In progress while the current cycle is actually running.
-- Metadata refresh and library reconciliation no longer block release searching.
-- Automatic NZB retrieval is bounded so one problematic result cannot hold the
-  entire cycle indefinitely.
-- Long-running cycles merge newer concurrent failure/blacklist and maintenance
-  runtime state before writing their final snapshot.
+- Failed/Completed Remove is more resilient to transient SAB Queue/History API reads.
+- Terminal SAB Failed/Completed/Cancelled history can safely prove a transfer is
+  already stopped when Queue itself is briefly unreadable.
+- Verified Remove/Cancel now reports its real failure reason instead of a generic
+  unexpected application error.
+- Successful Remove/Cancel cannot fall back to the stale pre-removal snapshot.
+- Package Remove/Cancel buttons show Removing... / Cancelling... while verification runs.
+- NewzDeck's own Pause/Resume intent is authoritative for immediate presentation.
+- A transient unexpected SAB global Paused sample cannot immediately wipe a proven
+  Active queue; NewzDeck holds the coherent view briefly and reasserts Resume.
+- Genuine user Pause remains immediate, and persistent SAB pauses are shown after
+  the bounded recovery grace.
+- SAB adapter identity now matches the application version.
 
-v3.6.14 Windows-safe Automation JSON persistence and responsive Save feedback,
-v3.6.13 download continuity/verified removal/season-pack policy, and the v3.6.12
+v3.6.15 Wanted-state reconciliation, v3.6.14 Automation state reliability,
+v3.6.13 verified queue ownership/removal protections, and the v3.6.12
 installer-owned update lifecycle remain preserved.

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.15** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.16** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.15_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.16_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,18 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.15 highlights
+## v3.6.16 highlights
 
-v3.6.15 is a Continuous Automation and Wanted-state reliability release built on v3.6.14.
+v3.6.16 is a Downloads/SAB reliability release built on v3.6.15.
 
-- **Live Downloads is authoritative:** stale persisted QUEUED/GRABBED-style Wanted badges no longer survive after the corresponding live job disappears.
-- **Safe handoff grace:** newly queued jobs receive a 75-second visibility window before an absent live job is treated as stale.
-- **Honest QUEUEING state:** cross-runtime reservations no longer claim a download is already queued before the live engine exposes it.
-- **Useful cycle progress:** Wanted shows the current phase/target instead of an opaque multi-minute CHECKING state.
-- **Accurate Next Cycle:** an active worker shows In progress rather than Due now.
-- **Maintenance is decoupled:** metadata refresh and library reconciliation run in background workers instead of blocking release searching.
-- **Bounded automatic NZB retrieval:** one problematic release cannot hold Continuous Automation indefinitely.
-- **v3.6.14 preserved:** Windows-safe Automation JSON saves and responsive monitoring-setting Save feedback remain intact.
+- **Verified Failed/Completed removal:** terminal SAB removal retries transient Queue/History reads and keeps live jobs protected until transfer absence is proven.
+- **Specific Remove/Cancel errors:** expected verification failures are shown with their real reason instead of a generic unexpected application error.
+- **No stale card resurrection:** successful Remove/Cancel clears the cached pre-mutation SAB snapshot.
+- **Stable Active through transient SAB Pause:** a short unexpected aggregate Paused sample cannot immediately wipe a recently proven Active queue when NewzDeck knows the user did not pause it.
+- **Bounded recovery:** the coherent Active snapshot is held for at most 12 seconds while the background SAB coordinator reasserts Resume.
+- **Real Pause preserved:** user-requested Pause takes effect immediately, and persistent SAB pauses become visible normally.
+- **Consistent runtime identity:** the SAB adapter now reports the same version as NewzDeck.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -68,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.15_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.16_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

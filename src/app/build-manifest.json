@@ -1,24 +1,28 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.15",
-  "base_version": "3.6.14",
-  "release": "Wanted State Reconciliation & Responsive Automation",
-  "adapter_version": "3.6.15",
+  "version": "3.6.16",
+  "base_version": "3.6.15",
+  "release": "Verified Download Control & Active Continuity",
+  "adapter_version": "3.6.16",
+  "name": "Verified Download Control & Active Continuity",
   "changes": [
-    "Wanted queue/download badges reconcile against the live download snapshot; stale persisted QUEUED/GRABBED states no longer claim an item is queued after the live job disappears.",
-    "Cross-runtime grab reservations display QUEUEING rather than QUEUED until the live download engine exposes a real job.",
-    "Continuous Automation reports current phase/target progress and Next Cycle shows In progress while a worker is active.",
-    "Bulk metadata refresh and library reconciliation run on their background workers instead of blocking the release-search critical path.",
-    "Automatic NZB retrieval uses a bounded 45-second per-release wall budget with individual automatic requests capped at 15 seconds; manual Interactive Search/Grab retains the existing generous request behavior.",
-    "Long-running Automation cycles merge newer concurrent failure/blacklist and maintenance runtime state before persisting their final snapshot."
+    "Failed/Completed SAB-backed Remove now retries transient Queue/History reads and treats terminal SAB history as safe proof that a transfer has already stopped when Queue itself is briefly unreadable.",
+    "Expected verified Remove/Cancel failures are surfaced with their real reason instead of the generic Unexpected application error response.",
+    "Successful Remove/Cancel clears the cached pre-mutation SAB snapshot so a transient immediate refresh cannot resurrect the deleted Failed card.",
+    "Package Remove/Cancel buttons show an in-progress state and reject duplicate clicks while verified deletion is running.",
+    "NewzDeck's own Pause/Resume intent is authoritative for immediate presentation; a transient SAB aggregate Paused sample cannot immediately empty a previously proven Active queue.",
+    "A coherent Active snapshot is held for up to 12 seconds when SAB unexpectedly reports global Paused while NewzDeck knows the user did not pause the queue.",
+    "The SAB background coordinator reasserts Resume after an unexpected transient pause; a genuine user Pause still takes effect immediately and a persistent SAB pause becomes visible after the bounded grace.",
+    "SAB adapter telemetry and runtime identity now match the application version."
   ],
   "regression_guards": [
-    "Live download-manager state remains authoritative and overrides persisted Wanted target display state.",
-    "A 75-second handoff grace preserves legitimate just-queued jobs before a persisted queue marker is considered stale.",
-    "Season-pack member reservation continues to prevent pack/episode overlap.",
-    "Library scans and metadata refreshes still run automatically when due; they are decoupled only from the release-search critical path.",
-    "v3.6.14 Windows-safe Automation JSON persistence and responsive Save acknowledgements remain preserved.",
-    "v3.6.13 verified Remove/Cancel, hidden-transfer reconciliation, Active-card continuity, Wanted policy clarity, and fallback-only season packs remain preserved."
-  ],
-  "name": "Wanted State Reconciliation & Responsive Automation"
+    "A live Queue job is never hidden until Queue absence is verified.",
+    "Terminal-history proof is accepted only for Failed/Completed/Cancelled SAB history state.",
+    "History cleanup remains secondary and best-effort after transfer absence is proven.",
+    "No transient-pause bridge is allowed when NewzDeck state says the user intentionally paused the queue.",
+    "No old snapshot is bridged after a long idle/restart; a recently proven Active snapshot is required.",
+    "The transient-pause bridge expires after 12 seconds so real SAB/disk/provider problems remain visible.",
+    "v3.6.15 Wanted-state reconciliation, QUEUEING handoff state, cycle progress, bounded automatic NZB retrieval, and maintenance decoupling remain preserved.",
+    "v3.6.14 Windows-safe Automation JSON persistence and responsive monitoring Save behavior remain preserved."
+  ]
 }
