@@ -66,3 +66,5 @@ Current official Windows builds use:
 Official release downloads are available from:
 
 https://github.com/newzdeckadmin/NewzDeck/releases/latest
+
+- **v3.6.8** - Image Browsing Performance & Gallery Quality. Production source promotes the accepted r1-r6 image-browsing performance work and is rebuilt/published by the repository Windows release workflow.

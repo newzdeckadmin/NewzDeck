@@ -1,26 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.7",
-  "base_version": "3.6.6",
-  "release": "Browsing Pipeline & Long-Scroll Performance",
-  "adapter_version": "3.6.7",
+  "version": "3.6.8",
+  "base_version": "3.6.7",
+  "release": "Image Browsing Performance & Gallery Quality",
+  "adapter_version": "3.6.8",
   "changes": [
-    "Adds browsing-session cancellation so stale image/video BODY work is interrupted when switching groups, views, filters, or replacing the current page.",
-    "Keeps up to two short-lived NNTP header sessions warm for interactive page loads and retires them after about ten seconds idle.",
-    "Prefetches the next older header page several viewport-heights ahead while scrolling downward so continuous browsing can append with less visible waiting.",
-    "Makes thumbnail demand scroll-direction and velocity aware so v3.6.6 adaptive preview concurrency stays fed without fixed-distance overfetch.",
-    "Returns an initial All Posts package view sooner, then finishes deep multipart reconstruction in a bounded background worker and refreshes the page in place.",
-    "Bounds long-scroll thumbnail watchdog work and releases far-offscreen decoded thumbnails while retaining cached thumbnail URLs for quick return scrolling.",
-    "Preserves v3.6.6 adaptive preview scaling, v3.6.5 taskbar identity, and all v3.6.4 package-browser behavior."
+    "Adds long-session RAM-aware thumbnail/cache pressure controls and separates high-concurrency NNTP preview work from bounded native image decoding.",
+    "Treats explicit deep page jumps as hard navigation boundaries so Continuous mode cannot immediately compete with the destination page.",
+    "Uses a persistent WIC-first native thumbnail engine with fallback decoding, size-aware scheduling, selective 2-3 lane multipart acceleration, and direct persistent-cache hints.",
+    "Suppresses genuinely tiny source images from visual gallery/media results with persistent negative caching so blurry thumbnail-of-thumbnail posts do not consume repeated work.",
+    "Keeps native thumbnail workers alive, maintains an in-RAM thumbnail/suppression catalog, snapshots gallery geometry once per demand frame, and cautiously warms the first images of the next Continuous page.",
+    "Uses a generation-aware O(1) thumbnail DOM registry, native blank-output validation, normal Chromium asynchronous paint/decode, and a bounded thumbnail-token LRU.",
+    "Expands Diagnostics with native decode, multipart lane, RAM catalog, worker reuse, prewarm, DOM registry, blank rejection, and token-cache telemetry."
   ],
   "regression_guards": [
+    "v3.6.7 Browsing Pipeline & Long-Scroll Performance remains preserved.",
     "v3.6.6 Adaptive Preview Connection Scaling remains preserved.",
     "v3.6.5 Windows Taskbar Identity Reliability remains preserved.",
     "v3.6.4 Newsgroup Package Browser & Binary Reconstruction remains preserved.",
-    "v3.6.3 Automation Sidebar Startup & Cache Reliability remains preserved.",
-    "v3.6.2 Tray Upgrade Lock Reliability and v3.6.1 Installer Upgrade Reliability remain preserved.",
-    "v3.6.0 UI/UX Overhaul and v3.5.52 Authoritative Service Runtime Handoff remain preserved.",
-    "Private SAB downloads, Smart Import, Automation, Discover/TMDB, provider state, and Metadata Server v0.3.3 compatibility remain preserved."
+    "Private SAB downloads, Smart Import, Automation, Discover/TMDB, provider state, and Metadata Server v0.3.3 compatibility remain unchanged."
   ],
-  "name": "Browsing Pipeline & Long-Scroll Performance"
+  "name": "Image Browsing Performance & Gallery Quality"
 }

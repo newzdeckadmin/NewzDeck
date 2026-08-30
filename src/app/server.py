@@ -35,7 +35,7 @@ import zlib
 import traceback
 import zipfile
 import xml.etree.ElementTree as ET
-from collections import deque
+from collections import deque, OrderedDict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -246,7 +246,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.7"
+APP_VERSION = "3.6.8"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -357,9 +357,39 @@ GROUP_CACHE_DIR = DATA_DIR / "group-cache"
 GROUP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 THUMB_STATS_FILE = DATA_DIR / "thumbnail-cache-stats.json"
 
-ARTICLE_PAGE_CACHE: dict[tuple[str, str, int, int], dict[str, Any]] = {}
+ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
-ARTICLE_PAGE_CACHE_TTL_SECONDS = 180.0
+ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
+ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
+
+def _article_page_cache_article_budget() -> int:
+    """Bound recent-page RAM by both page count and approximate article objects."""
+    try:
+        ram_gb = _physical_memory_bytes() / (1024 ** 3)
+    except Exception:
+        ram_gb = 8.0
+    if ram_gb <= 8:
+        return 60000
+    if ram_gb <= 16:
+        return 100000
+    if ram_gb <= 32:
+        return 160000
+    if ram_gb <= 64:
+        return 220000
+    return 300000
+
+def _trim_article_page_cache_locked() -> None:
+    total_articles = sum(len((entry.get("payload") or {}).get("articles") or []) for entry in ARTICLE_PAGE_CACHE.values())
+    article_budget = _article_page_cache_article_budget()
+    if len(ARTICLE_PAGE_CACHE) <= ARTICLE_PAGE_CACHE_MAX_ENTRIES and total_articles <= article_budget:
+        return
+    ordered = sorted(ARTICLE_PAGE_CACHE.items(), key=lambda kv: float(kv[1].get("cached_at", 0) or 0))
+    for key, entry in ordered:
+        if len(ARTICLE_PAGE_CACHE) <= ARTICLE_PAGE_CACHE_MAX_ENTRIES and total_articles <= article_budget:
+            break
+        removed = ARTICLE_PAGE_CACHE.pop(key, None)
+        if removed is not None:
+            total_articles -= len((removed.get("payload") or {}).get("articles") or [])
 
 # v3.6.7 browsing-session registry. Thumbnail/full-preview requests carry a
 # short-lived browser-session token so work from a group/view that the user has
@@ -3535,6 +3565,18 @@ _preview_tokens: dict[str, dict[str, Any]] = {}
 _preview_build_locks: dict[str, threading.Lock] = {}
 _preview_worker_local = threading.local()
 PREVIEW_EXECUTOR = ThreadPoolExecutor(max_workers=PREVIEW_WORKER_COUNT, thread_name_prefix="usenet-preview")
+# v3.6.8: visible very-large multipart images may borrow a very small number
+# of extra BODY lanes.  The global cap is deliberately lower than the normal
+# browsing reserve so high-connection providers gain latency without multiplying
+# every thumbnail request into an unbounded socket fan-out.
+THUMB_EXTRA_LANE_SEMAPHORE = threading.BoundedSemaphore(4)
+_THUMB_TRANSFER_STATS_LOCK = threading.Lock()
+_THUMB_TRANSFER_RUNS = 0
+_THUMB_TRANSFER_BYTES = 0
+_THUMB_TRANSFER_MS = 0.0
+_THUMB_TRANSFER_PARALLEL_RUNS = 0
+_THUMB_TRANSFER_MAX_LANES = 1
+
 
 def _provider_connection_key(provider: dict[str, Any]) -> tuple[Any, ...]:
     return (
@@ -3651,7 +3693,33 @@ def preview_cache_token(provider: dict[str, Any], group: str, segments: list[dic
     raw = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:32]
 
+_THUMB_TOKEN_CACHE_LOCK = threading.Lock()
+_THUMB_TOKEN_CACHE: OrderedDict[tuple[Any, ...], str] = OrderedDict()
+_THUMB_TOKEN_CACHE_HITS = 0
+_THUMB_TOKEN_CACHE_MISSES = 0
+_THUMB_TOKEN_CACHE_LIMIT = 50_000
+
+def _thumbnail_token_fast_key(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any]) -> tuple[Any, ...]:
+    first = segments[0] if segments else {}
+    last = segments[-1] if segments else {}
+    def ref(seg: dict[str, Any]) -> tuple[str, str, int]:
+        article = seg.get("article") if isinstance(seg, dict) else None
+        return (str(seg.get("message_id") or "") if isinstance(seg, dict) else "", str(article if article is not None else ""), int(seg.get("part", 1) or 1) if isinstance(seg, dict) else 1)
+    return (
+        str(provider.get("id") or provider.get("host", "")), str(group), str(media.get("filename", "")),
+        len(segments), ref(first), ref(last), int(media.get("bytes", 0) or 0), str(media.get("kind", "")),
+    )
+
 def thumbnail_cache_token(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any]) -> str:
+    global _THUMB_TOKEN_CACHE_HITS, _THUMB_TOKEN_CACHE_MISSES
+    fast_key = _thumbnail_token_fast_key(provider, group, segments, media)
+    with _THUMB_TOKEN_CACHE_LOCK:
+        cached = _THUMB_TOKEN_CACHE.get(fast_key)
+        if cached is not None:
+            _THUMB_TOKEN_CACHE.move_to_end(fast_key)
+            _THUMB_TOKEN_CACHE_HITS += 1
+            return cached
+        _THUMB_TOKEN_CACHE_MISSES += 1
     identity = {
         "provider": provider.get("id") or provider.get("host", ""),
         "group": group,
@@ -3660,84 +3728,542 @@ def thumbnail_cache_token(provider: dict[str, Any], group: str, segments: list[d
         "thumbnail_cache": 4,
     }
     raw = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()[:32]
+    token = hashlib.sha256(raw).hexdigest()[:32]
+    with _THUMB_TOKEN_CACHE_LOCK:
+        _THUMB_TOKEN_CACHE[fast_key] = token
+        _THUMB_TOKEN_CACHE.move_to_end(fast_key)
+        while len(_THUMB_TOKEN_CACHE) > _THUMB_TOKEN_CACHE_LIMIT:
+            _THUMB_TOKEN_CACHE.popitem(last=False)
+    return token
+
+def thumbnail_token_cache_stats() -> dict[str, Any]:
+    with _THUMB_TOKEN_CACHE_LOCK:
+        return {"entries":len(_THUMB_TOKEN_CACHE),"hits":_THUMB_TOKEN_CACHE_HITS,"misses":_THUMB_TOKEN_CACHE_MISSES,"limit":_THUMB_TOKEN_CACHE_LIMIT}
 
 def thumbnail_cache_path(token: str) -> Path:
     return THUMB_CACHE_DIR / f"{token}.jpg"
 
+def thumbnail_small_marker_path(token: str) -> Path:
+    return THUMB_CACHE_DIR / f"{token}.small.json"
+
+SMALL_IMAGE_MIN_LONG_EDGE = 320
+SMALL_IMAGE_MIN_SHORT_EDGE = 160
+SMALL_IMAGE_MIN_PIXELS = 100_000
+
+def image_is_too_small_for_gallery(width: int, height: int) -> bool:
+    width, height = int(width or 0), int(height or 0)
+    if width <= 0 or height <= 0:
+        return False
+    long_edge, short_edge = max(width, height), min(width, height)
+    return long_edge < SMALL_IMAGE_MIN_LONG_EDGE or short_edge < SMALL_IMAGE_MIN_SHORT_EDGE or (width * height) < SMALL_IMAGE_MIN_PIXELS
+
+def cached_small_image_result(token: str) -> dict[str, Any] | None:
+    global _THUMB_CATALOG_FS_FALLBACKS
+    try:
+        entry = _thumbnail_catalog_get(token)
+        if entry and entry.get("small"):
+            width, height = int(entry.get("source_width",0) or 0), int(entry.get("source_height",0) or 0)
+            if width > 0 and height > 0:
+                return {"suppressed_small":True,"width":width,"height":height,"method":"small-image-suppressed","cached":True,"thumbnail_token":token}
+        with _THUMB_CATALOG_LOCK:
+            if _THUMB_CATALOG_READY:
+                return None
+        _THUMB_CATALOG_FS_FALLBACKS += 1
+    except NameError:
+        pass
+    path = thumbnail_small_marker_path(token)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        width, height = int(data.get("width", 0) or 0), int(data.get("height", 0) or 0)
+        if width <= 0 or height <= 0:
+            path.unlink(missing_ok=True)
+            return None
+        try:
+            _thumbnail_catalog_register_small(token,width,height)
+        except NameError:
+            pass
+        return {
+            "suppressed_small": True, "width": width, "height": height,
+            "method": "small-image-suppressed", "cached": True,
+            "thumbnail_token": token,
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+def remember_small_image(token: str, width: int, height: int) -> dict[str, Any]:
+    width, height = int(width), int(height)
+    marker = thumbnail_small_marker_path(token)
+    try:
+        marker.write_text(json.dumps({"width": width, "height": height, "created": time.time()}, separators=(",", ":")), encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        thumbnail_cache_path(token).unlink(missing_ok=True)
+    except OSError:
+        pass
+    try:
+        _thumbnail_catalog_register_small(token, width, height)
+    except NameError:
+        pass
+    return {
+        "suppressed_small": True, "width": width, "height": height,
+        "method": "small-image-suppressed", "cached": True,
+        "thumbnail_token": token,
+    }
+
 def thumbnail_full_fallback_path(token: str) -> Path:
     return THUMB_CACHE_DIR / f"{token}.full"
 
+def remember_thumbnail_full_fallback(token: str) -> None:
+    try:
+        thumbnail_cache_path(token).unlink(missing_ok=True)
+        thumbnail_full_fallback_path(token).write_text("full-preview\n", encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        _thumbnail_catalog_remove(token)
+        _thumbnail_catalog_register_full(token, True)
+    except NameError:
+        pass
+
 def thumbnail_prefers_full_preview(token: str) -> bool:
     try:
-        return thumbnail_full_fallback_path(token).exists()
+        entry = _thumbnail_catalog_get(token)
+        if entry is not None and "full" in entry:
+            return bool(entry.get("full"))
+    except NameError:
+        entry = None
+    try:
+        exists = thumbnail_full_fallback_path(token).exists()
     except OSError:
-        return False
+        exists = False
+    try:
+        _thumbnail_catalog_register_full(token, exists)
+    except NameError:
+        pass
+    return exists
 
 def thumbnail_cache_url(token: str, path: Path | None = None) -> str:
     """Return a browser-cache-safe URL for the current bytes of a thumbnail.
 
-    Thumbnail tokens identify the article/media, not the generated JPEG bytes. A
-    failed thumbnail may therefore be regenerated under the same token. Chromium
-    is allowed to cache /thumb/<token> as immutable, so reusing that bare URL can
-    leave the browser pinned to old bad bytes even after the backend replaced the
-    file. Include a cheap file fingerprint so every successful regeneration gets
-    a new immutable URL while stable cached thumbnails retain their URL.
+    r5 keeps the stable fingerprint in the RAM thumbnail catalog so hot cached
+    pages do not stat the same JPEG repeatedly. Filesystem fallback remains for
+    startup while the catalog is being rebuilt.
     """
     path = path or thumbnail_cache_path(token)
     try:
+        entry = _thumbnail_catalog_get(token)
+    except NameError:
+        entry = None
+    if entry and entry.get("thumb") and entry.get("fingerprint"):
+        return f"/thumb/{token}?v={entry['fingerprint']}"
+    try:
         st = path.stat()
         fingerprint = f"{int(getattr(st, 'st_mtime_ns', int(st.st_mtime * 1_000_000_000))):x}-{int(st.st_size):x}"
+        try:
+            _thumbnail_catalog_register_thumb(token, path, size=int(st.st_size), mtime_ns=int(getattr(st, 'st_mtime_ns', int(st.st_mtime * 1_000_000_000))))
+        except NameError:
+            pass
     except OSError:
         fingerprint = str(time.time_ns())
     return f"/thumb/{token}?v={fingerprint}"
 
 THUMB_HELPER_EXE = APP_DIR / "NewzDeckThumb.exe"
 
-def create_native_thumbnail(source: Path, token: str) -> dict[str, Any] | None:
-    """Create a compact JPEG thumbnail outside the browser.
+def _physical_memory_bytes() -> int:
+    try:
+        if sys.platform == "win32":
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.wintypes.DWORD), ("dwMemoryLoad", ctypes.wintypes.DWORD),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            st = MEMORYSTATUSEX(); st.dwLength = ctypes.sizeof(st)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+                return int(st.ullTotalPhys)
+        pages = int(os.sysconf("SC_PHYS_PAGES")); page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        return max(0, pages * page_size)
+    except Exception:
+        return 0
 
-    This avoids sending a full-resolution image through localhost, decoding it in
-    the WebView, converting it to a data URL, and POSTing it back to Python.
-    JPEG/PNG/GIF are handled by the tiny bundled helper; uncommon formats retain
-    the existing browser fallback.
+def _thumbnail_decode_worker_count() -> int:
+    ram = _physical_memory_bytes()
+    gb = ram / (1024 ** 3) if ram else 8.0
+    if gb <= 8: ram_cap = 2
+    elif gb <= 16: ram_cap = 3
+    elif gb <= 32: ram_cap = 4
+    elif gb <= 64: ram_cap = 6
+    else: ram_cap = 8
+    cpu_cap = max(2, min(8, max(1, int(os.cpu_count() or 4)) // 2))
+    return max(2, min(ram_cap, cpu_cap))
+
+THUMB_DECODE_WORKER_COUNT = _thumbnail_decode_worker_count()
+THUMB_DECODE_SEMAPHORE = threading.BoundedSemaphore(THUMB_DECODE_WORKER_COUNT)
+
+# v3.6.8 persistent native thumbnail workers. The helper accepts newline-delimited
+# JSON jobs in --worker mode so Windows process startup and executable/Defender setup
+# are paid once per worker instead of once per gallery image.
+class _ThumbnailHelperWorker:
+    def __init__(self, index: int):
+        self.index = index
+        self.proc: subprocess.Popen | None = None
+        self.jobs = 0
+
+    def _stop(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=0.5)
+        except Exception:
+            pass
+
+    def _ensure(self) -> bool:
+        if self.proc is not None and self.proc.poll() is None:
+            return True
+        self._stop()
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
+        try:
+            self.proc = subprocess.Popen(
+                [str(THUMB_HELPER_EXE), "--worker"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, encoding="utf-8", bufsize=1, creationflags=flags,
+            )
+            _thumbnail_helper_stat("process_starts", 1)
+            return True
+        except OSError:
+            self.proc = None
+            return False
+
+    def run(self, source: Path, output: Path, max_dim: int, timeout: float) -> dict[str, Any] | None:
+        if not self._ensure() or self.proc is None or self.proc.stdin is None or self.proc.stdout is None:
+            return None
+        req_id = uuid.uuid4().hex[:16]
+        request = json.dumps({"id": req_id, "input": str(source), "output": str(output), "max_dim": int(max_dim)}, separators=(",", ":"))
+        try:
+            self.proc.stdin.write(request + "\n")
+            self.proc.stdin.flush()
+        except (OSError, BrokenPipeError):
+            _thumbnail_helper_stat("worker_restarts", 1)
+            self._stop()
+            return None
+        result: dict[str, Any] = {}
+        done = threading.Event()
+        def reader() -> None:
+            nonlocal result
+            try:
+                line = self.proc.stdout.readline() if self.proc and self.proc.stdout else ""
+                if line:
+                    parsed = json.loads(line)
+                    if isinstance(parsed, dict):
+                        result = parsed
+            except Exception:
+                result = {}
+            finally:
+                done.set()
+        threading.Thread(target=reader, name=f"thumb-helper-read-{self.index}", daemon=True).start()
+        if not done.wait(max(1.0, float(timeout))):
+            _thumbnail_helper_stat("timeouts", 1)
+            self._stop()
+            return None
+        if result.get("id") != req_id or result.get("error"):
+            _thumbnail_helper_stat("worker_failures", 1)
+            if self.proc is None or self.proc.poll() is not None:
+                self._stop()
+            return None
+        self.jobs += 1
+        _thumbnail_helper_stat("jobs", 1)
+        if self.jobs > 1:
+            _thumbnail_helper_stat("reused_jobs", 1)
+        return result
+
+class _ThumbnailHelperPool:
+    def __init__(self, count: int):
+        self.workers = [_ThumbnailHelperWorker(i) for i in range(max(1, int(count)))]
+        self.available: queue.Queue[_ThumbnailHelperWorker] = queue.Queue()
+        for worker in self.workers:
+            self.available.put(worker)
+
+    def run(self, source: Path, output: Path, max_dim: int, timeout: float) -> dict[str, Any] | None:
+        worker = self.available.get()
+        try:
+            return worker.run(source, output, max_dim, timeout)
+        finally:
+            self.available.put(worker)
+
+_THUMB_HELPER_STATS_LOCK = threading.Lock()
+_THUMB_HELPER_STATS = {"jobs":0,"reused_jobs":0,"process_starts":0,"worker_restarts":0,"worker_failures":0,"timeouts":0,"blank_rejections":0}
+def _thumbnail_helper_stat(key: str, amount: int = 1) -> None:
+    with _THUMB_HELPER_STATS_LOCK:
+        _THUMB_HELPER_STATS[key] = int(_THUMB_HELPER_STATS.get(key, 0)) + int(amount)
+
+def thumbnail_helper_stats() -> dict[str, Any]:
+    with _THUMB_HELPER_STATS_LOCK:
+        result = dict(_THUMB_HELPER_STATS)
+    result["workers"] = THUMB_DECODE_WORKER_COUNT
+    result["process_launches_avoided"] = max(0, int(result.get("jobs",0)) - int(result.get("process_starts",0)))
+    result["reuse_rate_percent"] = round(100.0 * int(result.get("reused_jobs",0)) / max(1, int(result.get("jobs",0))), 1)
+    return result
+
+THUMB_HELPER_POOL = _ThumbnailHelperPool(THUMB_DECODE_WORKER_COUNT)
+
+# RAM-resident thumbnail/suppression catalog. Existing persistent cache files are
+# scanned once in the background, then article-page annotation is normally just a
+# dictionary lookup rather than hundreds of NTFS stat/open calls.
+_THUMB_CATALOG_LOCK = threading.RLock()
+_THUMB_CATALOG: dict[str, dict[str, Any]] = {}
+_THUMB_CATALOG_BUILDING = False
+_THUMB_CATALOG_READY = False
+_THUMB_CATALOG_HITS = 0
+_THUMB_CATALOG_MISSES = 0
+_THUMB_CATALOG_FS_FALLBACKS = 0
+_THUMB_CATALOG_SCAN_FILES = 0
+
+def _thumbnail_catalog_token_from_path(path: Path) -> str:
+    name = path.name
+    if name.endswith(".small.json"):
+        return name[:-11]
+    return path.stem
+
+def _thumbnail_catalog_build() -> None:
+    global _THUMB_CATALOG_READY, _THUMB_CATALOG_BUILDING, _THUMB_CATALOG_SCAN_FILES
+    built: dict[str, dict[str, Any]] = {}
+    scanned = 0
+    try:
+        paths = list(THUMB_CACHE_DIR.iterdir())
+    except OSError:
+        paths = []
+    for path in paths:
+        token = _thumbnail_catalog_token_from_path(path)
+        if not re.fullmatch(r"[0-9a-f]{32}", token):
+            continue
+        entry = built.setdefault(token, {})
+        try:
+            if path.name.endswith(".small.json"):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                w, h = int(data.get("width",0) or 0), int(data.get("height",0) or 0)
+                if w > 0 and h > 0:
+                    entry.update({"small":True,"source_width":w,"source_height":h})
+                    scanned += 1
+            elif path.suffix.casefold() == ".jpg":
+                st = path.stat()
+                if st.st_size <= 0:
+                    continue
+                with path.open("rb") as handle:
+                    if handle.read(3) != b"\xff\xd8\xff":
+                        continue
+                dims = image_dimensions(path)
+                mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+                entry.update({"thumb":True,"size":int(st.st_size),"mtime_ns":mtime_ns,"fingerprint":f"{mtime_ns:x}-{int(st.st_size):x}","thumb_width":int(dims[0]) if dims else 0,"thumb_height":int(dims[1]) if dims else 0})
+                scanned += 1
+            elif path.suffix.casefold() == ".full":
+                entry["full"] = True
+                scanned += 1
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    with _THUMB_CATALOG_LOCK:
+        # Preserve entries learned while the background scan was running.
+        for token, current in _THUMB_CATALOG.items():
+            built.setdefault(token, {}).update(current)
+        _THUMB_CATALOG.clear(); _THUMB_CATALOG.update(built)
+        _THUMB_CATALOG_SCAN_FILES = scanned
+        _THUMB_CATALOG_READY = True
+        _THUMB_CATALOG_BUILDING = False
+
+def _ensure_thumbnail_catalog_started() -> None:
+    global _THUMB_CATALOG_BUILDING
+    with _THUMB_CATALOG_LOCK:
+        if _THUMB_CATALOG_READY or _THUMB_CATALOG_BUILDING:
+            return
+        _THUMB_CATALOG_BUILDING = True
+    threading.Thread(target=_thumbnail_catalog_build, name="newzdeck-thumb-catalog", daemon=True).start()
+
+def _thumbnail_catalog_get(token: str) -> dict[str, Any] | None:
+    global _THUMB_CATALOG_HITS, _THUMB_CATALOG_MISSES
+    _ensure_thumbnail_catalog_started()
+    with _THUMB_CATALOG_LOCK:
+        item = _THUMB_CATALOG.get(token)
+        if item is not None:
+            _THUMB_CATALOG_HITS += 1
+            return dict(item)
+        _THUMB_CATALOG_MISSES += 1
+        return None
+
+def _thumbnail_catalog_register_thumb(token: str, path: Path, *, size: int | None = None, mtime_ns: int | None = None, thumb_width: int = 0, thumb_height: int = 0, source_width: int = 0, source_height: int = 0) -> None:
+    try:
+        if size is None or mtime_ns is None:
+            st = path.stat(); size = int(st.st_size); mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+    except OSError:
+        return
+    with _THUMB_CATALOG_LOCK:
+        entry = _THUMB_CATALOG.setdefault(token,{})
+        entry.update({"thumb":True,"size":int(size),"mtime_ns":int(mtime_ns),"fingerprint":f"{int(mtime_ns):x}-{int(size):x}"})
+        if thumb_width and thumb_height: entry.update({"thumb_width":int(thumb_width),"thumb_height":int(thumb_height)})
+        if source_width and source_height: entry.update({"source_width":int(source_width),"source_height":int(source_height)})
+        entry.pop("small",None)
+
+def _thumbnail_catalog_register_small(token: str, width: int, height: int) -> None:
+    with _THUMB_CATALOG_LOCK:
+        entry = _THUMB_CATALOG.setdefault(token,{})
+        entry.clear(); entry.update({"small":True,"source_width":int(width),"source_height":int(height)})
+
+def _thumbnail_catalog_register_full(token: str, value: bool = True) -> None:
+    with _THUMB_CATALOG_LOCK:
+        entry = _THUMB_CATALOG.setdefault(token,{})
+        entry["full"] = bool(value)
+
+def _thumbnail_catalog_remove(token: str) -> None:
+    with _THUMB_CATALOG_LOCK:
+        _THUMB_CATALOG.pop(token,None)
+
+def _thumbnail_catalog_clear() -> None:
+    global _THUMB_CATALOG_READY, _THUMB_CATALOG_BUILDING
+    with _THUMB_CATALOG_LOCK:
+        _THUMB_CATALOG.clear(); _THUMB_CATALOG_READY = True; _THUMB_CATALOG_BUILDING = False
+
+def thumbnail_catalog_stats() -> dict[str, Any]:
+    with _THUMB_CATALOG_LOCK:
+        result = {"ready":_THUMB_CATALOG_READY,"building":_THUMB_CATALOG_BUILDING,"entries":len(_THUMB_CATALOG),"hits":_THUMB_CATALOG_HITS,"misses":_THUMB_CATALOG_MISSES,"filesystem_fallbacks":_THUMB_CATALOG_FS_FALLBACKS,"scanned_files":_THUMB_CATALOG_SCAN_FILES}
+    result["token_cache"] = thumbnail_token_cache_stats()
+    return result
+_THUMB_DECODE_STATE_LOCK = threading.Lock()
+_THUMB_DECODE_ACTIVE = 0
+_THUMB_DECODE_PEAK = 0
+_THUMB_DECODE_WAIT_MS = 0.0
+_THUMB_DECODE_RUNS = 0
+_THUMB_DECODE_MS = 0.0
+_THUMB_DECODE_WIC_RUNS = 0
+_THUMB_DECODE_FALLBACK_RUNS = 0
+
+def thumbnail_decode_stats() -> dict[str, Any]:
+    with _THUMB_DECODE_STATE_LOCK:
+        avg_wait = _THUMB_DECODE_WAIT_MS / max(1, _THUMB_DECODE_RUNS)
+        avg_decode = _THUMB_DECODE_MS / max(1, _THUMB_DECODE_RUNS)
+        return {
+            "workers": THUMB_DECODE_WORKER_COUNT, "active": _THUMB_DECODE_ACTIVE, "peak": _THUMB_DECODE_PEAK,
+            "runs": _THUMB_DECODE_RUNS, "average_wait_ms": round(avg_wait, 1), "average_decode_ms": round(avg_decode, 1),
+            "wic_runs": _THUMB_DECODE_WIC_RUNS, "fallback_runs": _THUMB_DECODE_FALLBACK_RUNS,
+            "physical_memory_bytes": _physical_memory_bytes(), "helper": thumbnail_helper_stats(),
+        }
+
+def thumbnail_transfer_stats() -> dict[str, Any]:
+    with _THUMB_TRANSFER_STATS_LOCK:
+        avg_ms = _THUMB_TRANSFER_MS / max(1, _THUMB_TRANSFER_RUNS)
+        avg_bytes = _THUMB_TRANSFER_BYTES / max(1, _THUMB_TRANSFER_RUNS)
+        return {
+            "runs": _THUMB_TRANSFER_RUNS, "parallel_runs": _THUMB_TRANSFER_PARALLEL_RUNS,
+            "max_lanes": _THUMB_TRANSFER_MAX_LANES, "average_ms": round(avg_ms, 1),
+            "average_bytes": int(avg_bytes), "total_bytes": int(_THUMB_TRANSFER_BYTES),
+        }
+
+def create_native_thumbnail(source: Path, token: str) -> dict[str, Any] | None:
+    """Create a compact JPEG thumbnail outside the browser with a RAM-aware decode budget.
+
+    NNTP reconstruction can remain highly parallel, but full-resolution image decode is
+    intentionally bounded so a high-connection provider cannot launch dozens of giant
+    decoders at once and force the machine into memory/CPU contention.
     """
+    global _THUMB_DECODE_ACTIVE, _THUMB_DECODE_PEAK, _THUMB_DECODE_WAIT_MS, _THUMB_DECODE_RUNS, _THUMB_DECODE_MS, _THUMB_DECODE_WIC_RUNS, _THUMB_DECODE_FALLBACK_RUNS
     if not THUMB_HELPER_EXE.exists() or not source.exists():
         return None
     output = thumbnail_cache_path(token)
     temp = output.with_name(output.name + ".part")
     temp.unlink(missing_ok=True)
     flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
+    dims = image_dimensions(source)
+    if dims and image_is_too_small_for_gallery(dims[0], dims[1]):
+        temp.unlink(missing_ok=True)
+        return remember_small_image(token, dims[0], dims[1])
+    megapixels = ((dims[0] * dims[1]) / 1_000_000.0) if dims else 0.0
+    timeout_seconds = 20 if megapixels <= 25 else (32 if megapixels <= 60 else 45)
+    wait_started = time.monotonic()
+    acquired = THUMB_DECODE_SEMAPHORE.acquire(timeout=30)
+    if not acquired:
+        return None
+    waited_ms = (time.monotonic() - wait_started) * 1000.0
+    with _THUMB_DECODE_STATE_LOCK:
+        _THUMB_DECODE_ACTIVE += 1
+        _THUMB_DECODE_PEAK = max(_THUMB_DECODE_PEAK, _THUMB_DECODE_ACTIVE)
+        _THUMB_DECODE_WAIT_MS += waited_ms
+        _THUMB_DECODE_RUNS += 1
     try:
-        proc = subprocess.run(
-            [str(THUMB_HELPER_EXE), str(source), str(temp), "480"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False,
-            creationflags=flags,
-        )
-        if proc.returncode != 0 or not temp.exists() or temp.stat().st_size <= 0:
+        decode_started = time.monotonic()
+        meta = THUMB_HELPER_POOL.run(source, temp, 480, timeout_seconds)
+        # Keep a compatibility fallback for platforms/tests where persistent worker
+        # mode cannot start, or if a worker is killed by security software.
+        if meta is None:
+            try:
+                proc = subprocess.run(
+                    [str(THUMB_HELPER_EXE), str(source), str(temp), "480"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_seconds, check=False,
+                    creationflags=flags,
+                )
+                if proc.returncode == 0:
+                    meta = json.loads(proc.stdout.decode("utf-8", errors="replace").strip() or "{}")
+            except (OSError, subprocess.SubprocessError, json.JSONDecodeError, UnicodeDecodeError):
+                meta = None
+        decode_ms = (time.monotonic() - decode_started) * 1000.0
+        with _THUMB_DECODE_STATE_LOCK:
+            _THUMB_DECODE_MS += decode_ms
+        if not meta:
             temp.unlink(missing_ok=True)
             return None
-        meta: dict[str, Any] = {}
-        try:
-            meta = json.loads(proc.stdout.decode("utf-8", errors="replace").strip() or "{}")
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            meta = {}
-        width = int(meta.get("width", 0) or 0)
-        height = int(meta.get("height", 0) or 0)
-        if width <= 0 or height <= 0:
+        decode_method = str(meta.get("method") or "native").casefold()
+        with _THUMB_DECODE_STATE_LOCK:
+            if decode_method == "wic":
+                _THUMB_DECODE_WIC_RUNS += 1
+            else:
+                _THUMB_DECODE_FALLBACK_RUNS += 1
+        if bool(meta.get("visual_blank")):
+            temp.unlink(missing_ok=True)
+            source_width = int(meta.get("source_width",0) or (dims[0] if dims else 0))
+            source_height = int(meta.get("source_height",0) or (dims[1] if dims else 0))
+            remember_thumbnail_full_fallback(token)
+            _thumbnail_helper_stat("blank_rejections", 1)
+            return {
+                "thumbnail_token": token, "thumbnail_url": "", "cached": False, "visual_blank": True,
+                "width": source_width, "height": source_height, "method": "native-blank-fallback",
+                "decode_method": str(meta.get("method") or "native"), "decode_ms": round(decode_ms, 1),
+                "decode_wait_ms": round(waited_ms, 1), "decode_workers": THUMB_DECODE_WORKER_COUNT,
+            }
+        if not temp.exists() or temp.stat().st_size <= 0:
+            temp.unlink(missing_ok=True)
+            return None
+        thumb_width = int(meta.get("width", 0) or 0)
+        thumb_height = int(meta.get("height", 0) or 0)
+        if thumb_width <= 0 or thumb_height <= 0:
             temp.unlink(missing_ok=True)
             return None
         temp.replace(output)
         _mark_thumbnail_stats_dirty()
         cleanup_thumbnail_cache()
+        source_width = int(meta.get("source_width",0) or (dims[0] if dims else thumb_width))
+        source_height = int(meta.get("source_height",0) or (dims[1] if dims else thumb_height))
+        try:
+            st = output.stat()
+            _thumbnail_catalog_register_thumb(token, output, size=int(st.st_size), mtime_ns=int(getattr(st,"st_mtime_ns",int(st.st_mtime*1_000_000_000))), thumb_width=thumb_width, thumb_height=thumb_height, source_width=source_width, source_height=source_height)
+        except OSError:
+            pass
         return {
             "thumbnail_token": token, "thumbnail_url": thumbnail_cache_url(token, output), "cached": True,
-            "size": output.stat().st_size, "width": width,
-            "height": height, "method": "native",
+            "size": output.stat().st_size, "width": int(source_width), "height": int(source_height),
+            "thumbnail_width": thumb_width, "thumbnail_height": thumb_height,
+            "method": "native-wic" if str(meta.get("method") or "").casefold() == "wic" else "native",
+            "decode_method": str(meta.get("method") or "native"), "decode_ms": round(decode_ms, 1),
+            "decode_wait_ms": round(waited_ms, 1), "decode_workers": THUMB_DECODE_WORKER_COUNT,
         }
     except (OSError, subprocess.SubprocessError, ValueError):
         temp.unlink(missing_ok=True)
         return None
+    finally:
+        with _THUMB_DECODE_STATE_LOCK:
+            _THUMB_DECODE_ACTIVE = max(0, _THUMB_DECODE_ACTIVE - 1)
+        THUMB_DECODE_SEMAPHORE.release()
 
 def _mark_thumbnail_stats_dirty() -> None:
     global _THUMB_STATS_DIRTY
@@ -3745,28 +4271,85 @@ def _mark_thumbnail_stats_dirty() -> None:
         _THUMB_STATS_DIRTY = True
 
 def cached_thumbnail_result(token: str) -> dict[str, Any] | None:
+    global _THUMB_CATALOG_FS_FALLBACKS
+    entry = _thumbnail_catalog_get(token)
+    if entry and entry.get("thumb") and int(entry.get("size",0) or 0) > 0:
+        return {"thumbnail_token":token,"thumbnail_url":thumbnail_cache_url(token),"cached":True,"size":int(entry.get("size",0) or 0)}
     path = thumbnail_cache_path(token)
+    with _THUMB_CATALOG_LOCK:
+        ready = _THUMB_CATALOG_READY
+    if ready:
+        return None
+    _THUMB_CATALOG_FS_FALLBACKS += 1
     try:
         st = path.stat()
         if st.st_size <= 0:
             return None
-        try:
-            with path.open("rb") as check:
-                if check.read(3) != b"\xff\xd8\xff":
-                    path.unlink(missing_ok=True)
-                    _mark_thumbnail_stats_dirty()
-                    return None
-        except OSError:
-            return None
-        now = time.time()
-        if now - st.st_mtime > 6 * 3600:
-            try:
-                os.utime(path, (now, now))
-            except OSError:
-                pass
-        return {"thumbnail_token": token, "thumbnail_url": thumbnail_cache_url(token, path), "cached": True, "size": st.st_size}
+        with path.open("rb") as check:
+            if check.read(3) != b"\xff\xd8\xff":
+                path.unlink(missing_ok=True); _mark_thumbnail_stats_dirty(); return None
+        dims = image_dimensions(path)
+        _thumbnail_catalog_register_thumb(token,path,size=int(st.st_size),mtime_ns=int(getattr(st,"st_mtime_ns",int(st.st_mtime*1_000_000_000))),thumb_width=int(dims[0]) if dims else 0,thumb_height=int(dims[1]) if dims else 0)
+        return {"thumbnail_token":token,"thumbnail_url":thumbnail_cache_url(token,path),"cached":True,"size":int(st.st_size)}
     except OSError:
         return None
+
+def annotate_cached_thumbnail_urls(provider_id: str, group: str, articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach direct local thumbnail URLs using the r5 RAM catalog hot path."""
+    global _THUMB_CATALOG_FS_FALLBACKS
+    if not articles:
+        return articles
+    _ensure_thumbnail_catalog_started()
+    try:
+        preview_provider = resolve_provider_for_purpose(provider_id, "previews")
+    except Exception:
+        preview_provider = provider_by_id(provider_id)
+    cross_provider = str(preview_provider.get("id", "")) != str(provider_id)
+    out: list[dict[str, Any]] = []
+    for item in articles:
+        media = item.get("media") if isinstance(item.get("media"), dict) else None
+        segments = item.get("segments") if isinstance(item.get("segments"), list) else []
+        if not media or media.get("kind") not in {"image", "video"} or not item.get("complete") or not segments:
+            out.append(item); continue
+        token_segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)] if cross_provider else segments
+        token = thumbnail_cache_token(preview_provider, group, token_segments, media)
+        entry = _thumbnail_catalog_get(token)
+        if entry and entry.get("small") and media.get("kind") == "image":
+            enriched = dict(item); enriched["small_image_suppressed"] = True
+            enriched["media_meta"] = {**(item.get("media_meta") or {}),"width":int(entry.get("source_width",0) or 0),"height":int(entry.get("source_height",0) or 0)}
+            out.append(enriched); continue
+        if entry and entry.get("thumb") and int(entry.get("size",0) or 0)>0:
+            if media.get("kind") == "image":
+                sw, sh = int(entry.get("source_width",0) or 0), int(entry.get("source_height",0) or 0)
+                tw, th = int(entry.get("thumb_width",0) or 0), int(entry.get("thumb_height",0) or 0)
+                # Existing pre-r4 cache entries may only know thumbnail dimensions.
+                # A suspicious exactly-480 narrow thumb remains a one-time source recheck.
+                if not sw or not sh:
+                    if tw and th and image_is_too_small_for_gallery(tw,th):
+                        if max(tw,th)<480:
+                            small=remember_small_image(token,tw,th); enriched=dict(item); enriched["small_image_suppressed"]=True; enriched["media_meta"]={**(item.get("media_meta") or {}),"width":small["width"],"height":small["height"]}; out.append(enriched); continue
+                        out.append(item); continue
+                elif image_is_too_small_for_gallery(sw,sh):
+                    small=remember_small_image(token,sw,sh); enriched=dict(item); enriched["small_image_suppressed"]=True; enriched["media_meta"]={**(item.get("media_meta") or {}),"width":small["width"],"height":small["height"]}; out.append(enriched); continue
+                if entry.get("full"):
+                    out.append(item); continue
+            enriched=dict(item); enriched["cached_thumbnail_token"]=token; enriched["cached_thumbnail_url"]=thumbnail_cache_url(token); out.append(enriched); continue
+        # While the one-time catalog scan is still running, retain r4-compatible
+        # filesystem fallback so the first page never waits for indexing to finish.
+        with _THUMB_CATALOG_LOCK:
+            ready = _THUMB_CATALOG_READY
+        if not ready:
+            _THUMB_CATALOG_FS_FALLBACKS += 1
+            small = cached_small_image_result(token) if media.get("kind") == "image" else None
+            if small:
+                _thumbnail_catalog_register_small(token,int(small["width"]),int(small["height"])); enriched=dict(item); enriched["small_image_suppressed"]=True; enriched["media_meta"]={**(item.get("media_meta") or {}),"width":int(small["width"]),"height":int(small["height"])}; out.append(enriched); continue
+            cached = cached_thumbnail_result(token)
+            if cached:
+                entry = _thumbnail_catalog_get(token) or {}
+                if not (media.get("kind")=="image" and entry.get("full")):
+                    enriched=dict(item); enriched["cached_thumbnail_token"]=token; enriched["cached_thumbnail_url"]=cached["thumbnail_url"]; out.append(enriched); continue
+        out.append(item)
+    return out
 
 def thumbnail_cache_stats(*, force: bool = False) -> dict[str, Any]:
     global _THUMB_STATS_CACHE, _THUMB_STATS_CACHE_TS, _THUMB_STATS_DIRTY
@@ -3840,6 +4423,7 @@ def cleanup_thumbnail_cache(max_age_days: int = 60, *, force: bool = False) -> N
                     st = path.stat()
                     if st.st_mtime < cutoff:
                         path.unlink(missing_ok=True)
+                        _thumbnail_catalog_remove(path.stem)
                         changed = True
                         continue
                     entries.append((st.st_mtime, st.st_size, path))
@@ -3850,6 +4434,7 @@ def cleanup_thumbnail_cache(max_age_days: int = 60, *, force: bool = False) -> N
                 for _mtime, size, path in sorted(entries, key=lambda item: item[0]):
                     try:
                         path.unlink(missing_ok=True)
+                        _thumbnail_catalog_remove(path.stem)
                         total -= size
                         changed = True
                     except OSError:
@@ -3883,6 +4468,8 @@ def store_thumbnail_data(token: str, data_url: str) -> dict[str, Any]:
     temp = path.with_suffix(".jpg.part")
     temp.write_bytes(raw)
     temp.replace(path)
+    dims = image_dimensions(path)
+    _thumbnail_catalog_register_thumb(token,path,thumb_width=int(dims[0]) if dims else 0,thumb_height=int(dims[1]) if dims else 0)
     _mark_thumbnail_stats_dirty()
     cleanup_thumbnail_cache()
     return {"thumbnail_token": token, "thumbnail_url": thumbnail_cache_url(token, path), "cached": True, "size": len(raw)}
@@ -3897,7 +4484,7 @@ def cached_preview_result(token: str, filename: str, media: dict[str, Any]) -> d
         _preview_tokens[token] = {"path": str(output_path), "mime": mime, "filename": filename, "created": time.time()}
     return {"token": token, "url": f"/media/{token}", "download_url": f"/download/{token}", "filename": filename, "mime": mime, "size": output_path.stat().st_size, "kind": media.get("kind"), "cached": True}
 
-def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], output_path: Path, max_bytes: int | None = None, max_segments: int | None = None, cancel_check=None) -> tuple[int, int]:
+def _assemble_segments_sequential(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], output_path: Path, max_bytes: int | None = None, max_segments: int | None = None, cancel_check=None) -> tuple[int, int]:
     """Assemble preview segments without letting one bad part stall the gallery.
 
     Each segment is decoded into a small in-memory staging buffer and committed to
@@ -3956,6 +4543,125 @@ def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
+
+def _assemble_segments_parallel(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], output_path: Path, lanes: int, max_bytes: int | None = None, cancel_check=None) -> tuple[int, int]:
+    """Retrieve one visible large multipart image with a few coordinated BODY lanes.
+
+    Lane 0 keeps the preview worker's already-warm connection. Extra lanes use
+    short-lived provider sessions and are globally capped, so this accelerates
+    latency-sensitive large images without changing the normal gallery socket budget.
+    """
+    requested = max(1, min(3, int(lanes or 1)))
+    acquired = 0
+    for _ in range(requested - 1):
+        if THUMB_EXTRA_LANE_SEMAPHORE.acquire(blocking=False):
+            acquired += 1
+        else:
+            break
+    actual = 1 + acquired
+    if actual <= 1 or len(segments) < 4:
+        for _ in range(acquired):
+            THUMB_EXTRA_LANE_SEMAPHORE.release()
+        return _assemble_segments_sequential(provider, group, segments, output_path, max_bytes=max_bytes, cancel_check=cancel_check)
+
+    ordered = sorted(segments, key=lambda seg: int(seg.get("part", 1) or 1))
+    buckets = [ordered[i::actual] for i in range(actual)]
+    password = unprotect_secret(provider.get("password_protected", ""))
+
+    def fetch_bucket(bucket: list[dict[str, Any]], warm: bool) -> list[tuple[int, bytes, dict[str, Any]]]:
+        results: list[tuple[int, bytes, dict[str, Any]]] = []
+        direct_client = None
+        try:
+            if not warm:
+                direct_client = NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)), provider.get("username", ""), password)
+                direct_client.__enter__(); direct_client.group(group)
+            for seg in bucket:
+                if cancel_check is not None:
+                    cancel_check()
+                last_exc = None
+                for attempt in range(2):
+                    stage = io.BytesIO()
+                    try:
+                        if warm:
+                            client = _preview_worker_client(provider, group, force_reconnect=attempt > 0)
+                        else:
+                            if attempt > 0:
+                                try:
+                                    direct_client.__exit__(None, None, None)
+                                except Exception:
+                                    pass
+                                direct_client = NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)), provider.get("username", ""), password)
+                                direct_client.__enter__(); direct_client.group(group)
+                            client = direct_client
+                        part_written, meta = retrieve_segment_into_file(client, seg, stage, cancel_check=cancel_check, apply_part_offset=False)
+                        results.append((int(seg.get("part", 1) or 1), stage.getvalue(), meta))
+                        break
+                    except (NntpError, socket.error, ssl.SSLError, OSError) as exc:
+                        last_exc = exc
+                        if warm:
+                            _close_worker_client()
+                        failure = classify_nntp_failure(exc)
+                        if attempt == 0 and bool(failure.get("retryable")) and failure.get("code") != "timeout":
+                            continue
+                        raise
+                else:
+                    if last_exc:
+                        raise last_exc
+            return results
+        finally:
+            if direct_client is not None:
+                try:
+                    direct_client.__exit__(None, None, None)
+                except Exception:
+                    pass
+
+    temp_path = output_path.with_suffix(output_path.suffix + ".part")
+    temp_path.unlink(missing_ok=True)
+    started = time.monotonic()
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, actual - 1), thread_name_prefix="thumb-body-lane") as extras:
+            futures = [extras.submit(fetch_bucket, buckets[i], False) for i in range(1, actual)]
+            pieces = fetch_bucket(buckets[0], True)
+            for fut in futures:
+                pieces.extend(fut.result())
+        pieces.sort(key=lambda item: item[0])
+        written = 0
+        with temp_path.open("w+b") as f:
+            for _, payload, meta in pieces:
+                begin = int(meta.get("begin", 0) or 0)
+                if begin > 0:
+                    f.seek(begin - 1)
+                else:
+                    f.seek(0, io.SEEK_END)
+                f.write(payload); written += len(payload)
+                if max_bytes is not None and written >= max_bytes:
+                    break
+        temp_path.replace(output_path)
+        elapsed_ms = (time.monotonic() - started) * 1000.0
+        global _THUMB_TRANSFER_RUNS, _THUMB_TRANSFER_BYTES, _THUMB_TRANSFER_MS, _THUMB_TRANSFER_PARALLEL_RUNS, _THUMB_TRANSFER_MAX_LANES
+        with _THUMB_TRANSFER_STATS_LOCK:
+            _THUMB_TRANSFER_RUNS += 1; _THUMB_TRANSFER_BYTES += written; _THUMB_TRANSFER_MS += elapsed_ms
+            _THUMB_TRANSFER_PARALLEL_RUNS += 1; _THUMB_TRANSFER_MAX_LANES = max(_THUMB_TRANSFER_MAX_LANES, actual)
+        return written, len(pieces)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+    finally:
+        for _ in range(acquired):
+            THUMB_EXTRA_LANE_SEMAPHORE.release()
+
+def _assemble_segments(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], output_path: Path, max_bytes: int | None = None, max_segments: int | None = None, cancel_check=None, parallel_lanes: int = 1) -> tuple[int, int]:
+    if parallel_lanes > 1 and max_segments is None and len(segments) >= 4:
+        return _assemble_segments_parallel(provider, group, segments, output_path, parallel_lanes, max_bytes=max_bytes, cancel_check=cancel_check)
+    started = time.monotonic()
+    result = _assemble_segments_sequential(provider, group, segments, output_path, max_bytes=max_bytes, max_segments=max_segments, cancel_check=cancel_check)
+    elapsed_ms = (time.monotonic() - started) * 1000.0
+    global _THUMB_TRANSFER_RUNS, _THUMB_TRANSFER_BYTES, _THUMB_TRANSFER_MS
+    # Only thumbnail callers consume these fields in Diagnostics; full-preview/video
+    # assembly may also contribute, which intentionally reflects total BODY pressure.
+    with _THUMB_TRANSFER_STATS_LOCK:
+        _THUMB_TRANSFER_RUNS += 1; _THUMB_TRANSFER_BYTES += int(result[0]); _THUMB_TRANSFER_MS += elapsed_ms
+    return result
 
 def prepare_preview(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None) -> dict[str, Any]:
     if not media:
@@ -4033,7 +4739,7 @@ def _try_ffmpeg_frame(source: Path, thumb_token: str) -> str | None:
     cleanup_thumbnail_cache()
     return thumbnail_cache_url(thumb_token, frame_path)
 
-def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None) -> dict[str, Any]:
+def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None, parallel_lanes: int = 1) -> dict[str, Any]:
     if media.get("kind") != "image":
         raise ValueError("Image thumbnail requested for a non-image post")
     if not segments:
@@ -4042,9 +4748,29 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
         raise ValueError("Preview has too many segments")
 
     thumb_token = thumbnail_cache_token(provider, group, segments, media)
+    small = cached_small_image_result(thumb_token)
+    if small:
+        return {"kind": "image", "filename": media.get("filename") or "image", **small}
     cached = cached_thumbnail_result(thumb_token)
     if cached:
-        return {"kind": "image", "filename": media.get("filename") or "image", **cached}
+        # r3 and earlier do not retain source dimensions beside the JPEG. If the
+        # generated thumbnail is below 480 px on its long edge, it was not scaled
+        # down and its dimensions are safe to treat as the source dimensions. If
+        # the long edge is exactly 480 and the shape looks tiny/suspicious, bypass
+        # the old cache once and reconstruct the source so a narrow high-resolution
+        # portrait/panorama is not falsely suppressed.
+        cached_path = thumbnail_cache_path(thumb_token)
+        dims = image_dimensions(cached_path)
+        if dims and image_is_too_small_for_gallery(dims[0], dims[1]):
+            if max(dims) < 480:
+                return {"kind": "image", "filename": media.get("filename") or "image", **remember_small_image(thumb_token, dims[0], dims[1])}
+            try:
+                cached_path.unlink(missing_ok=True)
+                _mark_thumbnail_stats_dirty()
+            except OSError:
+                pass
+        else:
+            return {"kind": "image", "filename": media.get("filename") or "image", **cached}
 
     filename = media.get("filename") or f"preview.{media.get('extension', 'jpg')}"
     filename = re.sub(r"[^A-Za-z0-9._ -]+", "_", filename).strip() or "preview.jpg"
@@ -4063,6 +4789,9 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
 
     lock = _preview_build_lock("thumb:" + thumb_token)
     with lock:
+        small = cached_small_image_result(thumb_token)
+        if small:
+            return {"kind": "image", "filename": filename, **small}
         cached = cached_thumbnail_result(thumb_token)
         if cached:
             return {"kind": "image", "filename": filename, **cached}
@@ -4075,6 +4804,8 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
             if existing_item:
                 native = create_native_thumbnail(Path(existing_item["path"]), thumb_token)
                 if native:
+                    if native.get("visual_blank"):
+                        return {"kind":"image","filename":filename,"thumbnail_token":thumb_token,"thumbnail_url":existing.get("url",""),"source_url":existing.get("url",""),"source_cached":True,"cached":True,"method":"full-preview-native-blank","thumbnail_fallback":True,"width":native.get("width",0),"height":native.get("height",0)}
                     return {"kind": "image", "filename": filename, "source_cached": True, **native}
 
         suffix = Path(filename).suffix or ".jpg"
@@ -4082,16 +4813,31 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
         source_path.unlink(missing_ok=True)
         written = 0
         try:
+            transfer_started = time.monotonic()
             written, _ = _assemble_segments(
                 provider, group, segments, source_path,
-                max_bytes=max_mb * 1024 * 1024 + 1, cancel_check=cancel_check,
+                max_bytes=max_mb * 1024 * 1024 + 1, cancel_check=cancel_check, parallel_lanes=parallel_lanes,
             )
+            transfer_ms = (time.monotonic() - transfer_started) * 1000.0
             if written > max_mb * 1024 * 1024:
                 raise ValueError(f"Preview exceeded the {max_mb} MB preview safety limit")
 
             native = create_native_thumbnail(source_path, thumb_token)
             if native:
-                return {"kind": "image", "filename": filename, "source_cached": False, **native}
+                if native.get("visual_blank"):
+                    preview_path = CACHE_DIR / f"{full_token}{suffix}"
+                    if preview_path.exists() and preview_path.stat().st_size > 0:
+                        source_path.unlink(missing_ok=True)
+                    else:
+                        source_path.replace(preview_path)
+                    mime = sniff_mime(preview_path, media.get("mime") or mimetypes.guess_type(filename)[0] or "application/octet-stream")
+                    with _preview_lock:
+                        _preview_tokens[full_token] = {"path": str(preview_path), "mime": mime, "filename": filename, "created": time.time()}
+                    cleanup_preview_cache()
+                    return {"kind":"image","filename":filename,"thumbnail_token":thumb_token,"thumbnail_url":f"/media/{full_token}","source_url":f"/media/{full_token}","source_cached":False,"cached":False,"method":"full-preview-native-blank","thumbnail_fallback":True,"width":native.get("width",0),"height":native.get("height",0),"transfer_ms":round(transfer_ms,1),"transfer_lanes":int(parallel_lanes or 1),"transfer_bytes":int(written)}
+                return {"kind": "image", "filename": filename, "source_cached": False,
+                        "transfer_ms": round(transfer_ms, 1), "transfer_lanes": int(parallel_lanes or 1),
+                        "transfer_bytes": int(written), **native}
 
             preview_path = CACHE_DIR / f"{full_token}{suffix}"
             if preview_path.exists() and preview_path.stat().st_size > 0:
@@ -10380,6 +11126,9 @@ def diagnostics_snapshot() -> dict[str, Any]:
         'version': APP_VERSION, 'uptime_seconds': int(time.time()-base.get('started',time.time())), 'memory_bytes': _process_memory_bytes(),
         'providers': providers, 'connections': pool_stats, 'downloads': {'counts': snap.get('counts',{}), 'speed_bps': snap.get('total_speed_bps',0), 'concurrent_downloads': snap.get('concurrent_downloads',0), 'telemetry': snap.get('telemetry',{}), 'collections': snap.get('collections',[]), 'engine': snap.get('engine',{})},
         'storage': {'disk': disk_info, 'thumbnail_cache': thumbnail_cache_stats(), 'preview_cache_bytes': _dir_size(CACHE_DIR), 'download_temp_bytes': _dir_size(DOWNLOAD_TEMP_DIR), 'data_bytes': _dir_size(DATA_DIR)},
+        'thumbnail_decode': thumbnail_decode_stats(),
+        'thumbnail_transfer': thumbnail_transfer_stats(),
+        'thumbnail_catalog': thumbnail_catalog_stats(),
         'searches': searches, 'events': base.get('events',[])[:80], 'desktop_mode': DESKTOP_MODE, 'ffmpeg': bool(_ffmpeg_path()),
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
@@ -10388,6 +11137,7 @@ def diagnostics_snapshot() -> dict[str, Any]:
 def diagnostics_report() -> str:
     d = diagnostics_snapshot(); lines = [f"NewzDeck Diagnostics v{APP_VERSION}", f"Generated: {datetime.now().isoformat(timespec='seconds')}", f"Uptime: {d['uptime_seconds']}s", f"Memory: {d['memory_bytes']} bytes"]
     disk=d['storage']['disk']; lines.append(f"Download disk free: {disk.get('free',0)} / {disk.get('total',0)} bytes")
+    td=d.get('thumbnail_decode') or {}; th=td.get('helper') or {}; tc=d.get('thumbnail_catalog') or {}; lines.append(f"Thumbnail decode: workers={td.get('workers',0)} active={td.get('active',0)} peak={td.get('peak',0)} runs={td.get('runs',0)} average_wait_ms={td.get('average_wait_ms',0)} physical_memory={td.get('physical_memory_bytes',0)} helper_jobs={th.get('jobs',0)} helper_starts={th.get('process_starts',0)} starts_avoided={th.get('process_launches_avoided',0)} catalog_entries={tc.get('entries',0)} catalog_hits={tc.get('hits',0)} catalog_fs_fallbacks={tc.get('filesystem_fallbacks',0)}")
     conn=d['connections']; engine=(d.get('downloads') or {}).get('engine') or {}
     if str(engine.get('name') or '').casefold() == 'sabnzbd':
         lines.append(f"Download engine: SABnzbd {engine.get('version','')} built-in; ready={engine.get('ready',False)}; live_connections={conn.get('active',0)}; allocated_connections={conn.get('capacity',0)}; provider_workers={conn.get('runtime_servers',0)}/{conn.get('expected_servers',0)} runtime, {conn.get('configured_servers',0)}/{conn.get('expected_servers',0)} configured; provider_summary={conn.get('provider_summary','')}; localhost_only={engine.get('localhost_only',True)}; last_error={engine.get('last_error','')}")
@@ -11193,7 +11943,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 if not progressive and bool(payload.get("smart_binary_pending")):
                     cached = None
                 else:
-                    grouped = list(payload.get("articles") or [])
+                    grouped = annotate_cached_thumbnail_urls(provider_id, group, list(payload.get("articles") or []))
                     if media_only:
                         grouped = [a for a in grouped if a.get("media")]
                     payload["articles"] = grouped
@@ -11251,15 +12001,14 @@ class AppHandler(SimpleHTTPRequestHandler):
         base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0), "smart_binary_pending": bool(background_smart)}
         with ARTICLE_PAGE_CACHE_LOCK:
             ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": base_payload}
-            if len(ARTICLE_PAGE_CACHE) > 250:
-                oldest = sorted(ARTICLE_PAGE_CACHE.items(), key=lambda kv: float(kv[1].get("cached_at", 0) or 0))[:50]
-                for key, _ in oldest:
-                    ARTICLE_PAGE_CACHE.pop(key, None)
+            _trim_article_page_cache_locked()
         if background_smart:
             SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1])
         payload = dict(base_payload)
+        visible_articles = annotate_cached_thumbnail_urls(provider_id, group, articles)
         if media_only:
-            payload["articles"] = [a for a in articles if a.get("media")]
+            visible_articles = [a for a in visible_articles if a.get("media")]
+        payload["articles"] = visible_articles
         return self._json(200, payload)
 
     def article_name_resolution_api(self, data: dict[str, Any]):
@@ -11355,8 +12104,12 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._json(200, {"kind": "image", "filename": media.get("filename") or "image", **cached})
         settings = json_read(SETTINGS_FILE, {"preview_limit_mb": DEFAULT_PREVIEW_LIMIT_MB})
         max_mb = max(10, min(4096, int(settings.get("preview_limit_mb", DEFAULT_PREVIEW_LIMIT_MB))))
+        requested_lanes = max(1, min(3, int(data.get("thumbnail_lanes", 1) or 1)))
+        configured_connections = max(1, int(provider.get("connections", 20) or 20))
+        lane_cap = 1 if configured_connections < 16 else (2 if configured_connections < 32 else 3)
+        parallel_lanes = min(requested_lanes, lane_cap)
         try:
-            result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb, cancel_check)
+            result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb, cancel_check, parallel_lanes)
         except Exception as exc:
             return self._json(422, preview_error_info(exc))
         return self._json(200, result)
@@ -11408,25 +12161,31 @@ class AppHandler(SimpleHTTPRequestHandler):
             removed = path.exists()
             path.unlink(missing_ok=True)
             marker = thumbnail_full_fallback_path(token)
+            small_marker = thumbnail_small_marker_path(token)
+            small_marker.unlink(missing_ok=True)
             if visual_blank:
                 marker.write_text("full-preview\n", encoding="utf-8")
             elif bool(data.get("clear_fallback")):
                 marker.unlink(missing_ok=True)
         except OSError:
             pass
+        _thumbnail_catalog_remove(token)
+        if visual_blank:
+            _thumbnail_catalog_register_full(token, True)
         if removed:
             _mark_thumbnail_stats_dirty()
         return self._json(200, {"ok": True, "removed": removed, "token": token, "visual_blank": visual_blank})
 
     def cache_clear_api(self, data: dict[str, Any]):
         removed = 0
-        for pattern in ("*.jpg", "*.full"):
+        for pattern in ("*.jpg", "*.full", "*.small.json"):
             for path in THUMB_CACHE_DIR.glob(pattern):
                 try:
                     path.unlink(missing_ok=True)
                     removed += 1
                 except OSError:
                     pass
+        _thumbnail_catalog_clear()
         _mark_thumbnail_stats_dirty()
         return self._json(200, {"ok": True, "removed": removed, **thumbnail_cache_stats(force=True)})
 

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.7** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.8** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.7_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.8_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,18 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.7 highlights
+## v3.6.8 highlights
 
-v3.6.7 is a browsing-responsiveness release built on v3.6.6. It pairs the high-throughput adaptive preview engine with lower paging latency, less stale network work, smoother continuous scrolling, and bounded long-session UI pressure.
+v3.6.8 is a cumulative image-browsing performance and gallery-quality release built on v3.6.7 and validated through six portable acceptance revisions. It keeps the high-throughput preview engine while reducing long-session UI pressure, deep-page navigation contention, native thumbnail overhead, repeated cache/filesystem work, and browser rendering hot-path cost.
 
-- **Stale preview cancellation:** obsolete image/video BODY work is interrupted when changing groups, pages, views, filters, or leaving Browse.
-- **Warm header connections:** up to two short-lived header sessions remove repeated connect/authentication latency from interactive paging.
-- **Predictive continuous paging:** the next older header page is fetched several viewport-heights before the bottom so it can often append immediately.
-- **Velocity-aware thumbnails:** fast scrolling expands thumbnail look-ahead in the direction of travel; slow scrolling contracts it again.
-- **Progressive package reconstruction:** large All Posts package pages can appear sooner while deep multipart reconstruction finishes in the background.
-- **Long-scroll memory relief:** far-offscreen decoded thumbnails are released in bounded batches while cached URLs remain available for fast return scrolling.
-- **v3.6.6 preserved:** adaptive preview scaling and download-priority behavior remain intact.
+- **Long-session stability:** RAM-aware caches, bounded gallery scans, decoded-thumbnail relief, and separate NNTP/decode budgets.
+- **Fast deep-page navigation:** explicit jumps reset stale scroll velocity/prefetch state and hold Continuous append until the destination page is established.
+- **WIC-first persistent thumbnails:** native Windows decode/scale workers stay alive between jobs, with fallback decoding for unusual formats.
+- **Large-image acceleration:** very large visible multipart images can use a small number of coordinated BODY lanes without overriding provider limits or download priority.
+- **Faster revisits:** recent header pages, cached-thumbnail URLs, suppression state, and thumbnail identities are reused from RAM.
+- **Gallery quality:** genuinely tiny source images are persistently suppressed from visual media views instead of being enlarged into blurry cards.
+- **Lower Chromium overhead:** geometry snapshots, constant-time thumbnail element lookup, native blank validation, and normal asynchronous painting eliminate routine DOM searches, canvas readbacks, and forced reflows.
+- **Preserved:** v3.6.7 browsing responsiveness, v3.6.6 adaptive preview scaling, v3.6.5 taskbar reliability, v3.6.4 package reconstruction, private SAB downloads, Automation/Smart Import, and Metadata Server v0.3.3 compatibility.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.7_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.8_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
