@@ -70,3 +70,5 @@ https://github.com/newzdeckadmin/NewzDeck/releases/latest
 - **v3.6.8** - Image Browsing Performance & Gallery Quality. Production source promotes the accepted r1-r6 image-browsing performance work and is rebuilt/published by the repository Windows release workflow.
 
 - **v3.6.9** - In-App Update Runtime Handoff. Fixes verified Update Center upgrades blocked by the legacy long-lived Picker taskbar helper and adds native-helper lock regression coverage to the Windows release pipeline.
+
+- **v3.6.10** - Python Source Freshness & Runtime Refresh. Forces NewzDeck-owned Python modules to load from current source bytes, removes stale adjacent bytecode during startup/upgrades, and adds release guards for deterministic timestamp cache collisions.

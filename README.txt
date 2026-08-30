@@ -1,12 +1,12 @@
-NewzDeck v3.6.9
+NewzDeck v3.6.10
 In-App Update Runtime Handoff
 Getting Started
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
-and personal media automation application. v3.6.9 is a focused upgrade-path
+and personal media automation application. v3.6.10 is a focused upgrade-path
 hotfix built on the accepted v3.6.8 image-browsing release.
 
-WHAT'S NEW IN v3.6.9
+WHAT'S NEW IN v3.6.10
 
 - The verified in-app Update Center no longer leaves the legacy long-lived
   NewzDeckPicker.exe taskbar helper blocking Setup file replacement.
@@ -25,4 +25,4 @@ WHAT YOU NEED
 - Your own Usenet provider account
 
 NewzDeck remains intentionally unsigned. Verify downloads with
-NewzDeck_v3.6.9_SHA256.txt if desired.
+NewzDeck_v3.6.10_SHA256.txt if desired.

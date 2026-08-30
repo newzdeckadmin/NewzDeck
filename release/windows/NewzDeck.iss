@@ -54,8 +54,12 @@ VersionInfoProductVersion={#AppVersion}
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
-[Files]
-; Overlay the exact source-built payload. Extra/generated files in the install
+[InstallDelete]
+; Deterministic release timestamps can make an old same-size Python bytecode cache
+; look current to CPython. Remove only NewzDeck's adjacent application cache on upgrade.
+Type: filesandordirs; Name: "{app}\__pycache__"
+
+[Files]; Overlay the exact source-built payload. Extra/generated files in the install
 ; directory are deliberately not purged during upgrades.
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

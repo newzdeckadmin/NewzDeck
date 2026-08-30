@@ -53,6 +53,41 @@ def safe_print(*args, **kwargs):
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 
+# v3.6.10 source-freshness rule: NewzDeck ships deterministic source timestamps,
+# so an adjacent timestamp-based .pyc from an older same-size source file can
+# otherwise survive an in-place upgrade and be accepted as current. The main
+# server is executed directly from source; remove only NewzDeck's adjacent app
+# bytecode cache before loading sibling modules and do not recreate it.
+sys.dont_write_bytecode = True
+try:
+    shutil.rmtree(APP_DIR / "__pycache__", ignore_errors=True)
+except Exception:
+    pass
+
+def _load_app_source_module(module_name: str, module_path: Path):
+    """Load one NewzDeck-owned sibling module from the current source bytes.
+
+    Deliberately bypass SourceFileLoader.exec_module(), whose normal timestamp/size
+    bytecode validation can accept an older deterministic-build .pyc after an
+    in-place update. Module metadata is still created from a normal import spec,
+    but the code object always comes from the installed .py file bytes.
+    """
+    import importlib.util
+    module_path = Path(module_path)
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None:
+        raise ImportError(f"Cannot create module spec for {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        source_bytes = module_path.read_bytes()
+        code = compile(source_bytes, str(module_path), "exec", dont_inherit=True)
+        exec(code, module.__dict__)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    return module
+
 def user_data_root() -> Path:
     """Return NewzDeck's version-independent per-user storage directory."""
     override = os.environ.get("NEWZDECK_USER_ROOT", "").strip()
@@ -246,7 +281,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.9"
+APP_VERSION = "3.6.10"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -961,7 +996,7 @@ def _launch_taskbar_identity() -> bool:
 
     NewzDeck v3.6.5+ assigns taskbar identity from NewzDeck.exe itself. Keeping
     NewzDeckPicker.exe alive in --taskbar-fix mode created a file lock that could
-    block verified in-app upgrades, so v3.6.9 deliberately stops launching it.
+    block verified in-app upgrades, so v3.6.10 deliberately stops launching it.
     """
     return False
 
@@ -10954,14 +10989,11 @@ else:
     # sys.path, so a normal sibling import can fail before /api/health starts.
     # Load the adapter explicitly from APP_DIR so installed and portable launches
     # behave identically regardless of Python path isolation.
-    import importlib.util
     _sab_module_path = APP_DIR / "sab_engine.py"
-    _sab_spec = importlib.util.spec_from_file_location("newzdeck_sab_engine", _sab_module_path)
-    if _sab_spec is None or _sab_spec.loader is None:
-        raise RuntimeError(f"Unable to load built-in download engine adapter: {_sab_module_path}")
-    _sab_module = importlib.util.module_from_spec(_sab_spec)
-    sys.modules[_sab_spec.name] = _sab_module
-    _sab_spec.loader.exec_module(_sab_module)
+    try:
+        _sab_module = _load_app_source_module("newzdeck_sab_engine", _sab_module_path)
+    except Exception as exc:
+        raise RuntimeError(f"Unable to load built-in download engine adapter from current source: {_sab_module_path}: {exc}") from exc
     SabDownloadManager = _sab_module.SabDownloadManager
     DOWNLOAD_MANAGER = SabDownloadManager(
         user_root=USER_ROOT, app_dir=APP_DIR, download_dir_getter=_download_dir_snapshot,
@@ -11016,16 +11048,7 @@ class _LazyMediaAutomation:
                 module_path = APP_DIR / 'automation_engine.py'
                 if not module_path.is_file():
                     raise FileNotFoundError(f'Automation engine module is missing: {module_path}')
-                import importlib.util
-                spec = importlib.util.spec_from_file_location('newzdeck_automation_engine', module_path)
-                if not spec or not spec.loader:
-                    raise ImportError(f'Cannot load {module_path}')
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[spec.name] = module
-                try:
-                    spec.loader.exec_module(module)
-                except Exception:
-                    sys.modules.pop(spec.name, None); raise
+                module = _load_app_source_module('newzdeck_automation_engine', module_path)
                 MediaAutomationEngine = module.MediaAutomationEngine
                 self._engine = MediaAutomationEngine(
                     DATA_DIR, protect_secret, unprotect_secret, DOWNLOAD_MANAGER, get_providers, APP_VERSION

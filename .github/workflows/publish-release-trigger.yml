@@ -180,6 +180,31 @@ jobs:
             throw 'Canonical NewzDeckTray.go did not cross-compile.'
           }
 
+      - name: Validate Python source freshness guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = Get-Content -LiteralPath 'src/app/server.py' -Raw
+          foreach ($required in @(
+            'sys.dont_write_bytecode = True',
+            'shutil.rmtree(APP_DIR / "__pycache__", ignore_errors=True)',
+            'def _load_app_source_module(',
+            'source_bytes = module_path.read_bytes()',
+            'compile(source_bytes, str(module_path), "exec", dont_inherit=True)',
+            '_load_app_source_module("newzdeck_sab_engine", _sab_module_path)',
+            "_load_app_source_module('newzdeck_automation_engine', module_path)"
+          )) {
+            if (-not $server.Contains($required)) {
+              throw "Missing source-freshness guard: $required"
+            }
+          }
+          if ($server.Contains('.loader.exec_module(')) {
+            throw 'NewzDeck-owned sibling modules still use loader.exec_module and can accept stale timestamp bytecode.'
+          }
+          $installer = Get-Content -LiteralPath 'release/windows/NewzDeck.iss' -Raw
+          if (-not $installer.Contains('Type: filesandordirs; Name: "{app}\__pycache__"')) {
+            throw 'Installer does not remove stale application Python bytecode on upgrade.'
+          }
       - name: Build deterministic Portable ZIP
         id: portable
         shell: pwsh

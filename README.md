@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.9** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.10** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.9_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.10_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,15 +35,15 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.9 highlights
+## v3.6.10 highlights
 
-v3.6.9 is a focused Windows upgrade-path hotfix built on v3.6.8. It fixes the verified Update Center path when a long-lived NewzDeck native helper is still using an executable that Setup must replace.
+v3.6.10 is a focused Python runtime-freshness hotfix built on v3.6.9. It prevents deterministic archive timestamps plus a surviving adjacent `.pyc` from loading an older NewzDeck SAB or Automation module after an in-place update.
 
-- **Picker lock fixed:** Setup explicitly closes the legacy NewzDeckPicker.exe taskbar helper before file replacement.
-- **Persistent helper cleanup:** stale NewzDeckThumb.exe and NewzDeckYenc.exe workers are also terminated after the tray/background-service handoff.
-- **Legacy taskbar helper retired:** the UI/backend no longer launch NewzDeckPicker.exe in long-lived taskbar-fix mode; NewzDeck.exe has owned taskbar identity since v3.6.5.
-- **Update Center defense in depth:** future in-app installer launches request Inno close/force-close handling.
-- **Regression coverage:** Windows CI now starts the real locked Picker taskbar-fix process and requires Setup to close and replace it during an installed upgrade.
+- **Current source always wins:** NewzDeck-owned SAB and Automation modules are read and compiled from the installed `.py` source bytes on every backend start.
+- **Stale bytecode cleanup:** the application-level `__pycache__` is removed at backend startup and during installed upgrades.
+- **No adjacent app bytecode writes:** the NewzDeck source runtime no longer recreates the cache that caused the version split.
+- **Release guards:** Windows CI requires the source-byte loader and installer bytecode cleanup before building a release.
+- **v3.6.9 preserved:** the in-app Update Center runtime handoff and locked native-helper upgrade fixes remain intact.
 - **v3.6.8 preserved:** all accepted image-browsing performance and gallery-quality improvements remain unchanged.
 ## Requirements
 
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.9_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.10_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
