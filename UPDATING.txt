@@ -1,9 +1,39 @@
-NewzDeck v3.6.10 updates preserve user state under %LOCALAPPDATA%\NewzDeck.
+NewzDeck v3.6.11
+SAB Ownership Continuity & Managed Update Handoff
+Updating
 
-Installed users should normally run NewzDeck_v3.6.10_Setup.exe over the existing
-installation or use the verified in-app updater when offered. v3.6.10 hardens the
-upgrade shutdown path so the tray, background service, legacy Picker taskbar helper,
-and persistent native thumbnail/yEnc helpers release application files before Setup
-replaces them. Manual helper shutdown should not normally be required.
+INSTALLED NEWZDECK
+------------------
+The preferred update path is:
+  NewzDeck > About & Updates > Install Update
 
-Portable users should close NewzDeck before replacing application files.
+For an in-app update, NewzDeck now performs a managed handoff:
+  1. Close the NewzDeck desktop app window.
+  2. Close the NewzDeck tray companion.
+  3. Run the verified Setup package.
+  4. Setup stops the installed background service before replacing files.
+  5. Setup updates/repairs the installed service registration.
+  6. The update coordinator starts the updated service again when it was
+     previously installed.
+  7. The tray companion is restored.
+  8. NewzDeck is relaunched automatically.
+
+You can also run NewzDeck_v3.6.11_Setup.exe manually over an existing
+installation. Existing user data is preserved.
+
+PORTABLE NEWZDECK
+-----------------
+Close the portable NewzDeck instance before replacing its program files.
+Extract the new Portable ZIP to a fresh folder, then launch NewzDeck.exe.
+Your normal NewzDeck user data remains under the version-independent user data
+directory and is not stored inside the portable program folder.
+
+DOWNLOAD/SMART IMPORT CONTINUITY
+--------------------------------
+v3.6.11 keeps NewzDeck ownership of a real SAB job across temporary queue-slot
+omissions. Automation/Wanted downloads should continue through:
+  Active -> Post-processing -> Completed -> Smart Import
+without disappearing from Downloads or losing the rename/move step.
+
+NewzDeck remains intentionally unsigned. Windows SmartScreen may display an
+Unknown Publisher warning. Verify the published SHA-256 file if desired.

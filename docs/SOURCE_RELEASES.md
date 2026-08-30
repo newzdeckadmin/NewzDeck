@@ -72,3 +72,5 @@ https://github.com/newzdeckadmin/NewzDeck/releases/latest
 - **v3.6.9** - In-App Update Runtime Handoff. Fixes verified Update Center upgrades blocked by the legacy long-lived Picker taskbar helper and adds native-helper lock regression coverage to the Windows release pipeline.
 
 - **v3.6.10** - Python Source Freshness & Runtime Refresh. Forces NewzDeck-owned Python modules to load from current source bytes, removes stale adjacent bytecode during startup/upgrades, and adds release guards for deterministic timestamp cache collisions.
+
+- **v3.6.11** - SAB Ownership Continuity & Managed Update Handoff. Preserves live SAB job ownership across transient slot omissions, restores queue-to-history Smart Import completion continuity, and adds a native close/Setup/restore/relaunch coordinator for in-app updates.

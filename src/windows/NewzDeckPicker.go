@@ -1,5 +1,6 @@
-// NewzDeckPicker provides NewzDeck's native Windows folder chooser and a
-// best-effort taskbar icon fixer for Chromium app-mode windows.
+// NewzDeckPicker provides NewzDeck's native Windows folder chooser plus short-lived
+// desktop/update handoff helpers. The retired --taskbar-fix mode remains only for
+// compatibility with older callers.
 // Copyright (C) 2026 NewzDeck contributors.
 // SPDX-License-Identifier: GPL-3.0-only
 package main
@@ -7,8 +8,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -22,10 +25,13 @@ var (
 	kernel32                                    = syscall.NewLazyDLL("kernel32.dll")
 	procSHBrowseForFolderW                      = shell32.NewProc("SHBrowseForFolderW")
 	procSHGetPathFromIDListW                    = shell32.NewProc("SHGetPathFromIDListW")
+	procShellExecuteExW                         = shell32.NewProc("ShellExecuteExW")
 	procCoTaskMemFree                           = ole32.NewProc("CoTaskMemFree")
 	procCoInitializeEx                          = ole32.NewProc("CoInitializeEx")
 	procCoUninitialize                          = ole32.NewProc("CoUninitialize")
 	procSendMessageW                            = user32.NewProc("SendMessageW")
+	procPostMessageW                            = user32.NewProc("PostMessageW")
+	procFindWindowW                             = user32.NewProc("FindWindowW")
 	procEnumWindows                             = user32.NewProc("EnumWindows")
 	procGetWindowTextLengthW                    = user32.NewProc("GetWindowTextLengthW")
 	procGetWindowTextW                          = user32.NewProc("GetWindowTextW")
@@ -35,6 +41,9 @@ var (
 	procDestroyIcon                             = user32.NewProc("DestroyIcon")
 	procSetCurrentProcessExplicitAppUserModelID = shell32.NewProc("SetCurrentProcessExplicitAppUserModelID")
 	procMoveFileExW                             = kernel32.NewProc("MoveFileExW")
+	procWaitForSingleObject                     = kernel32.NewProc("WaitForSingleObject")
+	procGetExitCodeProcess                      = kernel32.NewProc("GetExitCodeProcess")
+	procCloseHandle                             = kernel32.NewProc("CloseHandle")
 )
 
 const (
@@ -45,6 +54,7 @@ const (
 	wmUser                  = 0x0400
 	bffmInitialized         = 1
 	bffmSetSelectionW       = wmUser + 103
+	wmClose                 = 0x0010
 	wmSetIcon               = 0x0080
 	iconSmall               = 0
 	iconBig                 = 1
@@ -52,6 +62,10 @@ const (
 	lrLoadFromFile          = 0x0010
 	lrDefaultSize           = 0x0040
 	movefileReplaceExisting = 0x1
+	seeMaskNoCloseProcess   = 0x00000040
+	swHide                  = 0
+	waitObject0             = 0
+	infinite                = 0xFFFFFFFF
 )
 
 type browseInfo struct {
@@ -63,6 +77,24 @@ type browseInfo struct {
 	lpfn           uintptr
 	lParam         uintptr
 	iImage         int32
+}
+
+type shellExecuteInfo struct {
+	cbSize       uint32
+	fMask        uint32
+	hwnd         uintptr
+	lpVerb       *uint16
+	lpFile       *uint16
+	lpParameters *uint16
+	lpDirectory  *uint16
+	nShow        int32
+	hInstApp     uintptr
+	lpIDList     uintptr
+	lpClass      *uint16
+	hkeyClass    uintptr
+	dwHotKey     uint32
+	hIcon        uintptr
+	hProcess     uintptr
 }
 
 var browseInitial string
@@ -87,8 +119,6 @@ func writeAtomic(path, text string) error {
 	if err := os.WriteFile(tmp, []byte(text), 0644); err != nil {
 		return err
 	}
-	// os.Rename cannot replace an existing destination on Windows. The protocol
-	// uses unique filenames, but MoveFileEx makes the write robust anyway.
 	r, _, _ := procMoveFileExW.Call(uintptr(unsafe.Pointer(p16(tmp))), uintptr(unsafe.Pointer(p16(path))), movefileReplaceExisting)
 	if r == 0 {
 		_ = os.Remove(path)
@@ -105,11 +135,7 @@ func chooseFolder(resultFile, startedFile, initial, title string) {
 	_ = writeAtomic(startedFile, "started\n")
 	browseInitial = initial
 	display := make([]uint16, 32768)
-	bi := browseInfo{
-		pszDisplayName: &display[0], lpszTitle: p16(title),
-		ulFlags: bifReturnOnlyFSDirs | bifEditBox | bifNewDialogStyle,
-		lpfn:    syscall.NewCallback(browseCallback),
-	}
+	bi := browseInfo{pszDisplayName: &display[0], lpszTitle: p16(title), ulFlags: bifReturnOnlyFSDirs | bifEditBox | bifNewDialogStyle, lpfn: syscall.NewCallback(browseCallback)}
 	pidl, _, _ := procSHBrowseForFolderW.Call(uintptr(unsafe.Pointer(&bi)))
 	if pidl == 0 {
 		_ = writeAtomic(resultFile, "CANCEL\n")
@@ -140,6 +166,58 @@ func windowTitle(hwnd uintptr) string {
 	return syscall.UTF16ToString(buf)
 }
 
+func isNewzDeckWindow(hwnd uintptr) bool {
+	vis, _, _ := procIsWindowVisible.Call(hwnd)
+	if vis == 0 {
+		return false
+	}
+	title := strings.TrimSpace(windowTitle(hwnd))
+	low := strings.ToLower(title)
+	return strings.EqualFold(title, "NewzDeck") || strings.HasPrefix(low, "newzdeck -") || strings.HasPrefix(low, "newzdeck v")
+}
+
+func newzDeckWindows() []uintptr {
+	found := []uintptr{}
+	cb := syscall.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
+		if isNewzDeckWindow(hwnd) {
+			found = append(found, hwnd)
+		}
+		return 1
+	})
+	procEnumWindows.Call(cb, 0)
+	return found
+}
+
+func closeNewzDeckWindows(timeout time.Duration) {
+	for _, hwnd := range newzDeckWindows() {
+		procPostMessageW.Call(hwnd, wmClose, 0, 0)
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(newzDeckWindows()) == 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func closeTray(timeout time.Duration) {
+	class := p16("NewzDeckTrayWindow")
+	hwnd, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(class)), 0)
+	if hwnd == 0 {
+		return
+	}
+	procPostMessageW.Call(hwnd, wmClose, 0, 0)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		h, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(class)), 0)
+		if h == 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func applyWindowIcon(hwnd, icon uintptr) {
 	procSendMessageW.Call(hwnd, wmSetIcon, iconSmall, icon)
 	procSendMessageW.Call(hwnd, wmSetIcon, iconBig, icon)
@@ -148,12 +226,7 @@ func applyWindowIcon(hwnd, icon uintptr) {
 func findAndFix(icon uintptr) []uintptr {
 	found := []uintptr{}
 	cb := syscall.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
-		vis, _, _ := procIsWindowVisible.Call(hwnd)
-		if vis == 0 {
-			return 1
-		}
-		title := strings.TrimSpace(windowTitle(hwnd))
-		if strings.EqualFold(title, "NewzDeck") || strings.HasPrefix(strings.ToLower(title), "newzdeck -") {
+		if isNewzDeckWindow(hwnd) {
 			applyWindowIcon(hwnd, icon)
 			found = append(found, hwnd)
 		}
@@ -168,9 +241,6 @@ func taskbarFix() {
 	defer runtime.UnlockOSThread()
 	_, _, _ = procCoInitializeEx.Call(0, coinitApartmentThreaded)
 	defer procCoUninitialize.Call()
-	// Keep a stable explicit identity for this native companion and apply the
-	// NewzDeck icon to the actual Chromium app window. Windows taskbar grouping
-	// also benefits from the launcher's dedicated --app URL/profile behavior.
 	procSetCurrentProcessExplicitAppUserModelID.Call(uintptr(unsafe.Pointer(p16("NewzDeck.Desktop"))))
 	exe, _ := os.Executable()
 	iconPath := filepath.Join(filepath.Dir(exe), "NewzDeck.ico")
@@ -214,10 +284,119 @@ func argValue(name string) string {
 	return ""
 }
 
+func argBool(name string, fallback bool) bool {
+	v := strings.TrimSpace(strings.ToLower(argValue(name)))
+	if v == "" {
+		return fallback
+	}
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func appendHandoffLog(root, line string) {
+	if strings.TrimSpace(root) == "" {
+		return
+	}
+	path := filepath.Join(root, "data", "update-handoff.log")
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), line)
+}
+
+func runElevatedAndWait(file, params, dir string) int {
+	sei := shellExecuteInfo{cbSize: uint32(unsafe.Sizeof(shellExecuteInfo{})), fMask: seeMaskNoCloseProcess, lpVerb: p16("runas"), lpFile: p16(file), lpParameters: p16(params), lpDirectory: p16(dir), nShow: swHide}
+	ok, _, _ := procShellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
+	if ok == 0 || sei.hProcess == 0 {
+		return -1
+	}
+	defer procCloseHandle.Call(sei.hProcess)
+	wait, _, _ := procWaitForSingleObject.Call(sei.hProcess, infinite)
+	if wait != waitObject0 {
+		return -2
+	}
+	var code uint32
+	r, _, _ := procGetExitCodeProcess.Call(sei.hProcess, uintptr(unsafe.Pointer(&code)))
+	if r == 0 {
+		return -3
+	}
+	return int(code)
+}
+
+func launchDetached(file string, args ...string) error {
+	cmd := exec.Command(file, args...)
+	cmd.Dir = filepath.Dir(file)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	return cmd.Start()
+}
+
+func updateHandoff() {
+	setup := argValue("--setup")
+	appDir := argValue("--app-dir")
+	userRoot := argValue("--user-root")
+	version := argValue("--version")
+	restoreService := argBool("--restore-service", false)
+	restoreTray := argBool("--restore-tray", true)
+	if setup == "" || appDir == "" {
+		return
+	}
+	appendHandoffLog(userRoot, "handoff starting for v"+version)
+
+	closeNewzDeckWindows(6 * time.Second)
+	closeTray(5 * time.Second)
+	time.Sleep(250 * time.Millisecond)
+
+	cmd := exec.Command(setup, "/update", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS")
+	cmd.Dir = filepath.Dir(setup)
+	if err := cmd.Start(); err != nil {
+		appendHandoffLog(userRoot, "could not start Setup: "+err.Error())
+		return
+	}
+	err := cmd.Wait()
+	if err != nil {
+		appendHandoffLog(userRoot, "Setup returned error: "+err.Error())
+		return
+	}
+	appendHandoffLog(userRoot, "Setup completed successfully")
+	installedVersion := version
+	if b, e := os.ReadFile(filepath.Join(appDir, "version.txt")); e == nil && strings.TrimSpace(string(b)) != "" {
+		installedVersion = strings.TrimSpace(string(b))
+	}
+
+	serviceExe := filepath.Join(appDir, "NewzDeckService.exe")
+	if restoreService {
+		// Future installers restore the service themselves. This is a fallback for
+		// older installers or an interrupted post-install service restore.
+		code := runElevatedAndWait(serviceExe, "start", appDir)
+		appendHandoffLog(userRoot, "service start fallback exit="+strconv.Itoa(code))
+	}
+
+	if restoreTray {
+		tray := filepath.Join(appDir, "NewzDeckTray.exe")
+		_ = launchDetached(tray, "--app-dir", appDir, "--user-root", userRoot, "--version", installedVersion)
+		time.Sleep(350 * time.Millisecond)
+	}
+	app := filepath.Join(appDir, "NewzDeck.exe")
+	if err := launchDetached(app); err != nil {
+		appendHandoffLog(userRoot, "app relaunch failed: "+err.Error())
+	} else {
+		appendHandoffLog(userRoot, "app relaunched")
+	}
+}
+
 func main() {
 	for _, a := range os.Args[1:] {
-		if a == "--taskbar-fix" {
+		switch a {
+		case "--taskbar-fix":
 			taskbarFix()
+			return
+		case "--close-app-windows":
+			closeNewzDeckWindows(6 * time.Second)
+			return
+		case "--update-handoff":
+			updateHandoff()
 			return
 		}
 	}

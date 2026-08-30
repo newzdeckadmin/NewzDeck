@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionTimer:null, nameResolutionAutoRemaining:24,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.10';
+const UI_VERSION = '3.6.11';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -1876,7 +1876,7 @@ function renderDownloads({livePatch=false}={}){
     const runtimeMismatch=sabEngine&&adapterVersion&&adapterVersion!==UI_VERSION;
     if(runtimeMismatch){
       problemBanner.classList.remove('hidden','recovering');problemBanner.classList.add('critical');
-      problemBanner.innerHTML=`<div><strong>NewzDeck background runtime is from a different version</strong><span>This UI is v${escapeHtml(UI_VERSION)}, but the active download engine is adapter v${escapeHtml(adapterVersion)}.</span></div><div class="problem-banner-note">The installed runtime did not refresh completely. Queue state is preserved. Restart NewzDeck; if the mismatch remains, use Background Service > Restart.</div>`;
+      problemBanner.innerHTML=`<div><strong>NewzDeck background runtime is from a different version</strong><span>This UI is v${escapeHtml(UI_VERSION)}, but the active download engine is adapter v${escapeHtml(adapterVersion)}.</span></div><div class="problem-banner-note">Fully exit the tray app and stop the NewzDeck background service, then launch this build again. Queue state is preserved.</div>`;
     }else if(problemJobs){
       problemBanner.classList.remove('hidden');problemBanner.classList.toggle('critical',failed>0);problemBanner.classList.toggle('recovering',failed===0&&(retryWaiting>0||repairable>0));
       problemBanner.innerHTML=`<div><strong>${repairable?`${repairable} NZB package${repairable===1?'':'s'} can use PAR2 recovery`:failed?`${failed} download${failed===1?'':'s'} need attention`:retryWaiting?`${retryWaiting} download${retryWaiting===1?' is':'s are'} recovering automatically`:'Download recovery active'}</strong><span>${missingBlocks?`${missingBlocks.toLocaleString()} unavailable block${missingBlocks===1?'':'s'} • `:''}${retryCount.toLocaleString()} provider retries • ${recoveredCount.toLocaleString()} blocks recovered from alternate providers</span></div><div class="problem-banner-note">Verified data is preserved. NewzDeck retries only missing blocks and can fetch deferred PAR2 recovery data when needed.</div>`;
@@ -2015,10 +2015,18 @@ async function checkOnlineUpdates(force=false,{quiet=false}={}){
   if(els.checkUpdatesBtn){els.checkUpdatesBtn.disabled=true;if(!quiet)els.checkUpdatesBtn.textContent='Checking…'}
   try{const d=await api(`/api/update/status?online=1${force?'&force=1':''}`);renderOnlineUpdate(d);return d}catch(e){if(!quiet)toast(e.message,'error');if(els.onlineUpdateStatus){els.onlineUpdateStatus.textContent='Update check unavailable';els.onlineUpdateDetail.textContent=e.message}return null}finally{if(els.checkUpdatesBtn){els.checkUpdatesBtn.disabled=false;els.checkUpdatesBtn.textContent='Check now'}}
 }
+function beginManagedUpdateUiExit(resultEl,message){
+  if(resultEl){resultEl.className='test-result';resultEl.textContent=message||'Update ready. Closing NewzDeck and handing off to Setup…'}
+  // The native update coordinator closes the actual Edge/Chrome app-mode window.
+  // window.close() is an immediate best-effort path so the UI disappears before
+  // Setup appears; the native WM_CLOSE path remains authoritative if Chromium
+  // declines a script-requested close.
+  setTimeout(()=>{try{window.close()}catch{}},180);
+}
 async function installOnlineUpdate(){
   if(!state.onlineUpdate?.update_available)return;
   els.installOnlineUpdateBtn.disabled=true;els.onlineUpdateResult.className='test-result';els.onlineUpdateResult.textContent='Downloading and verifying the NewzDeck installer…';
-  try{const d=await api('/api/update/online-install',{});els.onlineUpdateResult.className='test-result';els.onlineUpdateResult.textContent=d.message||'Verified update installer started.'}
+  try{const d=await api('/api/update/online-install',{});if(d.handoff)beginManagedUpdateUiExit(els.onlineUpdateResult,d.message);else{els.onlineUpdateResult.className='test-result';els.onlineUpdateResult.textContent=d.message||'Verified update installer is ready.'}}
   catch(e){els.onlineUpdateResult.className='test-result error';els.onlineUpdateResult.textContent=e.message;els.installOnlineUpdateBtn.disabled=!state.onlineUpdate?.verified_download}
 }
 async function openAboutModal(){
@@ -2043,7 +2051,7 @@ async function installSelectedUpdate(){
     const r=await fetch('/api/update/install',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name)},body:file});
     let d={};try{d=await r.json()}catch{}
     if(!r.ok)throw new Error(d.error||`Update failed (${r.status})`);
-    els.updateResult.className='test-result';els.updateResult.textContent=d.message||'Update installer started. The app will close automatically.';
+    if(d.handoff)beginManagedUpdateUiExit(els.updateResult,d.message);else{els.updateResult.className='test-result';els.updateResult.textContent=d.message||'Update package staged.'}
   }catch(e){els.updateResult.className='test-result error';els.updateResult.textContent=e.message;els.installUpdateBtn.disabled=false}
 }
 
@@ -2681,6 +2689,7 @@ async function ensureAuthoritativeRuntime(){
 (async function initializeApp(){
   if(!(await ensureBackendVersion()))return;
   if(!(await ensureAuthoritativeRuntime()))return;
+  ensureDesktopTaskbarIdentity();
   // Prime Automation sidebar state independently of provider/newsgroup startup.
   // The immediate call plus two bounded warm-up refreshes handles a service that
   // is still restoring its media library when the desktop UI first connects.

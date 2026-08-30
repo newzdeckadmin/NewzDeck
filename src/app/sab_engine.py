@@ -23,7 +23,7 @@ from typing import Any, Callable
 SAB_VERSION = "5.1.1"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
-ENGINE_STATE_VERSION = 1
+ENGINE_STATE_VERSION = 2
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
 
 SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
@@ -431,6 +431,7 @@ class SabDownloadManager:
         self.state.setdefault("statistics", {})
         self.state.setdefault("completed_imports", {})
         self.state.setdefault("removed_jobs", {})
+        self.state.setdefault("removed_job_reasons", {})
         self.state.setdefault("_paused_updated_ts", 0.0)
         self.lock = threading.RLock()
         # engine.json is shared by the UI polling, SAB coordination and completion
@@ -644,6 +645,7 @@ class SabDownloadManager:
         out["statistics"] = dict(out.get("statistics") or {}) if isinstance(out.get("statistics"), dict) else {}
         out["completed_imports"] = dict(out.get("completed_imports") or {}) if isinstance(out.get("completed_imports"), dict) else {}
         out["removed_jobs"] = dict(out.get("removed_jobs") or {}) if isinstance(out.get("removed_jobs"), dict) else {}
+        out["removed_job_reasons"] = dict(out.get("removed_job_reasons") or {}) if isinstance(out.get("removed_job_reasons"), dict) else {}
         out["paused"] = bool(out.get("paused", False))
         out["_paused_updated_ts"] = float(out.get("_paused_updated_ts") or 0.0)
         return out
@@ -691,13 +693,31 @@ class SabDownloadManager:
                 removed[str(nzo_id)] = max(float(removed.get(str(nzo_id), 0.0) or 0.0), _num(ts, 0))
         cutoff = time.time() - 7 * 86400
         removed = {k: v for k, v in removed.items() if v >= cutoff}
+        removed_reasons: dict[str, str] = {}
+        for src in (disk.get("removed_job_reasons", {}), memory.get("removed_job_reasons", {})):
+            if not isinstance(src, dict):
+                continue
+            for nzo_id, reason in src.items():
+                text = str(reason or "").strip()
+                if text:
+                    removed_reasons[str(nzo_id)] = text
         for nzo_id, ts in list(removed.items()):
             rec = jobs.get(nzo_id)
-            if rec is not None and ts >= self._job_state_stamp(rec):
+            if rec is None:
+                continue
+            stamp = self._job_state_stamp(rec)
+            if ts >= stamp:
                 jobs.pop(nzo_id, None)
+            else:
+                # A newer real ownership record supersedes an older tombstone. This is
+                # important when v3.6.11 recovers a job that an older build incorrectly
+                # auto-pruned while SAB was still downloading it.
+                removed.pop(nzo_id, None)
+                removed_reasons.pop(nzo_id, None)
 
         merged["jobs"] = jobs
         merged["removed_jobs"] = removed
+        merged["removed_job_reasons"] = {k: v for k, v in removed_reasons.items() if k in removed}
 
         if float(memory.get("_paused_updated_ts") or 0) >= float(disk.get("_paused_updated_ts") or 0):
             merged["paused"] = bool(memory.get("paused", False))
@@ -733,9 +753,11 @@ class SabDownloadManager:
                 _atomic_json_write(self.state_file, merged)
                 self.state = merged
 
-    def _mark_removed_locked(self, nzo_id: str) -> None:
+    def _mark_removed_locked(self, nzo_id: str, reason: str = "user") -> None:
         removed = self.state.setdefault("removed_jobs", {})
         removed[str(nzo_id)] = time.time()
+        reasons = self.state.setdefault("removed_job_reasons", {})
+        reasons[str(nzo_id)] = str(reason or "user")
 
     def _touch_job_locked(self, rec: dict[str, Any]) -> None:
         rec["_updated_ts"] = time.time()
@@ -968,7 +990,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.10"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.11"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1262,7 +1284,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.10 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.11 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1479,7 +1501,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.10 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck 3.6.11 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -2317,7 +2339,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.10",
+            "adapter_version": "3.6.11",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -2545,7 +2567,7 @@ class SabDownloadManager:
                         self._refresh_shared_state()
                         with self.lock:
                             self._tracked().pop(ticket, None)
-                            self._mark_removed_locked(ticket)
+                            self._mark_removed_locked(ticket, "handoff")
                             self._save_state()
                         try:
                             Path(str(meta.get("pending_path") or "")).unlink(missing_ok=True)
@@ -2598,7 +2620,7 @@ class SabDownloadManager:
                     self._refresh_shared_state()
                     with self.lock:
                         self._tracked().pop(ticket, None)
-                        self._mark_removed_locked(ticket)
+                        self._mark_removed_locked(ticket, "handoff")
                         self._save_state()
                     try:
                         path.unlink(missing_ok=True)
@@ -2865,12 +2887,20 @@ class SabDownloadManager:
                 str(k): _num(v, 0) for k, v in (self.state.get("removed_jobs") or {}).items()
                 if _num(v, 0) >= time.time() - 7 * 86400
             }
+            removed_reasons = {str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()}
+        legacy_recovered: set[str] = set()
         for slot in queue_slots:
             nzo_id = str(slot.get("nzo_id") or slot.get("id") or "")
             if not nzo_id:
                 continue
             if nzo_id in removed_snapshot:
-                continue
+                # v3.6.10 and older used the same tombstone for explicit Remove/Cancel
+                # and for an automatic 12-second missing-slot prune. New reasoned
+                # tombstones preserve explicit user intent; legacy reasonless tombstones
+                # may be recovered when SAB proves the job is still in its live queue.
+                if removed_reasons.get(nzo_id):
+                    continue
+                legacy_recovered.add(nzo_id)
             if nzo_id in known:
                 existing = tracked_snapshot.get(nzo_id) or {}
                 if not isinstance(existing.get("automation_context"), dict) or not existing.get("automation_context"):
@@ -2884,20 +2914,30 @@ class SabDownloadManager:
             nzo_id = str(slot.get("nzo_id") or slot.get("id") or "")
             if not nzo_id:
                 continue
-            if nzo_id in removed_snapshot:
-                continue
             if str(slot.get("status") or "").casefold() != "completed":
                 continue
             completed_ts = _num(slot.get("completed"), 0)
             if completed_ts > 0 and time.time() - completed_ts > 48 * 3600:
                 continue
+            legacy_history_context: dict[str, Any] = {}
+            if nzo_id in removed_snapshot:
+                if removed_reasons.get(nzo_id):
+                    continue
+                # Only revive an old reasonless tombstone from completed history when
+                # Automation can independently recover the target and completion occurred
+                # after the tombstone. This repairs the historical auto-prune bug without
+                # broadly resurrecting old manually-cleared history.
+                legacy_history_context = self._recover_automation_context_for_slot(nzo_id, slot)
+                if not legacy_history_context or completed_ts <= removed_snapshot.get(nzo_id, 0):
+                    continue
+                legacy_recovered.add(nzo_id)
             if nzo_id in known:
                 existing = tracked_snapshot.get(nzo_id) or {}
                 if not isinstance(existing.get("automation_context"), dict) or not existing.get("automation_context"):
                     ctx = self._recover_automation_context_for_slot(nzo_id, slot)
                     if ctx: repairs.append((nzo_id, ctx))
                 continue
-            ctx = self._recover_automation_context_for_slot(nzo_id, slot)
+            ctx = legacy_history_context or self._recover_automation_context_for_slot(nzo_id, slot)
             if not ctx:
                 continue
             additions.append((nzo_id, slot, ctx, True))
@@ -2941,7 +2981,8 @@ class SabDownloadManager:
             self._event("info", "Recovered Automation context for shared SAB job",
                         nzo_id=nzo_id, target_key=str(context.get("target_key") or ""))
         for nzo_id, slot, context, history in additions:
-            self._event("info", "Adopted SAB job from another NewzDeck runtime",
+            message = "Recovered SAB job from legacy automatic-prune tombstone" if nzo_id in legacy_recovered else "Adopted SAB job from another NewzDeck runtime"
+            self._event("info", message,
                         nzo_id=nzo_id, automation=bool(context), history=history,
                         name=str(slot.get("filename") or slot.get("name") or ""))
         self._last_snapshot_ts = 0
@@ -3212,7 +3253,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.10 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.11 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -3280,6 +3321,41 @@ class SabDownloadManager:
         counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
         with self.lock:
             tracked = dict(self._tracked())
+
+        # SAB can occasionally expose aggregate Downloading/speed/remaining while its
+        # per-job slots list is temporarily empty during internal queue reshaping.
+        # Choose one durable foreground owner from the last coherent NewzDeck view so
+        # that aggregate activity never turns into "0 active" or destroys ownership.
+        aggregate_live_signal = bool(
+            not queue_paused and (
+                aggregate_status in {"downloading", "fetching"}
+                or total_speed > 0 or display_speed > 0
+                or actual_active_connections > 0 or display_connections > 0
+            )
+        )
+        aggregate_owner_id = str(foreground_id or "")
+        if aggregate_live_signal and not aggregate_owner_id:
+            candidates: list[tuple[tuple[Any, ...], str]] = []
+            for candidate_id, candidate_meta in tracked.items():
+                if not isinstance(candidate_meta, dict) or candidate_meta.get("pending_submit"):
+                    continue
+                if str(candidate_meta.get("terminal_status") or "").casefold() in {"completed", "failed", "cancelled"}:
+                    continue
+                prior = self._job_last_view.get(candidate_id) or {}
+                prior_status = str(prior.get("status") or "").casefold()
+                if prior_status in {"completed", "failed", "cancelled"}:
+                    continue
+                score = (
+                    1 if prior_status == "downloading" else 0,
+                    1 if self._active_latch_until.get(candidate_id, 0.0) > now else 0,
+                    self._job_last_seen_ts.get(candidate_id, 0.0),
+                    -_num(candidate_meta.get("created_ts"), now),
+                )
+                candidates.append((score, str(candidate_id)))
+            if candidates:
+                candidates.sort(reverse=True)
+                aggregate_owner_id = candidates[0][1]
+
         for nzo_id, meta in tracked.items():
             if bool(meta.get("pending_submit")):
                 job = self._offline_job_from_meta(nzo_id, meta, now)
@@ -3322,33 +3398,60 @@ class SabDownloadManager:
                 history = slot is not None
             if slot is None:
                 missing_since = self._job_missing_since.setdefault(nzo_id, now)
-                # A slot can disappear from one SAB API poll while its queue entry
-                # is being transitioned internally. Preserve the last real view for
-                # a short grace window rather than removing/re-adding the card.
+                # A slot can disappear from SAB while aggregate transfer telemetry keeps
+                # proving that the queue is active. Never convert that observation gap
+                # into lost ownership. Bridge the selected foreground package from the
+                # last coherent view (or durable metadata) until SAB exposes its slot again.
                 last_seen = self._job_last_seen_ts.get(nzo_id, 0.0)
                 prior = self._job_last_view.get(nzo_id)
                 prior_status = str((prior or {}).get("status") or "")
-                preserve_seconds = 8.0 if prior_status == "downloading" else 3.0
-                if prior is not None and now - last_seen <= preserve_seconds and prior_status not in {"completed", "failed", "cancelled"}:
-                    # Missing from one SAB snapshot is not a state transition. A
-                    # foreground transfer gets a longer bridge because queue slots
-                    # can vanish for several polls while SAB reshapes files/articles.
-                    job = dict(prior)
-                    if prior_status == "downloading":
-                        job["status_detail"] = str(job.get("status_detail") or "Downloading")
+                aggregate_bridge = bool(aggregate_live_signal and nzo_id == aggregate_owner_id)
+                if aggregate_bridge:
+                    job = dict(prior) if prior is not None else self._offline_job_from_meta(nzo_id, meta, now)
+                    if str(job.get("status") or "").casefold() not in {"completed", "failed", "cancelled"}:
+                        job["status"] = "downloading"
+                        job["status_detail"] = "Downloading • SAB is refreshing queue details"
+                        if display_speed > 0:
+                            job["speed_bps"] = display_speed
+                        if display_connections > 0:
+                            job["connections_used"] = display_connections
+                        expected_for_job = max(0, int(job.get("expected_bytes", 0) or 0))
+                        if expected_for_job > 0 and queue_remaining_hint > 0:
+                            aggregate_done = max(0, expected_for_job - min(expected_for_job, queue_remaining_hint))
+                            job["downloaded_bytes"] = max(int(job.get("downloaded_bytes", 0) or 0), aggregate_done)
+                            if display_speed > 0:
+                                job["eta_seconds"] = int(min(expected_for_job, queue_remaining_hint) / display_speed)
+                        self._active_latch_until[nzo_id] = now + 8.0
+                        self._job_last_seen_ts[nzo_id] = now
+                        self._job_last_view[nzo_id] = dict(job)
                     jobs.append(job)
                     collections.append(self._collection_from_job(job, meta))
                     counts[job["status"] if job["status"] in counts else "queued"] += 1
                     continue
-                # Once SAB is healthy, a job that has been absent from both queue and
-                # history for long enough is a detached legacy placeholder, not a real
-                # queued download. Prune it so old migration state cannot block the UI.
-                if now - missing_since > 12.0:
+
+                # Short non-active omissions are also presentation noise. Keep the last
+                # real view briefly, but do not manufacture a removal tombstone if the
+                # slot stays absent. Tombstones are reserved for explicit user intent.
+                preserve_seconds = 8.0 if prior_status == "downloading" else 3.0
+                if prior is not None and now - last_seen <= preserve_seconds and prior_status not in {"completed", "failed", "cancelled"}:
+                    job = dict(prior)
+                    jobs.append(job)
+                    collections.append(self._collection_from_job(job, meta))
+                    counts[job["status"] if job["status"] in counts else "queued"] += 1
+                    continue
+
+                context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+                retain_seconds = 48 * 3600 if _is_smart_import_context(context) else 120.0
+                if not aggregate_live_signal and now - missing_since > retain_seconds:
                     with self.lock:
                         self._tracked().pop(nzo_id, None)
-                        self._mark_removed_locked(nzo_id)
-                    self._event("warning", "Removed detached legacy SAB queue placeholder", nzo_id=nzo_id)
-                    self._save_state()
+                        self._job_last_view.pop(nzo_id, None)
+                        self._job_last_seen_ts.pop(nzo_id, None)
+                        self._active_latch_until.pop(nzo_id, None)
+                        self._job_queued_observations.pop(nzo_id, None)
+                        self._save_state()
+                    self._event("warning", "Released stale SAB ownership record without removal tombstone",
+                                nzo_id=nzo_id, automation=bool(context), missing_seconds=int(now - missing_since))
                 continue
             self._job_missing_since.pop(nzo_id, None)
             if history and str(slot.get('status') or '').casefold()=='failed':
@@ -3471,7 +3574,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.10", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.11", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
