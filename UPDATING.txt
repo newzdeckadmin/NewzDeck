@@ -1,39 +1,25 @@
-NewzDeck v3.6.11
-SAB Ownership Continuity & Managed Update Handoff
+NewzDeck v3.6.12
+Installer-Owned Runtime Restore
 Updating
 
 INSTALLED NEWZDECK
 ------------------
-The preferred update path is:
-  NewzDeck > About & Updates > Install Update
+Use NewzDeck > About & Updates > Install Update.
 
-For an in-app update, NewzDeck now performs a managed handoff:
-  1. Close the NewzDeck desktop app window.
-  2. Close the NewzDeck tray companion.
-  3. Run the verified Setup package.
-  4. Setup stops the installed background service before replacing files.
-  5. Setup updates/repairs the installed service registration.
-  6. The update coordinator starts the updated service again when it was
-     previously installed.
-  7. The tray companion is restored.
-  8. NewzDeck is relaunched automatically.
+For an in-app update, v3.6.12 Setup is the authoritative lifecycle owner:
+  1. Capture whether the background service and tray are present/running.
+  2. Close the browser-hosted NewzDeck app window from the signed-in Setup session.
+  3. Stop the tray.
+  4. Stop the background service.
+  5. Replace NewzDeck program files.
+  6. Run a second app-window close with the newly installed helper as a safety net.
+  7. Repair and START the existing background service.
+  8. Restore the tray.
+  9. Finish Setup.
+ 10. Relaunch NewzDeck automatically.
 
-You can also run NewzDeck_v3.6.11_Setup.exe manually over an existing
-installation. Existing user data is preserved.
+Portable users should close NewzDeck and extract the new Portable ZIP to a
+fresh folder.
 
-PORTABLE NEWZDECK
------------------
-Close the portable NewzDeck instance before replacing its program files.
-Extract the new Portable ZIP to a fresh folder, then launch NewzDeck.exe.
-Your normal NewzDeck user data remains under the version-independent user data
-directory and is not stored inside the portable program folder.
-
-DOWNLOAD/SMART IMPORT CONTINUITY
---------------------------------
-v3.6.11 keeps NewzDeck ownership of a real SAB job across temporary queue-slot
-omissions. Automation/Wanted downloads should continue through:
-  Active -> Post-processing -> Completed -> Smart Import
-without disappearing from Downloads or losing the rename/move step.
-
-NewzDeck remains intentionally unsigned. Windows SmartScreen may display an
-Unknown Publisher warning. Verify the published SHA-256 file if desired.
+Existing settings, provider configuration, Automation data, history, queue
+state, and user data remain stored outside the program directory.

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.11** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.12** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.11_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.12_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.11 highlights
+## v3.6.12 highlights
 
-v3.6.11 is a focused SAB ownership/completion and in-app update lifecycle release built on v3.6.10.
+v3.6.12 is an installed Update Center lifecycle hotfix built on v3.6.11.
 
-- **Stable SAB ownership:** temporary SAB queue-slot omissions no longer remove a still-transferring package from NewzDeck.
-- **No automatic removal tombstones:** only explicit user Remove/Cancel actions create terminal tombstones.
-- **Smart Import continuity:** Automation jobs remain durably tracked through SAB queue-to-history handoff so Post-processing, Completed, rename, and move can run normally.
-- **Legacy auto-prune recovery:** recent reasonless tombstones from older builds can be reconciled when SAB history proves the job completed; genuine user removals remain suppressed.
-- **Managed Update Center handoff:** NewzDeck closes the actual desktop app window and tray, runs Setup, restores the installed background service and tray, then reopens NewzDeck.
-- **v3.6.10 preserved:** source-byte Python module loading and stale bytecode cleanup remain intact.
-- **v3.6.8 preserved:** all accepted image-browsing performance and gallery-quality work remains unchanged.
+- **Setup-owned runtime restore:** after a successful in-app update, Inno Setup itself owns service, tray, and app restoration instead of depending on the pre-update coordinator.
+- **Browser-hosted app close:** Setup invokes the newly installed native helper from the signed-in Setup session to close a still-open NewzDeck Edge/Chrome app-mode window.
+- **Service really restarts:** the existing background service is repaired and started after file replacement.
+- **Tray comes back:** Setup captures pre-upgrade tray state and restores the new tray after the service handoff.
+- **App reopens last:** `/update` installs relaunch NewzDeck at `ssDone`, after Setup post-install work is complete.
+- **No second coordinator UAC pass:** the external coordinator no longer performs service/tray/app restoration after Setup.
+- **v3.6.11 preserved:** SAB ownership/completion continuity and Smart Import reconciliation remain unchanged.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.11_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.12_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

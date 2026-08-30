@@ -148,7 +148,16 @@ jobs:
             "TerminateUpgradeNativeHelper('NewzDeckThumb.exe')",
             "TerminateUpgradeNativeHelper('NewzDeckYenc.exe')",
             'StopExistingServiceForUpgrade',
-            "RunElevatedAndWait(Helper, 'stop'"
+            "RunElevatedAndWait(Helper, 'stop'",
+            'RepairAndStartExistingService',
+            "Params := 'install --user-root '",
+            'CloseExistingAppWindowForUpgrade',
+            'Result := CloseExistingAppWindowForUpgrade();',
+            'CloseInstalledAppWindowForUpdate',
+            "Exec(Helper, '--close-app-windows'",
+            'RestoreTrayAfterInstall',
+            'RelaunchAppAfterUpdate',
+            'else if CurStep = ssDone then'
           )) {
             if (-not $installer.Contains($required)) {
               throw "Installer is missing required upgrade behavior '$required'."
@@ -159,6 +168,23 @@ jobs:
           }
           if ($installer.Contains('Sleep(1200)')) {
             throw 'Installer still uses the unsafe fixed 1.2-second service stop delay.'
+          }
+          if ($installer.Contains("Params := 'repair --user-root ' +")) {
+            throw 'Installer still repairs the service without starting it after upgrade.'
+          }
+
+          $picker = Get-Content -LiteralPath 'src/windows/NewzDeckPicker.go' -Raw
+          foreach ($required in @(
+            'Setup completed; installer owned runtime restore',
+            'strings.HasSuffix(low, " - newzdeck")',
+            'strings.HasSuffix(low, " | newzdeck")'
+          )) {
+            if (-not $picker.Contains($required)) {
+              throw "Picker source is missing installer-owned handoff behavior '$required'."
+            }
+          }
+          if ($picker.Contains('service start fallback exit=')) {
+            throw 'Picker still performs the retired post-Setup service restore.'
           }
 
           $builder = Get-Content -LiteralPath 'release/windows/build-portable.py' -Raw
@@ -361,10 +387,13 @@ jobs:
           $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-smoke-install'
           New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
-          function Run-Setup([string]$Label) {
+          function Run-Setup([string]$Label, [bool]$UpdateMode = $false) {
             $args = @(
               '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir"
             )
+            if ($UpdateMode) {
+              $args += '/update'
+            }
             $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
             if ($p.ExitCode -ne 0) {
               throw "$Label installer smoke test failed with exit code $($p.ExitCode)."
@@ -442,7 +471,34 @@ jobs:
             throw 'Picker-lock smoke process exited before the upgrade began.'
           }
 
-          Run-Setup 'Installed upgrade'
+          # v3.6.12 installer-owned restore must start the real service after
+          # overlay. Supply a deterministic stand-in python.exe that remains
+          # alive when the service wrapper starts server.py so CI can require
+          # the SCM state to stay RUNNING without downloading a private runtime.
+          $runtimeDir = Join-Path $installDir 'runtime'
+          New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+          $runtimeHoldSource = Join-Path $env:RUNNER_TEMP 'NewzDeckRuntimeHoldSmoke.go'
+          @'
+package main
+import "time"
+func main() { time.Sleep(120 * time.Second) }
+'@ | Set-Content -LiteralPath $runtimeHoldSource -Encoding utf8
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o (Join-Path $runtimeDir 'python.exe') $runtimeHoldSource
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not build the runtime-hold smoke helper.'
+          }
+
+          Run-Setup 'Installed upgrade' $true
+
+          Start-Sleep -Seconds 1
+          $restoredService = (& sc.exe query NewzDeckService | Out-String)
+          if ($restoredService -notmatch 'RUNNING') {
+            throw 'Installer-owned restore did not leave NewzDeckService RUNNING after /update.'
+          }
+          $restoredTray = @(Get-Process -Name NewzDeckTray -ErrorAction SilentlyContinue)
+          if ($restoredTray.Count -lt 1) {
+            throw 'Installer-owned restore did not relaunch NewzDeckTray.exe after /update.'
+          }
 
           try { $dummyProcess.Refresh() } catch {}
           if (-not $dummyProcess.HasExited) {
@@ -476,8 +532,16 @@ jobs:
             throw 'Installer service repair did not point NewzDeckService to the installed helper.'
           }
 
+          Get-Process -Name NewzDeckTray -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $installedServiceHelper = Join-Path $installDir 'NewzDeckService.exe'
+          if (Test-Path -LiteralPath $installedServiceHelper) {
+            $stopProcess = Start-Process -FilePath $installedServiceHelper -ArgumentList @('stop') -Wait -PassThru
+            if ($stopProcess.ExitCode -ne 0) {
+              throw "Could not stop restored smoke service cleanly (exit $($stopProcess.ExitCode))."
+            }
+          }
           & sc.exe delete NewzDeckService | Out-Null
-          Write-Host 'Installed-upgrade smoke test passed, including slow locked service and delayed-exit tray replacement.'
+          Write-Host 'Installed-upgrade smoke test passed, including service RUNNING restore, tray relaunch, slow locked service, and delayed-exit tray replacement.'
 
       - name: Publish GitHub Release
         shell: pwsh

@@ -1,24 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.11",
-  "base_version": "3.6.10",
-  "release": "SAB Ownership Continuity & Managed Update Handoff",
-  "adapter_version": "3.6.11",
+  "version": "3.6.12",
+  "base_version": "3.6.11",
+  "release": "Installer-Owned Runtime Restore",
+  "adapter_version": "3.6.12",
   "changes": [
-    "Prevents temporary SAB queue-slot omissions from destroying NewzDeck job ownership while SAB continues transferring the package.",
-    "Uses aggregate SAB transfer telemetry to bridge the active foreground package when SAB temporarily omits its individual queue slot, preventing 0-active UI gaps during a real transfer.",
-    "Reserves removal tombstones for explicit user Remove/Cancel actions; automatic stale ownership cleanup no longer creates a tombstone that can suppress later completion history.",
-    "Keeps Smart Import/Automation jobs durably tracked across queue-to-history handoff gaps and can reconcile recent legacy reasonless automatic-prune tombstones without resurrecting genuine user removals.",
-    "Adds a native managed in-app update coordinator copied outside the install directory so it survives Setup replacement of NewzDeck files.",
-    "Managed updates close the actual NewzDeck Edge/Chrome app-mode window and tray, run and wait for Setup, then restore the installed background service, tray, and NewzDeck application.",
-    "Applies the same managed lifecycle to verified online Update Center installs and manually selected NewzDeck Setup packages."
+    "Moves installed-update runtime restoration into Inno Setup, the component that authoritatively owns the successful file overlay.",
+    "On /update installs, Setup closes the still-open browser-hosted NewzDeck window after the new native helper is in place, before runtime restoration.",
+    "Existing background services are repaired and started by Setup after the new files are installed instead of depending on an external post-Setup coordinator.",
+    "The tray running/autostart state is captured before upgrade and the tray is restored after the service handoff.",
+    "NewzDeck is relaunched by Setup at ssDone after a successful in-app update.",
+    "The external update coordinator no longer performs a second elevated service-start/tray/app restore pass after Setup.",
+    "Release CI exercises the /update path and requires the upgraded service to be running and the tray process to be restored."
   ],
   "regression_guards": [
-    "Preserves v3.6.10 Python Source Freshness & Runtime Refresh.",
-    "Preserves v3.6.9 installer shutdown protection for the tray, background service, Picker, thumbnail workers, and native yEnc workers.",
-    "Preserves all accepted v3.6.8 image-browsing performance and gallery-quality improvements.",
-    "Explicit user Remove/Cancel tombstones remain terminal; only legacy reasonless automatic-prune tombstones can be reconciled.",
-    "The update coordinator runs from the version-independent update staging directory and therefore does not lock the installed NewzDeckPicker.exe during Setup."
+    "Preserves v3.6.11 SAB Ownership Continuity and Smart Import completion reconciliation.",
+    "Preserves v3.6.10 Python source-freshness protections.",
+    "Preserves v3.6.9 native-helper/service shutdown protections.",
+    "Preserves v3.6.8 image-browsing performance and gallery-quality behavior.",
+    "Manual non-/update Setup installs do not auto-open the NewzDeck UI."
   ],
-  "name": "SAB Ownership Continuity & Managed Update Handoff"
+  "name": "Installer-Owned Runtime Restore"
 }

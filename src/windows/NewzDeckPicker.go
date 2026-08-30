@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -173,7 +172,11 @@ func isNewzDeckWindow(hwnd uintptr) bool {
 	}
 	title := strings.TrimSpace(windowTitle(hwnd))
 	low := strings.ToLower(title)
-	return strings.EqualFold(title, "NewzDeck") || strings.HasPrefix(low, "newzdeck -") || strings.HasPrefix(low, "newzdeck v")
+	return strings.EqualFold(title, "NewzDeck") ||
+		strings.HasPrefix(low, "newzdeck -") ||
+		strings.HasPrefix(low, "newzdeck v") ||
+		strings.HasSuffix(low, " - newzdeck") ||
+		strings.HasSuffix(low, " | newzdeck")
 }
 
 func newzDeckWindows() []uintptr {
@@ -337,13 +340,15 @@ func updateHandoff() {
 	appDir := argValue("--app-dir")
 	userRoot := argValue("--user-root")
 	version := argValue("--version")
-	restoreService := argBool("--restore-service", false)
-	restoreTray := argBool("--restore-tray", true)
 	if setup == "" || appDir == "" {
 		return
 	}
 	appendHandoffLog(userRoot, "handoff starting for v"+version)
 
+	// Best-effort pre-Setup close. v3.6.12+ Setup is authoritative: after the
+	// new files are overlaid it closes the browser-hosted window again from the
+	// signed-in Setup session, starts the service, restores the tray, and relaunches
+	// NewzDeck. The coordinator deliberately does no second post-Setup restore/UAC.
 	closeNewzDeckWindows(6 * time.Second)
 	closeTray(5 * time.Second)
 	time.Sleep(250 * time.Millisecond)
@@ -354,36 +359,11 @@ func updateHandoff() {
 		appendHandoffLog(userRoot, "could not start Setup: "+err.Error())
 		return
 	}
-	err := cmd.Wait()
-	if err != nil {
+	if err := cmd.Wait(); err != nil {
 		appendHandoffLog(userRoot, "Setup returned error: "+err.Error())
 		return
 	}
-	appendHandoffLog(userRoot, "Setup completed successfully")
-	installedVersion := version
-	if b, e := os.ReadFile(filepath.Join(appDir, "version.txt")); e == nil && strings.TrimSpace(string(b)) != "" {
-		installedVersion = strings.TrimSpace(string(b))
-	}
-
-	serviceExe := filepath.Join(appDir, "NewzDeckService.exe")
-	if restoreService {
-		// Future installers restore the service themselves. This is a fallback for
-		// older installers or an interrupted post-install service restore.
-		code := runElevatedAndWait(serviceExe, "start", appDir)
-		appendHandoffLog(userRoot, "service start fallback exit="+strconv.Itoa(code))
-	}
-
-	if restoreTray {
-		tray := filepath.Join(appDir, "NewzDeckTray.exe")
-		_ = launchDetached(tray, "--app-dir", appDir, "--user-root", userRoot, "--version", installedVersion)
-		time.Sleep(350 * time.Millisecond)
-	}
-	app := filepath.Join(appDir, "NewzDeck.exe")
-	if err := launchDetached(app); err != nil {
-		appendHandoffLog(userRoot, "app relaunch failed: "+err.Error())
-	} else {
-		appendHandoffLog(userRoot, "app relaunched")
-	}
+	appendHandoffLog(userRoot, "Setup completed; installer owned runtime restore")
 }
 
 func main() {

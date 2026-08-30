@@ -1,31 +1,26 @@
-NewzDeck v3.6.11
-SAB Ownership Continuity & Managed Update Handoff
+NewzDeck v3.6.12
+Installer-Owned Runtime Restore
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-v3.6.11 fixes a SAB ownership/completion continuity failure where a real
-download could continue at full speed while its individual SAB queue slot was
-temporarily absent, causing NewzDeck to drop the card and lose the completion
-event required for Post-processing and Smart Import.
+v3.6.12 fixes the installed Update Center lifecycle after real-machine testing
+of v3.6.11. The previous release could install the new files and correctly stop
+the tray/service, yet leave the Chromium-hosted NewzDeck window open and fail
+to restore the service/tray afterward.
 
-It also upgrades the in-app Update Center to a managed lifecycle. A short-lived
-native coordinator closes the NewzDeck desktop window and tray, allows Setup to
-stop/upgrade the installed background service and application files, then
-restores the service, tray, and NewzDeck desktop application after Setup exits.
+The update authority now belongs to Setup itself:
+- Existing tray and service state are captured before upgrade.
+- Setup closes the browser-hosted NewzDeck window from the signed-in Setup session.
+- Setup stops the existing tray and service before replacing files.
+- After the new files are installed, Setup runs the new helper again as a safety
+  net before restoring the runtime.
+- Setup repairs AND starts the previously installed background service.
+- Setup restores the tray when it was previously running/configured.
+- At successful Setup completion, NewzDeck is relaunched automatically for
+  /update installs.
+- The external coordinator no longer performs a second post-Setup UAC/service
+  start pass.
 
-Highlights:
-- Stable Active ownership across temporary SAB queue-slot omissions.
-- No automatic removal tombstones from transient SAB presentation gaps.
-- Durable queue-to-history completion reconciliation for Automation/Smart Import.
-- Recovery of recent legacy automatic-prune tombstones while preserving explicit
-  user Remove/Cancel intent.
-- Managed Update Center close -> Setup -> restore -> relaunch handoff.
-- v3.6.10 Python source-freshness protections remain intact.
-- v3.6.9 installer runtime shutdown protections remain intact.
-- v3.6.8 image-browsing performance and gallery-quality work remains intact.
-
-For normal installed updates, use About & Updates inside NewzDeck or run the
-newest NewzDeck Setup.exe over the existing installation. User settings,
-provider configuration, queue state, Automation data, and history are stored
-outside the application directory and are preserved.
+v3.6.11 SAB ownership/completion continuity, v3.6.10 source freshness, and all
+accepted v3.6.8 browsing performance work remain preserved.

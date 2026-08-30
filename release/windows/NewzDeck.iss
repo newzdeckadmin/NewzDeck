@@ -85,6 +85,8 @@ const
 var
   ServiceWasInstalled: Boolean;
   TrayAutostartWasEnabled: Boolean;
+  TrayWasRunning: Boolean;
+  UpdateMode: Boolean;
 
 function GetWindowThreadProcessId(hWnd: HWND; var ProcessId: DWORD): DWORD;
   external 'GetWindowThreadProcessId@user32.dll stdcall';
@@ -100,6 +102,21 @@ function CloseHandle(Handle: THandle): Integer;
 function ServiceInstalled(): Boolean;
 begin
   Result := RegKeyExists(HKLM, ServiceRegKey);
+end;
+
+function IsUpdateMode(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if Lowercase(ParamStr(I)) = '/update' then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
 end;
 
 function RunElevatedAndWait(const FileName, Parameters, WorkingDir: String; var ResultCode: Integer): Boolean;
@@ -278,11 +295,46 @@ begin
   Sleep(750);
 end;
 
+function CloseExistingAppWindowForUpgrade(): String;
+var
+  Helper: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  if not UpdateMode then
+    Exit;
+
+  Helper := ExpandConstant('{app}\NewzDeckPicker.exe');
+  if not FileExists(Helper) then
+  begin
+    Log('Existing NewzDeckPicker.exe is unavailable; Setup will retry the browser-window close after file overlay.');
+    Exit;
+  end;
+
+  if not Exec(Helper, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Log('Setup could not launch the existing NewzDeckPicker.exe before overlay; Setup will retry after file overlay.');
+    Exit;
+  end;
+
+  Log('Pre-overlay NewzDeck browser-window close helper exit=' + IntToStr(ResultCode));
+  Sleep(300);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
+  UpdateMode := IsUpdateMode();
   ServiceWasInstalled := ServiceInstalled();
+  TrayWasRunning := FindWindowByClassName('NewzDeckTrayWindow') <> 0;
   TrayAutostartWasEnabled := RegValueExists(HKCU, TrayRunKey, TrayRunValue);
+
+  { The visible NewzDeck UI belongs to Edge/Chrome, not NewzDeck.exe. Run the
+    currently installed native helper from Setup's signed-in user session before
+    any application/service files are replaced. }
+  Result := CloseExistingAppWindowForUpgrade();
+  if Result <> '' then
+    Exit;
 
   { Close the signed-in-user tray companion and wait for the real process to
     exit before Inno's Restart Manager/file overlay work begins. }
@@ -300,7 +352,7 @@ begin
   StopUpgradeNativeHelpers();
 end;
 
-procedure RepairExistingService();
+procedure RepairAndStartExistingService();
 var
   Helper, Params, UserRoot, DefaultDownload, UserProfile: String;
   ResultCode: Integer;
@@ -318,13 +370,13 @@ begin
     UserProfile := ExpandConstant('{localappdata}');
   DefaultDownload := PathCombine(UserProfile, 'Downloads\NewzDeck');
 
-  Params := 'repair --user-root ' + QuoteArg(UserRoot) +
+  Params := 'install --user-root ' + QuoteArg(UserRoot) +
             ' --default-download-dir ' + QuoteArg(DefaultDownload);
 
   if not RunElevatedAndWait(Helper, Params, ExpandConstant('{app}'), ResultCode) then
-    MsgBox('NewzDeck was installed, but Windows did not allow the existing background service to be repaired. Open NewzDeck > Settings > Background Service and choose Repair.', mbError, MB_OK)
+    MsgBox('NewzDeck was installed, but Windows did not allow the existing background service to be repaired and started. Open NewzDeck > Settings > Background Service and choose Repair.', mbError, MB_OK)
   else if ResultCode <> 0 then
-    MsgBox('NewzDeck was installed, but background-service repair returned error code ' + IntToStr(ResultCode) + '. Open NewzDeck > Settings > Background Service and choose Repair.', mbError, MB_OK);
+    MsgBox('NewzDeck was installed, but background-service repair/start returned error code ' + IntToStr(ResultCode) + '. Open NewzDeck > Settings > Background Service and choose Repair.', mbError, MB_OK);
 end;
 
 procedure RefreshTrayAutostart();
@@ -341,13 +393,80 @@ begin
   RegWriteStringValue(HKCU, TrayRunKey, TrayRunValue, Cmd);
 end;
 
+procedure CloseInstalledAppWindowForUpdate();
+var
+  Helper: String;
+  ResultCode: Integer;
+begin
+  if not UpdateMode then
+    Exit;
+
+  Helper := ExpandConstant('{app}\NewzDeckPicker.exe');
+  if not FileExists(Helper) then
+  begin
+    Log('Updated NewzDeckPicker.exe is unavailable; the browser-hosted app window could not be closed by Setup.');
+    Exit;
+  end;
+
+  if not Exec(Helper, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Log('Setup could not launch NewzDeckPicker.exe to close the browser-hosted app window.')
+  else
+    Log('NewzDeck browser-window close helper exit=' + IntToStr(ResultCode));
+
+  Sleep(300);
+end;
+
+procedure RestoreTrayAfterInstall();
+var
+  Tray, Params: String;
+  ResultCode: Integer;
+begin
+  if not (ServiceWasInstalled or TrayWasRunning or TrayAutostartWasEnabled) then
+    Exit;
+
+  Tray := ExpandConstant('{app}\NewzDeckTray.exe');
+  if not FileExists(Tray) then
+    Exit;
+
+  Params := '--app-dir ' + QuoteArg(ExpandConstant('{app}')) +
+            ' --user-root ' + QuoteArg(ExpandConstant('{localappdata}\NewzDeck')) +
+            ' --version {#AppVersion}';
+
+  if not Exec(Tray, Params, ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode) then
+    Log('Setup could not restore the NewzDeck tray companion.')
+  else
+    Log('Setup restored the NewzDeck tray companion.');
+end;
+
+procedure RelaunchAppAfterUpdate();
+var
+  AppExe: String;
+  ResultCode: Integer;
+begin
+  if (not UpdateMode) or WizardSilent then
+    Exit;
+
+  AppExe := ExpandConstant('{app}\NewzDeck.exe');
+  if not FileExists(AppExe) then
+    Exit;
+
+  if not Exec(AppExe, '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode) then
+    MsgBox('NewzDeck was updated successfully, but Setup could not reopen the application. Start NewzDeck from the Start menu.', mbInformation, MB_OK)
+  else
+    Log('Setup relaunched NewzDeck after the successful update.');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    RepairExistingService();
+    CloseInstalledAppWindowForUpdate();
+    RepairAndStartExistingService();
     RefreshTrayAutostart();
-  end;
+    RestoreTrayAfterInstall();
+  end
+  else if CurStep = ssDone then
+    RelaunchAppAfterUpdate();
 end;
 
 procedure CurPageChanged(CurPageID: Integer);

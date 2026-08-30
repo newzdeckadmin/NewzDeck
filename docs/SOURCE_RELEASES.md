@@ -74,3 +74,5 @@ https://github.com/newzdeckadmin/NewzDeck/releases/latest
 - **v3.6.10** - Python Source Freshness & Runtime Refresh. Forces NewzDeck-owned Python modules to load from current source bytes, removes stale adjacent bytecode during startup/upgrades, and adds release guards for deterministic timestamp cache collisions.
 
 - **v3.6.11** - SAB Ownership Continuity & Managed Update Handoff. Preserves live SAB job ownership across transient slot omissions, restores queue-to-history Smart Import completion continuity, and adds a native close/Setup/restore/relaunch coordinator for in-app updates.
+
+- **v3.6.12** - Installer-Owned Runtime Restore. Makes Setup authoritative for closing the browser-hosted UI after overlay, repairing and starting the service, restoring the tray, and reopening NewzDeck after /update; production CI now exercises the /update restore path.
