@@ -484,6 +484,25 @@ class SabDownloadManager:
         # times before NewzDeck removes it from Active, unless another package has
         # clearly become SAB's foreground transfer.
         self._job_queued_observations: dict[str, int] = {}
+        # v3.6.13: once SAB has positively proven that a package is the live
+        # transfer owner, keep that ownership stable across longer all-zero / Queued
+        # presentation gaps. SAB can spend more than the old 8-second latch reshaping
+        # its queue at file boundaries while the transfer itself continues. A job is
+        # demoted immediately when SAB explicitly pauses it, exposes a terminal history
+        # record, or clearly moves a different package into the foreground. Otherwise
+        # a bounded continuity lease prevents the Active card from disappearing.
+        self._job_active_confirmed_ts: dict[str, float] = {}
+        self._active_continuity_seconds = 35.0
+        self._active_bridge_open: set[str] = set()
+        self._active_continuity_bridges = 0
+        self._active_continuity_last_ts = 0.0
+        # v3.6.13: an explicit Remove/Cancel must not hide a card until SAB has
+        # actually stopped owning that NZO id. Earlier code treated the localhost
+        # delete call as best-effort, immediately tombstoned the NewzDeck record,
+        # and could therefore leave a hidden SAB transfer consuming bandwidth.
+        self._removed_cleanup_attempt_ts: dict[str, float] = {}
+        self._orphan_removed_cleanup_count = 0
+        self._orphan_removed_cleanup_last_ts = 0.0
         # Terminal SAB failures need to feed back into Interactive Search promptly.
         # Keep an in-process guard as well as a persisted per-job flag so the UI poll
         # and completion thread can both observe a fast failure without duplicate work.
@@ -710,7 +729,7 @@ class SabDownloadManager:
                 jobs.pop(nzo_id, None)
             else:
                 # A newer real ownership record supersedes an older tombstone. This is
-                # important when v3.6.12 recovers a job that an older build incorrectly
+                # important when v3.6.13 recovers a job that an older build incorrectly
                 # auto-pruned while SAB was still downloading it.
                 removed.pop(nzo_id, None)
                 removed_reasons.pop(nzo_id, None)
@@ -758,6 +777,128 @@ class SabDownloadManager:
         removed[str(nzo_id)] = time.time()
         reasons = self.state.setdefault("removed_job_reasons", {})
         reasons[str(nzo_id)] = str(reason or "user")
+
+    @staticmethod
+    def _sab_mutation_accepted(result: Any) -> bool:
+        """Treat an explicit SAB status=false response as a failed mutation."""
+        if not isinstance(result, dict):
+            return True
+        status = result.get("status")
+        if status is False or str(status).strip().casefold() in {"false", "0", "no"}:
+            return False
+        return not bool(result.get("error"))
+
+    @staticmethod
+    def _slot_ids(slots: list[dict[str, Any]]) -> set[str]:
+        return {
+            str(x.get("nzo_id") or x.get("id") or "")
+            for x in slots if isinstance(x, dict) and str(x.get("nzo_id") or x.get("id") or "")
+        }
+
+    def _delete_sab_job_verified(self, nzo_id: str, *, delete_files: bool = True) -> tuple[bool, str]:
+        """Stop/delete one SAB job and prove it is no longer live before hiding it.
+
+        Remove/Cancel is user intent, so NewzDeck must never turn an unverified API
+        attempt into a local tombstone. Queue absence is the authoritative proof that
+        the transfer has stopped; history is then cleaned as a secondary step.
+        """
+        nzo_id = str(nzo_id or "").strip()
+        if not nzo_id:
+            return False, "Missing SAB job id"
+        if not self._ping(timeout=0.8):
+            self.sync_event.set()
+            return False, "Built-in download engine is reconnecting; the download was not removed"
+
+        try:
+            queue_payload = self._api("queue", start=0, limit=500, timeout=2.0)
+            _qroot, qslots = self._queue_slots(queue_payload)
+            queue_present = nzo_id in self._slot_ids(qslots)
+        except Exception as exc:
+            return False, f"Could not read the SAB queue before removal: {exc}"
+
+        if queue_present:
+            last_error = ""
+            for attempt in range(2):
+                try:
+                    result = self._api(
+                        "queue", name="delete", value=nzo_id,
+                        del_files=1 if delete_files else 0, timeout=4,
+                    )
+                    if not self._sab_mutation_accepted(result):
+                        last_error = str(result.get("error") or result.get("status") or "SAB rejected queue deletion")
+                    else:
+                        last_error = ""
+                except Exception as exc:
+                    last_error = str(exc)
+
+                deadline = time.monotonic() + 2.5
+                while time.monotonic() < deadline:
+                    try:
+                        queue_payload = self._api("queue", start=0, limit=500, timeout=1.5)
+                        _qroot, qslots = self._queue_slots(queue_payload)
+                        if nzo_id not in self._slot_ids(qslots):
+                            queue_present = False
+                            break
+                    except Exception as exc:
+                        last_error = str(exc)
+                    time.sleep(0.18)
+                if not queue_present:
+                    break
+            if queue_present:
+                detail = f": {last_error}" if last_error else ""
+                return False, f"SAB is still transferring this download after the remove request{detail}"
+
+        # If the job completed/failed during the delete handoff, remove its history
+        # entry too. Failure to clear history must not pretend a live transfer remains;
+        # the authoritative safety requirement above is queue absence.
+        try:
+            history_payload = self._api("history", start=0, limit=500, timeout=2.0)
+            _hroot, hslots = self._history_slots(history_payload)
+            if nzo_id in self._slot_ids(hslots):
+                result = self._api(
+                    "history", name="delete", value=nzo_id, archive=0,
+                    del_files=1 if delete_files else 0, timeout=4,
+                )
+                if not self._sab_mutation_accepted(result):
+                    self._event("warning", "SAB history cleanup was rejected after transfer stopped", nzo_id=nzo_id)
+        except Exception as exc:
+            self._event("warning", "SAB history cleanup failed after transfer stopped", nzo_id=nzo_id, error=str(exc))
+        return True, ""
+
+    def _enforce_removed_tombstones(self, qslots: list[dict[str, Any]]) -> list[str]:
+        """Re-issue delete for legacy/user tombstones that SAB still exposes live.
+
+        This repairs the pre-r3 failure mode on first poll: a card that was hidden by
+        an older unverified Remove remains explicit user intent, so r3 stops the
+        underlying SAB transfer instead of resurrecting the card and redownloading it.
+        """
+        live_ids = self._slot_ids(qslots)
+        if not live_ids:
+            return []
+        now = time.time()
+        with self.lock:
+            removed = {
+                str(k): _num(v, 0) for k, v in (self.state.get("removed_jobs") or {}).items()
+                if _num(v, 0) >= now - 7 * 86400
+            }
+            reasons = {str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()}
+        candidates = [
+            nzo for nzo in live_ids
+            if nzo in removed and reasons.get(nzo) and now - self._removed_cleanup_attempt_ts.get(nzo, 0.0) >= 4.0
+        ]
+        attempted: list[str] = []
+        for nzo in candidates:
+            self._removed_cleanup_attempt_ts[nzo] = now
+            attempted.append(nzo)
+            try:
+                result = self._api("queue", name="delete", value=nzo, del_files=1, timeout=4)
+                if not self._sab_mutation_accepted(result):
+                    self._event("warning", "SAB rejected cleanup of a previously removed live job", nzo_id=nzo)
+                    continue
+                self._event("info", "Reissued stop for hidden SAB transfer left by an older unverified Remove/Cancel", nzo_id=nzo)
+            except Exception as exc:
+                self._event("warning", "Could not stop hidden SAB transfer for a removed job", nzo_id=nzo, error=str(exc))
+        return attempted
 
     def _touch_job_locked(self, rec: dict[str, Any]) -> None:
         rec["_updated_ts"] = time.time()
@@ -990,7 +1131,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.12"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.13"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1284,7 +1425,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.12 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.13 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1501,7 +1642,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.12 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck 3.6.13 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -2339,7 +2480,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.12",
+            "adapter_version": "3.6.13",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -2988,6 +3129,35 @@ class SabDownloadManager:
         self._last_snapshot_ts = 0
         return len(additions) + len(repairs)
 
+    def _active_continuity_allowed(self, nzo_id: str, now: float, *, prior_status: str,
+                                   queue_paused: bool, foreground_id: str = "",
+                                   slot_status: str = "") -> bool:
+        """Keep a proven live SAB owner Active through bounded presentation gaps.
+
+        This is intentionally stricter than an ordinary time-based card cache. The
+        lease starts only after SAB positively identifies the job as downloading,
+        fetching, foreground, or making byte progress. Explicit pause/propagation, a
+        competing foreground job, or a terminal history record still wins immediately.
+        """
+        if str(prior_status or "").casefold() != "downloading" or queue_paused:
+            return False
+        if str(slot_status or "").casefold() in {"paused", "propagating"}:
+            return False
+        if foreground_id and foreground_id != nzo_id:
+            return False
+        confirmed = float(self._job_active_confirmed_ts.get(nzo_id, 0.0) or 0.0)
+        return bool(confirmed > 0 and now - confirmed <= self._active_continuity_seconds)
+
+    def _mark_active_bridge(self, nzo_id: str, now: float) -> None:
+        if nzo_id not in self._active_bridge_open:
+            self._active_bridge_open.add(nzo_id)
+            self._active_continuity_bridges += 1
+            self._active_continuity_last_ts = now
+
+    def _confirm_active_owner(self, nzo_id: str, now: float) -> None:
+        self._job_active_confirmed_ts[nzo_id] = now
+        self._active_bridge_open.discard(nzo_id)
+
     def _status_for_queue(self, status: str) -> tuple[str, str]:
         raw = str(status or "Queued")
         low = raw.casefold()
@@ -3253,7 +3423,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.12 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.13 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -3261,6 +3431,23 @@ class SabDownloadManager:
             queue_payload, history_payload = self._queue_and_history(live=True)
             qroot, qslots = self._queue_slots(queue_payload)
             hroot, hslots = self._history_slots(history_payload)
+            # r3 migration/recovery: if an older NewzDeck build tombstoned a Remove
+            # before SAB actually deleted the live job, enforce that explicit user
+            # intent now. Refresh Queue/History once so aggregate telemetry and cards
+            # immediately reflect the stopped transfer.
+            cleanup_ids = self._enforce_removed_tombstones(qslots)
+            if cleanup_ids:
+                queue_payload, history_payload = self._queue_and_history(live=False)
+                qroot, qslots = self._queue_slots(queue_payload)
+                hroot, hslots = self._history_slots(history_payload)
+                remaining_live=self._slot_ids(qslots)
+                for cleaned_id in cleanup_ids:
+                    if cleaned_id not in remaining_live:
+                        self._orphan_removed_cleanup_count += 1
+                        self._orphan_removed_cleanup_last_ts = time.time()
+                        self._event("warning", "Stopped hidden SAB transfer left by an older unverified Remove/Cancel", nzo_id=cleaned_id)
+                    else:
+                        self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
             self._adopt_untracked_slots(qslots, hslots)
             self._kick_completed_automation_imports(qslots, hslots)
         except Exception as exc:
@@ -3406,11 +3593,24 @@ class SabDownloadManager:
                 prior = self._job_last_view.get(nzo_id)
                 prior_status = str((prior or {}).get("status") or "")
                 aggregate_bridge = bool(aggregate_live_signal and nzo_id == aggregate_owner_id)
-                if aggregate_bridge:
+                continuity_bridge = self._active_continuity_allowed(
+                    nzo_id, now, prior_status=prior_status, queue_paused=queue_paused,
+                    foreground_id=foreground_id, slot_status="",
+                )
+                if aggregate_bridge or continuity_bridge:
                     job = dict(prior) if prior is not None else self._offline_job_from_meta(nzo_id, meta, now)
                     if str(job.get("status") or "").casefold() not in {"completed", "failed", "cancelled"}:
                         job["status"] = "downloading"
-                        job["status_detail"] = "Downloading • SAB is refreshing queue details"
+                        if continuity_bridge and not aggregate_bridge:
+                            job["status_detail"] = "Downloading • holding Active through SAB queue handoff"
+                            self._mark_active_bridge(nzo_id, now)
+                        else:
+                            job["status_detail"] = "Downloading • SAB is refreshing queue details"
+                            # Aggregate speed/socket/Downloading telemetry is positive
+                            # evidence that the selected durable owner is still live.
+                            # Refresh the continuity lease so a long slot omission does
+                            # not expire merely because SAB kept exposing only aggregate data.
+                            self._confirm_active_owner(nzo_id, now)
                         if display_speed > 0:
                             job["speed_bps"] = display_speed
                         if display_connections > 0:
@@ -3448,6 +3648,8 @@ class SabDownloadManager:
                         self._job_last_view.pop(nzo_id, None)
                         self._job_last_seen_ts.pop(nzo_id, None)
                         self._active_latch_until.pop(nzo_id, None)
+                        self._job_active_confirmed_ts.pop(nzo_id, None)
+                        self._active_bridge_open.discard(nzo_id)
                         self._job_queued_observations.pop(nzo_id, None)
                         self._save_state()
                     self._event("warning", "Released stale SAB ownership record without removal tombstone",
@@ -3464,8 +3666,11 @@ class SabDownloadManager:
                 prior_done = max(0, int(prior.get("downloaded_bytes", 0) or 0))
                 current_done = max(0, int(job.get("downloaded_bytes", 0) or 0))
                 progress_advanced = current_done > prior_done
-                genuinely_active = slot_status in {"downloading", "fetching"} or nzo_id == foreground_id or progress_advanced
-                if genuinely_active:
+                direct_active = slot_status in {"downloading", "fetching"} or nzo_id == foreground_id or progress_advanced
+                continuity_active = False
+                genuinely_active = direct_active
+                if direct_active:
+                    self._confirm_active_owner(nzo_id, now)
                     self._active_latch_until[nzo_id] = now + 8.0
                     self._job_queued_observations[nzo_id] = 0
                 elif (job.get("status") == "queued" and prior_was_active and not queue_paused
@@ -3473,18 +3678,35 @@ class SabDownloadManager:
                       and (not foreground_id or foreground_id == nzo_id)):
                     observations = self._job_queued_observations.get(nzo_id, 0) + 1
                     self._job_queued_observations[nzo_id] = observations
-                    # Require several coherent observations before an active card is
-                    # demoted. The time latch bridges longer SAB article/file handoffs;
-                    # the observation gate handles fast polling without flicker.
-                    if observations < 4 or self._active_latch_until.get(nzo_id, 0.0) > now:
+                    continuity_active = self._active_continuity_allowed(
+                        nzo_id, now, prior_status="downloading", queue_paused=queue_paused,
+                        foreground_id=foreground_id, slot_status=slot_status,
+                    )
+                    # The original observation/latch gate remains as the fast path. The
+                    # continuity lease handles the longer SAB file-boundary gaps that can
+                    # outlive 8 seconds while the underlying transfer keeps progressing.
+                    if observations < 4 or self._active_latch_until.get(nzo_id, 0.0) > now or continuity_active:
                         genuinely_active = True
+                        if continuity_active:
+                            self._mark_active_bridge(nzo_id, now)
                 else:
                     self._job_queued_observations[nzo_id] = 0
                 if genuinely_active and job.get("status") == "queued":
                     job["status"] = "downloading"
-                    job["status_detail"] = str(slot.get("stage_log") or slot.get("status") or "Downloading")
+                    job["status_detail"] = (
+                        "Downloading • holding Active through SAB queue handoff"
+                        if continuity_active else str(slot.get("stage_log") or slot.get("status") or "Downloading")
+                    )
                     if nzo_id == foreground_id and display_speed > 0:
                         job["speed_bps"] = display_speed
+                    elif continuity_active and display_speed <= 0:
+                        prior_speed = max(0, int(prior.get("speed_bps", 0) or 0))
+                        confirmed = float(self._job_active_confirmed_ts.get(nzo_id, 0.0) or 0.0)
+                        if prior_speed > 0 and now - confirmed <= 12.0:
+                            job["speed_bps"] = prior_speed
+                            remaining_for_job = max(0, int(job.get("expected_bytes", 0) or 0) - int(job.get("downloaded_bytes", 0) or 0))
+                            if remaining_for_job > 0:
+                                job["eta_seconds"] = int(remaining_for_job / prior_speed)
                 if genuinely_active and nzo_id == foreground_id:
                     job["connections_used"] = display_connections
                     if display_speed > 0:
@@ -3503,6 +3725,8 @@ class SabDownloadManager:
                             job["status_detail"] = "Connecting to Usenet provider…"
             else:
                 self._active_latch_until.pop(nzo_id, None)
+                self._job_active_confirmed_ts.pop(nzo_id, None)
+                self._active_bridge_open.discard(nzo_id)
                 self._job_queued_observations.pop(nzo_id, None)
             self._job_last_seen_ts[nzo_id] = now
             self._job_last_view[nzo_id] = dict(job)
@@ -3574,11 +3798,15 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.12", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.13", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
                                 "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0,
+                                "active_card_continuity_bridges": int(self._active_continuity_bridges),
+                                "active_card_continuity_last_ts": float(self._active_continuity_last_ts),
+                                "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count),
+                                "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts),
                                 "slot_utilization_pct": (100.0 * actual_active_connections / configured) if active_dl and configured else 0, "inflight_articles": 0,
                                 "rar_lanes_active": 0, "rar_lanes_target": 0, "bandwidth": {"enabled": False, "active": False}},
                   "statistics": statistics, "engine": engine}
@@ -3595,68 +3823,66 @@ class SabDownloadManager:
         self._refresh_shared_state()
         ids = self._ids(job_id, job_ids)
 
-        # Removing a NewzDeck queue record must always work, even if a corrupted old
-        # SAB identity is currently unreachable. Engine deletion is best-effort; local
-        # ghost placeholders are never allowed to trap the user again.
+        # r3: Remove is authoritative stop+delete, not a best-effort local hide.
+        # Do not create a tombstone until SAB queue absence proves the transfer ended.
         if action == "remove":
             if not ids:
                 raise ValueError("No downloads were selected")
-            ready = self._ping(timeout=0.6)
-            if ready:
-                for nzo in ids:
-                    try:
-                        self._api("queue", name="delete", value=nzo, del_files=1, timeout=4)
-                    except Exception:
-                        try:
-                            self._api("history", name="delete", value=nzo, archive=0, del_files=1, timeout=4)
-                        except Exception:
-                            pass
-            with self.lock:
-                for nzo in ids:
-                    self._tracked().pop(nzo, None)
-                    self._mark_removed_locked(nzo)
-                    self._job_last_view.pop(nzo, None)
-                    self._job_last_seen_ts.pop(nzo, None)
-                    self._active_latch_until.pop(nzo, None)
-                    self._job_missing_since.pop(nzo, None)
-                    self._job_queued_observations.pop(nzo, None)
-                self._save_state()
+            succeeded: list[str] = []
+            failures: list[str] = []
+            for nzo in ids:
+                ok, message = self._delete_sab_job_verified(nzo, delete_files=True)
+                if ok:
+                    succeeded.append(nzo)
+                else:
+                    failures.append(f"{nzo}: {message}")
+            if succeeded:
+                with self.lock:
+                    for nzo in succeeded:
+                        self._tracked().pop(nzo, None)
+                        self._mark_removed_locked(nzo, reason="remove")
+                        self._job_last_view.pop(nzo, None)
+                        self._job_last_seen_ts.pop(nzo, None)
+                        self._active_latch_until.pop(nzo, None)
+                        self._job_active_confirmed_ts.pop(nzo, None)
+                        self._active_bridge_open.discard(nzo)
+                        self._job_missing_since.pop(nzo, None)
+                        self._job_queued_observations.pop(nzo, None)
+                    self._save_state()
             self._last_snapshot_ts = 0
+            if failures:
+                raise RuntimeError("Remove was not confirmed; NewzDeck kept the download visible. " + " | ".join(failures[:3]))
             return self.snapshot()
 
-        # Cancel also clears an unreachable local placeholder. If SAB is healthy, issue
-        # the real queue/history delete first so download/post-processing is stopped.
+        # Cancel uses the same verified stop invariant. It may be presented differently
+        # by the UI, but it must never create a hidden continuing SAB transfer.
         if action == "cancel":
             if not ids:
                 raise ValueError("No downloads were selected")
-            ready = self._ping(timeout=0.6)
-            if not ready:
-                # Engine recovery continues on the background adapter thread; do not
-                # block the user's Cancel action behind a 40-second engine startup.
-                self.sync_event.set()
-            if ready:
-                for nzo in ids:
-                    try:
-                        self._api("queue", name="delete", value=nzo, del_files=1, timeout=4)
-                    except Exception:
-                        try:
-                            self._api("history", name="delete", value=nzo, archive=0, del_files=1, timeout=4)
-                        except Exception:
-                            pass
-            # Cancel is terminal from NewzDeck's perspective. Clear the local tracked
-            # record whether SAB was reachable or not so a detached migration record
-            # can never remain stuck as Queued after the user canceled it.
-            with self.lock:
-                for nzo in ids:
-                    self._tracked().pop(nzo, None)
-                    self._mark_removed_locked(nzo)
-                    self._job_last_view.pop(nzo, None)
-                    self._job_last_seen_ts.pop(nzo, None)
-                    self._active_latch_until.pop(nzo, None)
-                    self._job_missing_since.pop(nzo, None)
-                    self._job_queued_observations.pop(nzo, None)
-                self._save_state()
+            succeeded: list[str] = []
+            failures: list[str] = []
+            for nzo in ids:
+                ok, message = self._delete_sab_job_verified(nzo, delete_files=True)
+                if ok:
+                    succeeded.append(nzo)
+                else:
+                    failures.append(f"{nzo}: {message}")
+            if succeeded:
+                with self.lock:
+                    for nzo in succeeded:
+                        self._tracked().pop(nzo, None)
+                        self._mark_removed_locked(nzo, reason="cancel")
+                        self._job_last_view.pop(nzo, None)
+                        self._job_last_seen_ts.pop(nzo, None)
+                        self._active_latch_until.pop(nzo, None)
+                        self._job_active_confirmed_ts.pop(nzo, None)
+                        self._active_bridge_open.discard(nzo)
+                        self._job_missing_since.pop(nzo, None)
+                        self._job_queued_observations.pop(nzo, None)
+                    self._save_state()
             self._last_snapshot_ts = 0
+            if failures:
+                raise RuntimeError("Cancel was not confirmed; NewzDeck kept the download visible. " + " | ".join(failures[:3]))
             return self.snapshot()
 
         # Local Stop All must remain usable during an engine reconnect.

@@ -1,25 +1,25 @@
-NewzDeck v3.6.12
-Installer-Owned Runtime Restore
+NewzDeck v3.6.13
+Download Continuity & Automation Clarity
 Updating
 
 INSTALLED NEWZDECK
 ------------------
 Use NewzDeck > About & Updates > Install Update.
 
-For an in-app update, v3.6.12 Setup is the authoritative lifecycle owner:
+The v3.6.12 installer-owned update lifecycle remains authoritative in v3.6.13:
   1. Capture whether the background service and tray are present/running.
   2. Close the browser-hosted NewzDeck app window from the signed-in Setup session.
-  3. Stop the tray.
-  4. Stop the background service.
-  5. Replace NewzDeck program files.
-  6. Run a second app-window close with the newly installed helper as a safety net.
-  7. Repair and START the existing background service.
-  8. Restore the tray.
-  9. Finish Setup.
- 10. Relaunch NewzDeck automatically.
+  3. Stop the tray and background service.
+  4. Replace NewzDeck program files.
+  5. Run the newly installed helper as a second app-window-close safety net.
+  6. Repair and START the existing background service.
+  7. Restore the tray.
+  8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-Portable users should close NewzDeck and extract the new Portable ZIP to a
-fresh folder.
+v3.6.13 additionally preserves live download ownership through transient SAB queue
+presentation gaps, verifies Remove/Cancel before hiding jobs, and makes season packs
+fallback-only.
 
-Existing settings, provider configuration, Automation data, history, queue
-state, and user data remain stored outside the program directory.
+Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
+Existing settings, provider configuration, Automation data, history, queue state, and
+user data remain stored outside the program directory.

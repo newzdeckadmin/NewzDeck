@@ -271,7 +271,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.12'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.13'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -1166,11 +1166,28 @@ class MediaAutomationEngine:
             return bool(date and date>=enabled_date)
         return bool(date and date>=enabled_date)
 
-    def _season_pack_rows(self, missing_rows:list[dict[str,Any]], lib:dict[str,dict[str,Any]]) -> list[dict[str,Any]]:
-        """Build conservative season-pack targets from fully aired seasons.
+    def _wanted_automatic_policy(self, row:dict[str,Any], item:dict[str,Any], cfg:dict[str,Any], *, upgrade:bool=False) -> dict[str,Any]:
+        """Explain whether Continuous Automation will act on a Wanted row.
 
-        NewzDeck only auto-prefers a pack after every known monitored episode in the
-        season has aired. This avoids grabbing rolling/incomplete season bundles.
+        Wanted is intentionally broader than the automatic scheduler: it also shows
+        monitored media that the user can search manually.  Surface the scheduler's
+        policy gates here so an item never looks silently ignored.
+        """
+        if not bool(cfg.get('automatic_grab_enabled')):
+            return {'status':'manual','eligible':False,'label':'','message':'Continuous Automation is disabled; manual Search releases remains available.'}
+        if upgrade and not bool(cfg.get('automatic_upgrades_enabled')):
+            return {'status':'upgrades_paused','eligible':False,'label':'UPGRADES OFF','message':'Automatic quality upgrades are disabled in Automation Setup; manual Search releases remains available.'}
+        if not self._auto_backlog_eligible(row,item,cfg):
+            return {'status':'backlog_paused','eligible':False,'label':'BACKLOG PAUSED','message':'This item was already missing when Continuous Automation was enabled. Enable Search existing missing backlog in Automation Setup to search and grab it automatically.'}
+        return {'status':'eligible','eligible':True,'label':'','message':''}
+
+    def _season_pack_rows(self, missing_rows:list[dict[str,Any]], lib:dict[str,dict[str,Any]]) -> list[dict[str,Any]]:
+        """Build fallback-only season-pack targets from fully aired, wholly-missing seasons.
+
+        Automatic season packs are deliberately conservative. NewzDeck first searches
+        individual episodes and only considers a pack when every monitored episode in
+        the fully aired season is still missing. This prevents a huge pack from
+        duplicating episodes that already exist or are already downloading.
         """
         today=datetime.now().date().isoformat(); grouped={}
         for row in missing_rows:
@@ -1188,15 +1205,20 @@ class MediaAutomationEngine:
             if len(eps)<2: continue
             if any(not str(ep.get('air_date') or '') or str(ep.get('air_date') or '')>today for ep in eps): continue
             missing_nums=sorted({int(x.get('episode') or 0) for x in rows if int(x.get('episode') or 0)>0})
+            known_nums=sorted(int(x.get('episode_number') or 0) for x in eps)
             if len(missing_nums)<2: continue
+            # Fallback packs are only safe when the whole monitored, fully aired
+            # season is missing. Once even one episode exists, keep searching the
+            # remaining episodes individually rather than redownloading the season.
+            if missing_nums != known_nums: continue
             out.append({
                 'item_id':item_id,'kind':'tv','title':str((item or {}).get('title') or rows[0].get('title') or ''),
                 'season':sn,'episode':None,'season_pack':True,'pack_episode_numbers':missing_nums,
-                'pack_known_episode_numbers':sorted(int(x.get('episode_number') or 0) for x in eps),
+                'pack_known_episode_numbers':known_nums,
                 'date':max((str(x.get('date') or '') for x in rows),default=''),
                 'label':f"{(item or {}).get('title') or rows[0].get('title')} Season {sn} pack",
                 'reason_code':'season_pack','reason_label':'Season pack opportunity',
-                'reason_detail':f'{len(missing_nums)} released episodes are missing in a fully aired season.',
+                'reason_detail':f'All {len(missing_nums)} monitored episodes are missing in a fully aired season; a pack may be used only if individual searches find nothing acceptable.',
                 'auto_type':'season_pack',
             })
         return out
@@ -1228,7 +1250,10 @@ class MediaAutomationEngine:
             rows.extend(missing_rows)
             if bool(cfg.get('automatic_upgrades_enabled')):
                 rows += [dict(x,auto_type='upgrade') for x in wanted.get('upgrades') or []]
-            rows.sort(key=lambda x:(1 if x.get('season_pack') else 0,str(x.get('date') or ''),str(x.get('label') or '')),reverse=True)
+            # Individual episodes always get first refusal. Season packs are a
+            # fallback and are evaluated last, after the episode targets have had
+            # a chance to find/queue acceptable releases in this same cycle.
+            rows.sort(key=lambda x:(0 if x.get('season_pack') else 1,str(x.get('date') or ''),str(x.get('label') or '')),reverse=True)
             active=self._auto_active_targets(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets
             queue_depth=max(1,int(cfg.get('automatic_queue_depth') or 25)); max_grabs=max(0,queue_depth-len(active)); max_searches=max(12,min(250,max(1,max_grabs)*5))
             release_delay=max(0,int(cfg.get('automatic_release_delay_minutes') or 0))*60
@@ -1252,6 +1277,23 @@ class MediaAutomationEngine:
                 try: pack_key=f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}:pack"
                 except Exception: pack_key=''
                 if not row.get('season_pack') and pack_key and pack_key in active: skipped+=1; continue
+                if row.get('season_pack'):
+                    # Never run a pack alongside member episodes. This closes the
+                    # opposite-direction race where episode jobs were already active
+                    # from an earlier cycle and a later cycle could still add a pack.
+                    member_keys=[]
+                    for en in row.get('pack_episode_numbers') or []:
+                        try: member_keys.append(f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}")
+                        except Exception: pass
+                    if any(member_key in active for member_key in member_keys):
+                        skipped+=1; continue
+                    # Pack is truly fallback-only: every member episode must already
+                    # have completed a full individual search with no acceptable
+                    # candidate. If any episode has not been searched yet, is retrying
+                    # after an error, or is otherwise undecided, defer the pack.
+                    member_recs=[targets.get(member_key) if isinstance(targets.get(member_key),dict) else {} for member_key in member_keys]
+                    if not member_recs or any(str(rec.get('status') or '')!='waiting' or float(rec.get('last_search_ts') or 0)<=0 for rec in member_recs):
+                        skipped+=1; continue
                 if key in active:
                     targets.setdefault(key,{}).update({'status':'queued','updated_ts':now,'message':'Download already queued'}); skipped+=1; continue
                 rec=targets.setdefault(key,{})
@@ -1300,6 +1342,10 @@ class MediaAutomationEngine:
                 rel=dict(candidates[0]); rel.update({'automatic':True,'target_key':key,'auto_type':row.get('auto_type') or 'missing','season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'pack_known_episode_numbers':list(row.get('pack_known_episode_numbers') or [])})
                 grabbed=self.grab_release(rel)
                 active.add(key)
+                if bool(row.get('season_pack')):
+                    for en in row.get('pack_episode_numbers') or []:
+                        try: active.add(f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}")
+                        except Exception: pass
                 if bool(grabbed.get('already_queued')):
                     skipped+=1
                     rec.update({'status':'queued','message':str(grabbed.get('reason') or 'Download already queued by another NewzDeck runtime'),'updated_ts':time.time(),'last_collection_id':str(grabbed.get('collection_id') or rec.get('last_collection_id') or '')})
@@ -3858,9 +3904,9 @@ class MediaAutomationEngine:
                 released=self._aired(wanted_date)
                 if released:
                     if not item.get('movie_file'):
-                        row={'item_id':item['id'],'kind':'movie','title':item['title'],'year':item.get('year'),'date':wanted_date,'availability':availability,'label':item['title'],'cutoff':cutoff,'reason_code':'missing','reason_label':'Missing movie file','reason_detail':'The movie is available under your release policy but no library file is present.'}; row['target_key']=self._auto_target_key(row=row); missing.append(row)
+                        row={'item_id':item['id'],'kind':'movie','title':item['title'],'year':item.get('year'),'date':wanted_date,'availability':availability,'label':item['title'],'cutoff':cutoff,'reason_code':'missing','reason_label':'Missing movie file','reason_detail':'The movie is available under your release policy but no library file is present.'}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
                     elif str(item.get('monitor_mode') or 'movie')!='missing' and not item['movie_file'].get('cutoff_met'):
-                        row={'item_id':item['id'],'kind':'movie','title':item['title'],'date':wanted_date,'availability':availability,'current_quality':item['movie_file'].get('quality'),'cutoff':cutoff,'label':item['title'],'reason_code':'upgrade','reason_label':'Quality below cutoff','reason_detail':f"Current {item['movie_file'].get('quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}; row['target_key']=self._auto_target_key(row=row); upgrades.append(row)
+                        row={'item_id':item['id'],'kind':'movie','title':item['title'],'date':wanted_date,'availability':availability,'current_quality':item['movie_file'].get('quality'),'cutoff':cutoff,'label':item['title'],'reason_code':'upgrade','reason_label':'Quality below cutoff','reason_detail':f"Current {item['movie_file'].get('quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=True); upgrades.append(row)
             else:
                 for season in item.get('seasons') or []:
                     if not season.get('monitored',True): continue
@@ -3868,10 +3914,16 @@ class MediaAutomationEngine:
                         if not ep.get('monitored',True) or not self._aired(str(ep.get('air_date') or '')): continue
                         row={'item_id':item['id'],'kind':'tv','title':item['title'],'season':season.get('season_number'),'episode':ep.get('episode_number'),'episode_name':ep.get('name'),'date':ep.get('air_date'),'label':f"{item['title']} S{int(season.get('season_number',0)):02d}E{int(ep.get('episode_number',0)):02d}",'cutoff':cutoff,'reason_code':'missing' if not ep.get('has_file') else 'upgrade','reason_label':'Missing episode' if not ep.get('has_file') else 'Quality below cutoff','reason_detail':'Released monitored episode has no library file.' if not ep.get('has_file') else f"Current {ep.get('file_quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}
                         row['target_key']=self._auto_target_key(row=row)
-                        if not ep.get('has_file'): missing.append(row)
-                        elif str(item.get('monitor_mode') or 'all')!='missing' and not ep.get('cutoff_met'): upgrades.append({**row,'current_quality':ep.get('file_quality')})
+                        if not ep.get('has_file'):
+                            row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
+                        elif str(item.get('monitor_mode') or 'all')!='missing' and not ep.get('cutoff_met'):
+                            upgrade_row={**row,'current_quality':ep.get('file_quality')}; upgrade_row['automation_policy']=self._wanted_automatic_policy(upgrade_row,item,cfg,upgrade=True); upgrades.append(upgrade_row)
         missing.sort(key=lambda x:(x.get('date') or '',x.get('label') or '')); upgrades.sort(key=lambda x:x.get('label') or '')
-        return {'missing':missing,'upgrades':upgrades}
+        policy_counts={'backlog_paused':0,'upgrades_paused':0}
+        for row in missing+upgrades:
+            status=str((row.get('automation_policy') or {}).get('status') or '')
+            if status in policy_counts: policy_counts[status]+=1
+        return {'missing':missing,'upgrades':upgrades,'policy_counts':policy_counts}
 
     def history(self, limit:int=200, item_id:str=''):
         rows=[]; wanted_id=str(item_id or '')

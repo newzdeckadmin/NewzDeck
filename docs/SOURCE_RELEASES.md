@@ -76,3 +76,11 @@ https://github.com/newzdeckadmin/NewzDeck/releases/latest
 - **v3.6.11** - SAB Ownership Continuity & Managed Update Handoff. Preserves live SAB job ownership across transient slot omissions, restores queue-to-history Smart Import completion continuity, and adds a native close/Setup/restore/relaunch coordinator for in-app updates.
 
 - **v3.6.12** - Installer-Owned Runtime Restore. Makes Setup authoritative for closing the browser-hosted UI after overlay, repairing and starting the service, restoring the tray, and reopening NewzDeck after /update; production CI now exercises the /update restore path.
+
+## v3.6.13 â€” Download Continuity & Automation Clarity
+
+Production source for v3.6.13 promotes the accepted r1-r3 validation work: explicit
+Wanted policy visibility, bounded SAB Active-card continuity, verified Remove/Cancel
+with hidden-transfer reconciliation, and fallback-only season packs with member-target
+reservation. The release preserves the v3.6.12 installer-owned update lifecycle and
+prior SAB/Smart Import/source-freshness protections.

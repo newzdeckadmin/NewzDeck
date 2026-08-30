@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.12",
-  "base_version": "3.6.11",
-  "release": "Installer-Owned Runtime Restore",
-  "adapter_version": "3.6.12",
+  "version": "3.6.13",
+  "base_version": "3.6.12",
+  "release": "Download Continuity & Automation Clarity",
+  "adapter_version": "3.6.13",
   "changes": [
-    "Moves installed-update runtime restoration into Inno Setup, the component that authoritatively owns the successful file overlay.",
-    "On /update installs, Setup closes the still-open browser-hosted NewzDeck window after the new native helper is in place, before runtime restoration.",
-    "Existing background services are repaired and started by Setup after the new files are installed instead of depending on an external post-Setup coordinator.",
-    "The tray running/autostart state is captured before upgrade and the tray is restored after the service handoff.",
-    "NewzDeck is relaunched by Setup at ssDone after a successful in-app update.",
-    "The external update coordinator no longer performs a second elevated service-start/tray/app restore pass after Setup.",
-    "Release CI exercises the /update path and requires the upgraded service to be running and the tray process to be restored."
+    "Wanted now explains when existing missing backlog is paused by Continuous Automation settings and links directly to the relevant setup.",
+    "SAB-backed Active downloads retain bounded presentation ownership across longer transient queue-slot gaps while real byte progress or foreground activity proves the transfer is continuing.",
+    "Remove and Cancel require SAB queue absence before NewzDeck hides the card or records an explicit removal tombstone, preventing hidden transfers that continue consuming bandwidth.",
+    "Existing explicit removal tombstones that still point to a live SAB job are reconciled by reissuing the user stop/delete intent.",
+    "Automatic season packs are fallback-only: individual episodes are searched first, partially complete seasons never trigger a full pack, and packs cannot overlap active member episodes.",
+    "Diagnostics reports Active-card continuity bridges and hidden-transfer cleanup activity."
   ],
   "regression_guards": [
-    "Preserves v3.6.11 SAB Ownership Continuity and Smart Import completion reconciliation.",
-    "Preserves v3.6.10 Python source-freshness protections.",
-    "Preserves v3.6.9 native-helper/service shutdown protections.",
-    "Preserves v3.6.8 image-browsing performance and gallery-quality behavior.",
-    "Manual non-/update Setup installs do not auto-open the NewzDeck UI."
+    "The Active continuity lease is bounded and cannot override explicit pause, propagation retry, terminal history, or a different foreground package.",
+    "A failed or unconfirmed SAB Remove/Cancel keeps the NewzDeck ownership record visible and returns an error instead of creating a hidden transfer.",
+    "Season packs are generated only for fully aired seasons whose monitored episodes are all missing and whose individual searches have returned no acceptable release.",
+    "A queued season pack reserves all member episode targets for the remainder of the Automation cycle.",
+    "v3.6.12 installer-owned runtime restore, v3.6.11 SAB ownership/Smart Import continuity, and v3.6.10 Python source-freshness protections remain preserved."
   ],
-  "name": "Installer-Owned Runtime Restore"
+  "name": "Download Continuity & Automation Clarity"
 }
