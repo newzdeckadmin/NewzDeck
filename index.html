@@ -623,7 +623,7 @@
             </a>
           </div>
           <div class="hero-meta">
-            <span><i></i><b id="heroVersion">v3.6.16</b> current release</span>
+            <span><i></i><b id="heroVersion">v3.6.17</b> current release</span>
             <span><i></i>Installer + Portable</span>
             <span><i></i>GNU GPLv3</span>
           </div>
@@ -648,7 +648,7 @@
                 <div class="mini-nav"><span class="mi">◷</span> History</div>
                 <div class="mini-section">SYSTEM</div>
                 <div class="mini-nav"><span class="mi">↓</span> Downloads</div>
-                <div class="mini-side-foot"><span class="online">●</span> Local-first<br />v<span id="mockVersion">3.6.16</span></div>
+                <div class="mini-side-foot"><span class="online">●</span> Local-first<br />v<span id="mockVersion">3.6.17</span></div>
               </aside>
               <div class="mini-workspace">
                 <div class="mini-head">
@@ -832,7 +832,7 @@
           <h2>Ready to try it?</h2>
           <p>NewzDeck is available free for Windows x64. Choose the standard installer or the portable build from the latest GitHub release.</p>
           <div class="release-line">
-            <span class="release-pill">Latest: <strong id="downloadVersion">v3.6.16</strong></span>
+            <span class="release-pill">Latest: <strong id="downloadVersion">v3.6.17</strong></span>
             <span class="release-pill">Windows x64</span>
             <span class="release-pill">GPLv3</span>
           </div>
@@ -848,7 +848,7 @@
             <img src="assets/NewzDeck.png" alt="" aria-hidden="true" />
             <div class="label">Current production release</div>
           </div>
-          <div class="release-version"><strong id="releaseVersion">v3.6.16</strong><span>● AVAILABLE</span></div>
+          <div class="release-version"><strong id="releaseVersion">v3.6.17</strong><span>● AVAILABLE</span></div>
           <div class="release-list">
             <div class="release-row"><b>Windows Installer</b><span id="installerSize">Setup.exe</span></div>
             <div class="release-row"><b>Portable build</b><span id="portableSize">Portable.zip</span></div>
@@ -917,7 +917,7 @@
     fetch(RELEASE_API, { headers: { 'Accept': 'application/vnd.github+json' } })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('release lookup failed')))
       .then(release => {
-        const version = release.tag_name || 'v3.6.16';
+        const version = release.tag_name || 'v3.6.17';
         ['heroVersion', 'downloadVersion', 'releaseVersion'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.textContent = version;

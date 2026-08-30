@@ -1,28 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.16",
-  "base_version": "3.6.15",
-  "release": "Verified Download Control & Active Continuity",
-  "adapter_version": "3.6.16",
-  "name": "Verified Download Control & Active Continuity",
+  "version": "3.6.17",
+  "base_version": "3.6.16",
+  "release": "Downloads State Integrity & Smart Import Recovery",
+  "adapter_version": "3.6.17",
+  "name": "Downloads State Integrity & Smart Import Recovery",
   "changes": [
-    "Failed/Completed SAB-backed Remove now retries transient Queue/History reads and treats terminal SAB history as safe proof that a transfer has already stopped when Queue itself is briefly unreadable.",
-    "Expected verified Remove/Cancel failures are surfaced with their real reason instead of the generic Unexpected application error response.",
-    "Successful Remove/Cancel clears the cached pre-mutation SAB snapshot so a transient immediate refresh cannot resurrect the deleted Failed card.",
-    "Package Remove/Cancel buttons show an in-progress state and reject duplicate clicks while verified deletion is running.",
-    "NewzDeck's own Pause/Resume intent is authoritative for immediate presentation; a transient SAB aggregate Paused sample cannot immediately empty a previously proven Active queue.",
-    "A coherent Active snapshot is held for up to 12 seconds when SAB unexpectedly reports global Paused while NewzDeck knows the user did not pause the queue.",
-    "The SAB background coordinator reasserts Resume after an unexpected transient pause; a genuine user Pause still takes effect immediately and a persistent SAB pause becomes visible after the bounded grace.",
-    "SAB adapter telemetry and runtime identity now match the application version."
+    "Downloads Remaining, counts, speed, ETA, and queue presentation are derived from the same canonical visible job set used to render cards; raw SAB aggregate remaining is retained only for diagnostics.",
+    "Every live SAB Queue slot must produce a visible NewzDeck card. A slot that escapes normal ownership adoption is surfaced as a recovery/stopping card instead of remaining a hidden transfer.",
+    "NewzDeck's durable user Pause/Resume intent is the user-facing pause state. A raw internal SAB Paused condition is tracked separately and recovered by the background coordinator.",
+    "The Downloads footer reports an unexpected engine pause as recovery rather than falsely claiming the user paused the queue.",
+    "Smart Import claims validate their owning process PID. Imports orphaned by an update/service restart are reclaimed immediately rather than waiting for the historical lease to expire.",
+    "Smart Import writes a progress heartbeat; a live import with no progress heartbeat for 90 seconds is visibly marked IMPORT STALLED.",
+    "Diagnostics exposes raw-vs-visible remaining bytes, snapshot consistency corrections, engine-pause recovery, and dead-runtime import-reclaim counters."
   ],
   "regression_guards": [
-    "A live Queue job is never hidden until Queue absence is verified.",
-    "Terminal-history proof is accepted only for Failed/Completed/Cancelled SAB history state.",
-    "History cleanup remains secondary and best-effort after transfer absence is proven.",
-    "No transient-pause bridge is allowed when NewzDeck state says the user intentionally paused the queue.",
-    "No old snapshot is bridged after a long idle/restart; a recently proven Active snapshot is required.",
-    "The transient-pause bridge expires after 12 seconds so real SAB/disk/provider problems remain visible.",
-    "v3.6.15 Wanted-state reconciliation, QUEUEING handoff state, cycle progress, bounded automatic NZB retrieval, and maintenance decoupling remain preserved.",
-    "v3.6.14 Windows-safe Automation JSON persistence and responsive monitoring Save behavior remain preserved."
+    "User-facing Remaining can never be sourced solely from SAB aggregate remaining.",
+    "If visible Active/Queued/Retry/Stopping jobs are all zero, transfer Remaining is zero even if SAB returns an inconsistent aggregate byte count.",
+    "Every live SAB queue slot is represented before counts and Remaining are finalized.",
+    "A real user-requested Pause remains durable and immediate.",
+    "A live Smart Import owner PID retains its claim; only a dead owner is reclaimed automatically.",
+    "Import-stall detection does not start a duplicate import while the owner process is still alive.",
+    "v3.6.16 verified Remove/Cancel and Active-continuity protections remain preserved.",
+    "v3.6.15 Wanted-state reconciliation and v3.6.14 Automation JSON-save protections remain preserved."
   ]
 }

@@ -496,7 +496,7 @@ class SabDownloadManager:
         self._active_bridge_open: set[str] = set()
         self._active_continuity_bridges = 0
         self._active_continuity_last_ts = 0.0
-        # v3.6.16: SAB can briefly report the *whole queue* as Paused during
+        # v3.6.17: SAB can briefly report the *whole queue* as Paused during
         # internal queue/file transitions even though NewzDeck never requested a
         # pause and the underlying transfer resumes moments later. The older Active
         # continuity lease intentionally treats any pause as authoritative, so that
@@ -509,6 +509,16 @@ class SabDownloadManager:
         self._unexpected_sab_pause_grace_seconds = 12.0
         self._unexpected_sab_pause_last_resume_request_ts = 0.0
         self._resume_intent_event = threading.Event()
+        # v3.6.17 canonical Downloads-state invariants.
+        # SAB aggregate counters are retained for diagnostics, but user-facing
+        # Remaining/counts are derived from the same visible job set as the cards.
+        self._snapshot_consistency_mismatches = 0
+        self._snapshot_consistency_last_ts = 0.0
+        self._engine_pause_mismatch_since = 0.0
+        self._engine_pause_reassert_count = 0
+        self._engine_pause_reassert_last_ts = 0.0
+        self._import_dead_owner_reclaims = 0
+        self._import_dead_owner_last_ts = 0.0
         # v3.6.13: an explicit Remove/Cancel must not hide a card until SAB has
         # actually stopped owning that NZO id. Earlier code treated the localhost
         # delete call as best-effort, immediately tombstoned the NewzDeck record,
@@ -811,7 +821,7 @@ class SabDownloadManager:
     def _delete_sab_job_verified(self, nzo_id: str, *, delete_files: bool = True) -> tuple[bool, str]:
         """Stop/delete one SAB job and prove a live transfer is gone before hiding it.
 
-        v3.6.16 hardens terminal-history removal as well as live queue removal:
+        v3.6.17 hardens terminal-history removal as well as live queue removal:
         transient localhost API reads are retried, a terminal Failed/Completed
         history record can prove that the job is no longer transferring when Queue
         itself is briefly unreadable, and history cleanup remains secondary to the
@@ -1213,7 +1223,7 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.16"})
+        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.17"})
         with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
             data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
@@ -1507,7 +1517,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.16 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.17 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1724,7 +1734,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.16 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck 3.6.17 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -2571,7 +2581,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.16",
+            "adapter_version": "3.6.17",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -3293,6 +3303,31 @@ class SabDownloadManager:
         stale["telemetry"] = telemetry
         return stale
 
+    def _observe_engine_pause_intent(self, qroot: dict[str, Any], now: float) -> bool:
+        """Track SAB's raw pause separately from NewzDeck's durable user intent.
+
+        NewzDeck owns the private SAB engine. ``snapshot.paused`` therefore means
+        *the user asked NewzDeck to pause*, not merely that SAB emitted one raw
+        aggregate Paused sample. When intent is Running, persistently reassert Resume
+        through the background coordinator while exposing the mismatch as telemetry.
+        """
+        local_paused = bool(self.state.get("paused", False))
+        raw_status = str((qroot or {}).get("status") or "").strip().casefold()
+        raw_paused = bool((qroot or {}).get("paused", False)) or raw_status == "paused"
+        mismatch = bool(raw_paused and not local_paused)
+        if mismatch:
+            if self._engine_pause_mismatch_since <= 0:
+                self._engine_pause_mismatch_since = now
+            if now - self._unexpected_sab_pause_last_resume_request_ts >= 2.5:
+                self._unexpected_sab_pause_last_resume_request_ts = now
+                self._engine_pause_reassert_count += 1
+                self._engine_pause_reassert_last_ts = now
+                self._resume_intent_event.set()
+                self.sync_event.set()
+        else:
+            self._engine_pause_mismatch_since = 0.0
+        return mismatch
+
     def _active_continuity_allowed(self, nzo_id: str, now: float, *, prior_status: str,
                                    queue_paused: bool, foreground_id: str = "",
                                    slot_status: str = "") -> bool:
@@ -3360,9 +3395,14 @@ class SabDownloadManager:
         if sab_post_stage:
             post = sab_post_stage
         import_status = str(meta.get("import_status") or "")
+        import_heartbeat_ts = _num(meta.get("import_heartbeat_ts"), _num(meta.get("import_claim_ts"), 0))
+        import_heartbeat_age = max(0.0, time.time() - import_heartbeat_ts) if import_status == "importing" and import_heartbeat_ts > 0 else 0.0
+        import_stalled = bool(import_status == "importing" and import_heartbeat_age >= 90.0)
         if import_status in {"queued", "waiting", "importing", "failed", "completed"}:
             post = import_status if import_status != "completed" else "completed"
             pp = str(meta.get("import_message") or pp)
+            if import_stalled:
+                pp = (pp + f" • no import progress for {int(import_heartbeat_age)}s").strip(" •")
         automation_context = dict(meta.get("automation_context") or {})
         automation_label, automation_release_title, automation_destination = _automation_identity(automation_context)
         created = _num(slot.get("time_added"), _num(meta.get("created_ts"), time.time()))
@@ -3390,6 +3430,8 @@ class SabDownloadManager:
             "automation_destination": automation_destination, "display_name": automation_label or str(slot.get("filename") or meta.get("name") or "NZB package"),
             "source_filename": str(slot.get("filename") or ""), "import_status": import_status,
             "imported": bool(meta.get("imported")),
+            "import_heartbeat_age_seconds": float(import_heartbeat_age),
+            "import_stalled": bool(import_stalled),
             "release_failure_recorded": bool(meta.get("failure_feedback_recorded")),
             "release_failure_reason": str(meta.get("failure_reason") or ""),
             "collection_role": "payload", "is_auxiliary": False, "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
@@ -3425,6 +3467,8 @@ class SabDownloadManager:
             "post_message": str(job.get("post_message") or ""),
             "import_status": str(job.get("import_status") or ""),
             "imported": bool(job.get("imported")),
+            "import_heartbeat_age_seconds": float(job.get("import_heartbeat_age_seconds", 0) or 0),
+            "import_stalled": bool(job.get("import_stalled")),
             "release_failure_recorded": bool(job.get("release_failure_recorded")),
             "release_failure_reason": str(job.get("release_failure_reason") or ""),
             "health": {"state": "needs_attention" if str(job.get("import_status") or "")=="failed" else ("healthy" if status not in {"failed"} else "incomplete"), "label": "Import needs attention" if str(job.get("import_status") or "")=="failed" else ("✓ HEALTHY" if status not in {"failed"} else "Needs attention"), "missing_articles": 0,
@@ -3587,7 +3631,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.16 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.17 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -3629,6 +3673,7 @@ class SabDownloadManager:
         total_speed = _kb_to_bps(qroot.get("kbpersec"))
         aggregate_status = str(qroot.get("status") or "").casefold()
         queue_paused = bool(qroot.get("paused", False)) or aggregate_status == "paused"
+        engine_pause_mismatch = self._observe_engine_pause_intent(qroot, now)
 
         # SAB exposes both an aggregate queue state and per-slot state. During a
         # healthy transfer the aggregate queue can remain Downloading while the
@@ -3919,19 +3964,86 @@ class SabDownloadManager:
             jobs.append(job)
             collections.append(self._collection_from_job(job, meta))
             counts[job["status"] if job["status"] in counts else "queued"] += 1
+        # Fundamental Downloads invariant: every live SAB Queue slot must have a
+        # NewzDeck-visible card. Normally _adopt_untracked_slots() makes this true.
+        # If a cross-runtime race, explicit removal tombstone, or ledger problem
+        # prevents adoption, surface a temporary card rather than hiding a live
+        # transfer behind SAB aggregate Remaining/speed counters.
+        represented_ids = {str(j.get("id") or "") for j in jobs}
+        with self.lock:
+            removed_reason_snapshot = {
+                str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()
+            }
+        for raw_slot in qslots:
+            orphan_id = str(raw_slot.get("nzo_id") or raw_slot.get("id") or "")
+            if not orphan_id or orphan_id in represented_ids:
+                continue
+            synthetic_meta = {
+                "name": str(raw_slot.get("filename") or raw_slot.get("name") or "SAB download"),
+                "expected_bytes": max(_mb_to_bytes(raw_slot.get("mb")), _mb_to_bytes(raw_slot.get("mbleft"))),
+                "file_count": max(1, _clamp_int(raw_slot.get("nrof") or raw_slot.get("files"), 1, 100000, 1)),
+                "priority": "normal",
+                "created_ts": _num(raw_slot.get("time_added"), now),
+                "automation_context": self._recover_automation_context_for_slot(orphan_id, raw_slot),
+            }
+            orphan_job = self._job_from_slot(orphan_id, synthetic_meta, raw_slot, history=False)
+            if removed_reason_snapshot.get(orphan_id):
+                orphan_job["status"] = "cancelling"
+                orphan_job["status_detail"] = "Stopping previously removed download • SAB still exposes the live job"
+            else:
+                orphan_job["status_detail"] = "Recovering NewzDeck ownership from the live SAB queue"
+            self._job_last_seen_ts[orphan_id] = now
+            self._job_last_view[orphan_id] = dict(orphan_job)
+            jobs.append(orphan_job)
+            collections.append(self._collection_from_job(orphan_job, synthetic_meta))
+            represented_ids.add(orphan_id)
+            self._snapshot_consistency_mismatches += 1
+            self._snapshot_consistency_last_ts = now
+            self._event(
+                "warning",
+                "Surfaced SAB Queue job that was missing from the NewzDeck ledger",
+                nzo_id=orphan_id,
+                tombstoned=bool(removed_reason_snapshot.get(orphan_id)),
+                status=str(raw_slot.get("status") or ""),
+            )
+
         # Completed history must be deterministic and reverse-chronological. SAB's
         # queue/history responses and NewzDeck's tracked dictionary are not a stable
         # user-facing history order, so normalize them before returning the snapshot.
         jobs.sort(key=self._display_order_key)
         collections.sort(key=self._display_order_key)
 
-        # Display a rolling transfer rate instead of SAB's one-poll instantaneous
-        # zero. This keeps the KPI, package speed and ETA useful through brief socket
-        # handoffs while raw_network_rate_bps remains available for diagnostics.
-        total_speed = display_speed or sum(int(j.get("speed_bps", 0) or 0) for j in jobs)
-        remaining = queue_remaining_hint
-        if not remaining:
-            remaining = sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"})
+        # Canonicalize every KPI from the *same visible job set* used by the cards.
+        # SAB's aggregate mbleft is diagnostic input only; it must never create a
+        # "94 GB remaining / 0 Active / 0 Queued" contradiction.
+        counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
+        for visible_job in jobs:
+            visible_status = str(visible_job.get("status") or "queued")
+            counts[visible_status if visible_status in counts else "queued"] += 1
+
+        transfer_statuses = {"queued", "downloading", "retry_wait", "cancelling"}
+        remaining = sum(
+            max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0))
+            for j in jobs if str(j.get("status") or "") in transfer_statuses
+        )
+        total_speed = (
+            display_speed or sum(int(j.get("speed_bps", 0) or 0) for j in jobs if str(j.get("status") or "") == "downloading")
+        ) if counts.get("downloading", 0) > 0 else 0
+
+        engine_remaining_gap = max(0, int(queue_remaining_hint or 0) - int(remaining or 0))
+        if engine_remaining_gap >= 16 * 1024 * 1024:
+            if now - self._snapshot_consistency_last_ts >= 5.0:
+                self._snapshot_consistency_mismatches += 1
+                self._snapshot_consistency_last_ts = now
+                self._event(
+                    "warning",
+                    "Ignored SAB aggregate Remaining that was not represented by visible queue jobs",
+                    engine_remaining_bytes=int(queue_remaining_hint or 0),
+                    visible_remaining_bytes=int(remaining or 0),
+                    gap_bytes=int(engine_remaining_gap),
+                    queue_slots=len(qslots),
+                    visible_transfer_jobs=sum(1 for j in jobs if str(j.get("status") or "") in transfer_statuses),
+                )
         sab_eta = _duration_seconds(qroot.get("timeleft"))
         if sab_eta <= 0 and foreground_id:
             foreground_slot = queue_by.get(foreground_id) or {}
@@ -3961,11 +4073,11 @@ class SabDownloadManager:
         statistics = self._statistics(hroot)
         statistics["peak_speed_bps"] = max(int(statistics.get("peak_speed_bps", 0) or 0), total_speed)
         post_active = sum(1 for j in jobs if str(j.get("post_status") or "") in {"queued", "verifying", "repairing", "extracting", "importing"})
-        result = {"paused": bool(qroot.get("paused", self.state.get("paused", False))), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
+        result = {"paused": bool(self.state.get("paused", False)), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.16", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.17", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -3975,6 +4087,18 @@ class SabDownloadManager:
                                 "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges),
                                 "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts),
                                 "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open),
+                                "engine_queue_paused_raw": bool(queue_paused),
+                                "engine_pause_mismatch": bool(engine_pause_mismatch),
+                                "engine_pause_mismatch_seconds": max(0.0, now - self._engine_pause_mismatch_since) if self._engine_pause_mismatch_since > 0 else 0.0,
+                                "engine_pause_reassert_count": int(self._engine_pause_reassert_count),
+                                "engine_pause_reassert_last_ts": float(self._engine_pause_reassert_last_ts),
+                                "engine_remaining_bytes_raw": int(queue_remaining_hint or 0),
+                                "visible_remaining_bytes": int(remaining or 0),
+                                "remaining_mismatch_bytes": int(engine_remaining_gap or 0),
+                                "snapshot_consistency_mismatches": int(self._snapshot_consistency_mismatches),
+                                "snapshot_consistency_last_ts": float(self._snapshot_consistency_last_ts),
+                                "import_dead_owner_reclaims": int(self._import_dead_owner_reclaims),
+                                "import_dead_owner_last_ts": float(self._import_dead_owner_last_ts),
                                 "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count),
                                 "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts),
                                 "slot_utilization_pct": (100.0 * actual_active_connections / configured) if active_dl and configured else 0, "inflight_articles": 0,
@@ -4248,8 +4372,37 @@ class SabDownloadManager:
             except Exception as exc:
                 self._event("warning", f"Automation completion monitor failed: {exc}")
 
+    @staticmethod
+    def _pid_is_alive(pid: int) -> bool:
+        """Return whether a persisted import-owner PID still exists.
+
+        Smart Import claims survive service/update handoffs. A dead owner must not
+        strand a package in IMPORTING until the old ten-minute lease expires.
+        """
+        pid = int(pid or 0)
+        if pid <= 0:
+            return False
+        if pid == os.getpid():
+            return True
+        if os.name == "nt":
+            try:
+                return _ExternalWindowsProcess(pid).poll() is None
+            except Exception:
+                return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except PermissionError:
+            return True
+        except (ProcessLookupError, OSError):
+            return False
+
     def _claim_automation_import(self, nzo_id: str) -> dict[str, Any] | None:
-        """Atomically claim one completed Automation import across all runtimes."""
+        """Atomically claim one completed Automation import across all runtimes.
+
+        A live owner retains the claim. A dead runtime owner is reclaimed
+        immediately rather than waiting for the historical 10-minute lease.
+        """
         self._refresh_shared_state()
         now = time.time()
         with self.lock:
@@ -4268,13 +4421,26 @@ class SabDownloadManager:
                 status = str(live.get("import_status") or "")
                 claim_ts = _num(live.get("import_claim_ts"), 0)
                 claim_pid = int(_num(live.get("import_claim_pid"), 0))
-                if status == "importing" and claim_ts > now - 600:
+                heartbeat_ts = _num(live.get("import_heartbeat_ts"), claim_ts)
+                owner_alive = self._pid_is_alive(claim_pid)
+                if status == "importing" and claim_ts > now - 600 and owner_alive:
                     self.state = self._merge_shared_states(disk, self.state)
                     return None
+                if status == "importing" and claim_pid > 0 and not owner_alive:
+                    self._import_dead_owner_reclaims += 1
+                    self._import_dead_owner_last_ts = now
+                    self._event(
+                        "warning",
+                        "Reclaiming Smart Import from a dead NewzDeck runtime",
+                        nzo_id=str(nzo_id),
+                        dead_pid=claim_pid,
+                        last_progress_age_seconds=round(max(0.0, now - heartbeat_ts), 1) if heartbeat_ts else 0,
+                    )
                 live["import_status"] = "importing"
-                live["import_progress"] = 0
-                live["import_message"] = "Smart Import • inspecting SABnzbd output"
+                live["import_progress"] = max(0, min(100, int(live.get("import_progress", 0) or 0))) if status == "importing" else 0
+                live["import_message"] = "Smart Import • recovering interrupted import" if status == "importing" else "Smart Import • inspecting SABnzbd output"
                 live["import_claim_ts"] = now
+                live["import_heartbeat_ts"] = now
                 live["import_claim_pid"] = os.getpid()
                 live["_updated_ts"] = now
                 disk["jobs"][str(nzo_id)] = live
@@ -4591,6 +4757,7 @@ class SabDownloadManager:
                 if not live: return
                 live["import_progress"] = max(0, min(100, int(pct)))
                 live["import_message"] = str(message)[:500]
+                live["import_heartbeat_ts"] = time.time()
                 self._touch_job_locked(live)
                 self._save_state()
                 self._last_snapshot_ts = 0
@@ -4663,6 +4830,7 @@ class SabDownloadManager:
                         live["kept_existing_count"] = int(result.get("kept_existing", 0) or 0)
                     live["import_claim_pid"] = 0
                     live["import_claim_ts"] = 0
+                    live["import_heartbeat_ts"] = 0
                     if retryable and not ok and int(live.get("import_retry_count", 0) or 0) >= 24:
                         message = f"Smart Import could not locate SAB's completed media after repeated checks. {resolution}. Download is preserved; use Retry Import after verifying the output folder."
                     elif retryable and not ok:
@@ -4687,6 +4855,7 @@ class SabDownloadManager:
                     live["import_message"] = f"Smart Import failed: {exc}"[:500]
                     live["import_claim_pid"] = 0
                     live["import_claim_ts"] = 0
+                    live["import_heartbeat_ts"] = 0
                     self._touch_job_locked(live)
                     self._save_state()
             self._event("error", f"Smart Import failed for {meta.get('name')}: {exc}")
@@ -4708,6 +4877,7 @@ class SabDownloadManager:
             meta["import_retry_count"] = 0
             meta["import_claim_pid"] = 0
             meta["import_claim_ts"] = 0
+            meta["import_heartbeat_ts"] = 0
             self._touch_job_locked(meta)
             self._save_state()
         return self.snapshot()

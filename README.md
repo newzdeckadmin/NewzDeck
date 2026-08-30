@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.16** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.17** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.16_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.17_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,17 +35,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.16 highlights
+## v3.6.17 highlights
 
-v3.6.16 is a Downloads/SAB reliability release built on v3.6.15.
+v3.6.17 is a structural Downloads-state reliability release built on v3.6.16.
 
-- **Verified Failed/Completed removal:** terminal SAB removal retries transient Queue/History reads and keeps live jobs protected until transfer absence is proven.
-- **Specific Remove/Cancel errors:** expected verification failures are shown with their real reason instead of a generic unexpected application error.
-- **No stale card resurrection:** successful Remove/Cancel clears the cached pre-mutation SAB snapshot.
-- **Stable Active through transient SAB Pause:** a short unexpected aggregate Paused sample cannot immediately wipe a recently proven Active queue when NewzDeck knows the user did not pause it.
-- **Bounded recovery:** the coherent Active snapshot is held for at most 12 seconds while the background SAB coordinator reasserts Resume.
-- **Real Pause preserved:** user-requested Pause takes effect immediately, and persistent SAB pauses become visible normally.
-- **Consistent runtime identity:** the SAB adapter now reports the same version as NewzDeck.
+- **One canonical Downloads state:** cards, counts, Remaining, speed and ETA are finalized from the same visible job set.
+- **No contradictory Remaining:** SAB aggregate remaining bytes are diagnostic only and cannot produce many GB remaining with no visible transfer jobs.
+- **No hidden live queue jobs:** every live SAB Queue slot must produce a visible NewzDeck card.
+- **Honest Pause state:** Queue paused reflects NewzDeck's durable user intent; internal SAB pause mismatches are shown as engine recovery.
+- **Dead-runtime Smart Import recovery:** an import orphaned by an update/service restart is reclaimed immediately when its owner PID no longer exists.
+- **Import heartbeat and stall detection:** a still-live import with no progress for 90 seconds is labeled IMPORT STALLED.
+- **v3.6.16 preserved:** verified Remove/Cancel and Active-continuity protections remain intact.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.16_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.17_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
