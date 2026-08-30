@@ -1,5 +1,5 @@
-NewzDeck v3.6.18
-Idle-Aware Engine Pause Recovery
+NewzDeck v3.6.19
+Non-Disruptive SAB Runtime & Single-Foreground Downloads
 Updating
 
 INSTALLED NEWZDECK
@@ -16,8 +16,8 @@ The installer-owned update lifecycle introduced in v3.6.12 remains authoritative
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.18 makes SAB engine-pause recovery idle-aware while preserving v3.6.17's
-canonical Downloads state and Smart Import recovery model.
+v3.6.19 changes private-SAB lifecycle management so transient localhost control
+misses do not cause disruptive launch/configuration cycles during active downloads.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and

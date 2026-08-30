@@ -1,23 +1,29 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.18",
-  "base_version": "3.6.17",
-  "release": "Idle-Aware Engine Pause Recovery",
-  "adapter_version": "3.6.18",
-  "name": "Idle-Aware Engine Pause Recovery",
+  "version": "3.6.19",
+  "base_version": "3.6.18",
+  "release": "Non-Disruptive SAB Runtime & Single-Foreground Downloads",
+  "adapter_version": "3.6.19",
+  "name": "Non-Disruptive SAB Runtime & Single-Foreground Downloads",
   "changes": [
-    "Engine-pause recovery now requires actual transfer work: a live SAB Queue slot or non-zero raw engine remaining bytes.",
-    "An empty private SAB engine may settle into aggregate Paused/idle state without NewzDeck repeatedly reasserting Resume or displaying an engine recovery warning.",
-    "The bounded coherent Active-snapshot bridge also requires transfer-work evidence, so a genuinely drained queue cannot retain stale Active cards merely because SAB idles as Paused.",
-    "Diagnostics distinguishes benign idle SAB-paused state from a real pause mismatch that has transfer work waiting.",
-    "All v3.6.17 canonical Downloads-state, no-hidden-live-job, pause-intent, and Smart Import recovery behavior remains preserved."
+    "Recent successful SAB Queue/status/config traffic is strong liveness proof, reducing redundant localhost health probes while normal polling is healthy.",
+    "A single SAB localhost probe miss no longer immediately enters launch recovery or triggers a forced full SAB/provider configuration rewrite.",
+    "Recently healthy or actively transferring SAB runtimes receive a non-mutating recovery window before disruptive launch recovery is allowed.",
+    "Engine launch recovery reuses persisted configuration and no longer force-rewrites provider configuration merely because the SAB control channel was briefly unavailable.",
+    "A partial SAB configuration-sync failure no longer clears the sync signature and causes the three-second engine loop to rewrite every provider entry repeatedly.",
+    "Raw SAB Pause must persist before NewzDeck reports/reasserts recovery, suppressing short internal queue-state transitions.",
+    "One-package-at-a-time mode now guarantees at most one Active foreground package even if SAB briefly reports several slots as Downloading.",
+    "Per-package downloaded bytes remain monotonic during a live transfer so reconnect/handoff snapshots cannot reset a package back toward zero progress.",
+    "Diagnostics exposes transient control-probe misses, deferred disruptive recovery, true launch recovery, config retry-storm suppression, multi-Active corrections, and progress-regression corrections."
   ],
   "regression_guards": [
-    "No Resume reassertion occurs when SAB has no Queue slots and zero remaining transfer bytes.",
-    "Unexpected SAB Pause still triggers recovery when transfer work exists and NewzDeck user intent is Running.",
-    "A real NewzDeck user Pause remains authoritative regardless of queue workload.",
-    "A drained queue cannot be kept Active by the pause bridge.",
-    "v3.6.17 visible-job canonicalization, Remaining invariants, and dead-runtime Smart Import reclaim remain unchanged.",
-    "v3.6.16 verified Remove/Cancel and Active continuity remain preserved."
+    "A genuine sustained SAB outage still enters launch recovery after the debounce window.",
+    "A genuinely fresh SAB admin generation still synchronizes configuration because fresh generation invalidates the prior sync signature.",
+    "Provider/settings changes still generate a new configuration signature and synchronize normally.",
+    "Sustained provider no-progress recovery retains the ability to repair missing provider configuration.",
+    "Intentional NewzDeck Pause remains immediate and authoritative.",
+    "v3.6.18 idle-aware pause handling remains preserved.",
+    "v3.6.17 canonical Downloads state, visible-live-job invariant, Remaining consistency, and Smart Import recovery remain preserved.",
+    "v3.6.16 verified Failed/Completed Remove/Cancel remains preserved."
   ]
 }

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.18** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.19** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.18_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.19_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,15 +35,18 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.18 highlights
+## v3.6.19 highlights
 
-v3.6.18 is an idle-aware SAB engine state hotfix built on v3.6.17.
+v3.6.19 is a deeper Downloads/SAB runtime reliability release built on v3.6.18.
 
-- **Recovery requires transfer work:** raw SAB Paused state triggers recovery only when queue slots or remaining transfer bytes actually exist.
-- **Idle no longer cycles:** an empty private SAB engine may remain internally Paused without repeated Resume/recovery loops.
-- **Workload-aware Active continuity:** a drained queue cannot preserve stale Active cards solely because SAB idles as Paused.
-- **Diagnostics clarity:** benign idle SAB-paused state is distinguished from a real engine pause mismatch.
-- **v3.6.17 preserved:** one canonical Downloads state, no hidden live SAB jobs, and Smart Import dead-runtime recovery remain intact.
+- **Non-disruptive SAB recovery:** one brief localhost probe miss cannot immediately relaunch/reconfigure a healthy private download engine.
+- **Recent API traffic proves liveness:** normal Queue/status/config traffic avoids redundant health probes.
+- **No forced provider rewrite after a transient miss:** launch recovery reuses persisted configuration.
+- **Config retry storms suppressed:** one partial configuration error no longer triggers a full rewrite every three seconds.
+- **One foreground package:** 1-package queue mode now guarantees at most one Active package.
+- **Monotonic live progress:** reconnect/handoff snapshots cannot reset real package progress backward.
+- **Sustained pause detection:** short SAB aggregate Pause transitions no longer flash engine recovery.
+- **v3.6.18/v3.6.17 preserved:** idle-aware Pause behavior, canonical Downloads state, and Smart Import recovery remain intact.
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.18_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.19_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
