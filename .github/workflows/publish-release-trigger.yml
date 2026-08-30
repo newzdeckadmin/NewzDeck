@@ -388,14 +388,55 @@ jobs:
           New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
           function Run-Setup([string]$Label, [bool]$UpdateMode = $false) {
+            $safeLabel = ($Label -replace '[^A-Za-z0-9.-]', '-')
+            $setupLog = Join-Path $env:RUNNER_TEMP ("NewzDeck-Setup-{0}.log" -f $safeLabel)
+            Remove-Item -LiteralPath $setupLog -Force -ErrorAction SilentlyContinue
+
             $args = @(
-              '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir"
+              '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir",("/LOG={0}" -f $setupLog)
             )
             if ($UpdateMode) {
               $args += '/update'
+              $args += '/FORCECLOSEAPPLICATIONS'
             }
-            $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+
+            Write-Host "Starting $Label Setup..."
+            # Do NOT use Start-Process -Wait here. On Windows, -Wait waits for
+            # the entire descendant process tree. v3.6.12 intentionally restores
+            # NewzDeckTray.exe from Setup, so -Wait would wait forever for the
+            # healthy persistent tray process. Poll only the Setup PID itself.
+            $p = Start-Process -FilePath $setup -ArgumentList $args -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(120)
+            do {
+              try { $p.Refresh() } catch {}
+              if ($p.HasExited) { break }
+              Start-Sleep -Milliseconds 250
+            } while ([DateTime]::UtcNow -lt $deadline)
+
+            try { $p.Refresh() } catch {}
+            if (-not $p.HasExited) {
+              Write-Host "ERROR: $Label Setup did not exit within 120 seconds."
+              if (Test-Path -LiteralPath $setupLog) {
+                Write-Host '----- Inno Setup diagnostic log -----'
+                Get-Content -LiteralPath $setupLog -ErrorAction SilentlyContinue
+                Write-Host '----- end Inno Setup diagnostic log -----'
+              }
+              Write-Host '----- NewzDeck process state -----'
+              Get-Process -Name 'NewzDeck*' -ErrorAction SilentlyContinue |
+                Select-Object Id,ProcessName,Path |
+                Format-Table -AutoSize | Out-String | Write-Host
+              Write-Host '----- NewzDeckService SCM state -----'
+              & sc.exe query NewzDeckService
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw "$Label installer smoke test timed out after 120 seconds."
+            }
+
+            $p.WaitForExit()
+            Write-Host "$Label Setup exited with code $($p.ExitCode)."
             if ($p.ExitCode -ne 0) {
+              if (Test-Path -LiteralPath $setupLog) {
+                Get-Content -LiteralPath $setupLog -ErrorAction SilentlyContinue
+              }
               throw "$Label installer smoke test failed with exit code $($p.ExitCode)."
             }
           }
