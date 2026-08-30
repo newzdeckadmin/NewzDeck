@@ -281,7 +281,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.19"
+APP_VERSION = "3.6.20"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11204,6 +11204,17 @@ def diagnostics_report() -> str:
         lines.append(f"Download engine: SABnzbd {engine.get('version','')} built-in; ready={engine.get('ready',False)}; live_connections={conn.get('active',0)}; allocated_connections={conn.get('capacity',0)}; provider_workers={conn.get('runtime_servers',0)}/{conn.get('expected_servers',0)} runtime, {conn.get('configured_servers',0)}/{conn.get('expected_servers',0)} configured; provider_summary={conn.get('provider_summary','')}; localhost_only={engine.get('localhost_only',True)}; last_error={engine.get('last_error','')}")
         tel=(d.get('downloads') or {}).get('telemetry') or {}
         lines.append(f"Active-card continuity: bridges={int(tel.get('active_card_continuity_bridges',0) or 0)}; last_bridge_ts={float(tel.get('active_card_continuity_last_ts',0) or 0):.3f}")
+        lines.append(
+            "SAB Queue/History transport: "
+            f"resets_absorbed={int(tel.get('sab_read_resets',0) or 0)}; "
+            f"short_cached_reads={int(tel.get('sab_read_stale_uses',0) or 0)}; "
+            f"degraded_snapshots={int(tel.get('sab_control_degraded_snapshots',0) or 0)}; "
+            f"stale_snapshots_suppressed={int(tel.get('sab_stale_snapshot_suppressed',0) or 0)}; "
+            f"queue_fresh={bool(tel.get('sab_queue_fresh',True))}; "
+            f"queue_age_seconds={float(tel.get('sab_queue_age_seconds',0) or 0):.3f}; "
+            f"history_fresh={bool(tel.get('sab_history_fresh',True))}; "
+            f"history_age_seconds={float(tel.get('sab_history_age_seconds',0) or 0):.3f}"
+        )
         probe=conn.get('provider_test') or {}
         if probe.get('tested'):
             lines.append(f"Provider connection test: ok={probe.get('ok',False)}; message={probe.get('summary','')}")

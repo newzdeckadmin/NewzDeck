@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.19
+## Current release: v3.6.20
 
-**v3.6.19 is the current stable production release.**
+**v3.6.20 is the current stable production release.**
 
-The `v3.6.19` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.20` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.20 - Authoritative SAB & Fresh-State Reconciliation.** Enforces one authoritative private SAB identity, quarantines historical engines, serializes NewzDeck-to-SAB control traffic, bounds stale Queue/History fallback, prevents stale state from driving Pause/Resume or destructive reconciliation, and preserves the verified Automation-to-Smart-Import end-to-end path.
 
 - **v3.6.19 - Non-Disruptive SAB Runtime & Single-Foreground Downloads.** Debounces private-SAB control-plane recovery, prevents transient health misses from forcing provider/config rewrites, suppresses configuration retry storms, normalizes one-package queue mode to one foreground Active package, and preserves monotonic live progress.
 

@@ -1,29 +1,30 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.19",
-  "base_version": "3.6.18",
-  "release": "Non-Disruptive SAB Runtime & Single-Foreground Downloads",
-  "adapter_version": "3.6.19",
-  "name": "Non-Disruptive SAB Runtime & Single-Foreground Downloads",
+  "version": "3.6.20",
+  "base_version": "3.6.19",
+  "release": "Authoritative SAB & Fresh-State Reconciliation",
+  "adapter_version": "3.6.20",
   "changes": [
-    "Recent successful SAB Queue/status/config traffic is strong liveness proof, reducing redundant localhost health probes while normal polling is healthy.",
-    "A single SAB localhost probe miss no longer immediately enters launch recovery or triggers a forced full SAB/provider configuration rewrite.",
-    "Recently healthy or actively transferring SAB runtimes receive a non-mutating recovery window before disruptive launch recovery is allowed.",
-    "Engine launch recovery reuses persisted configuration and no longer force-rewrites provider configuration merely because the SAB control channel was briefly unavailable.",
-    "A partial SAB configuration-sync failure no longer clears the sync signature and causes the three-second engine loop to rewrite every provider entry repeatedly.",
-    "Raw SAB Pause must persist before NewzDeck reports/reasserts recovery, suppressing short internal queue-state transitions.",
-    "One-package-at-a-time mode now guarantees at most one Active foreground package even if SAB briefly reports several slots as Downloading.",
-    "Per-package downloaded bytes remain monotonic during a live transfer so reconnect/handoff snapshots cannot reset a package back toward zero progress.",
-    "Diagnostics exposes transient control-probe misses, deferred disruptive recovery, true launch recovery, config retry-storm suppression, multi-Active corrections, and progress-regression corrections."
+    "Promotes the accepted accepted validation build serialized SAB control and fresh-state reconciliation architecture to production.",
+    "Restricts normal SAB API identity reconciliation to the authoritative current generation and quarantines historical NewzDeck SAB engines instead of adopting them.",
+    "Removes only proven stale duplicate queue entries while preserving legitimate tracked re-downloads.",
+    "Bootstraps authoritative SAB misc configuration before launch and correctly parses SAB 5.x nested server configuration.",
+    "Serializes NewzDeck-to-SAB control traffic and shares one coherent Queue/History reader across Downloads and Automation completion monitoring.",
+    "Bounds cached SAB Queue/History fallback; stale cached state cannot indefinitely renew itself, trigger Pause/Resume recovery, or drive destructive queue reconciliation.",
+    "When the SAB control channel remains unreadable beyond the short coherence lease, Downloads shows an explicit refreshing/degraded state instead of presenting stale speed or Remaining values as current.",
+    "Provider runtime state is treated as unknown rather than zero when the SAB status request itself fails.",
+    "Ambiguous addlocalfile connection resets reconcile accepted SAB jobs without duplicate submission.",
+    "Copy Diagnostics now exports Queue/History reset, short-cache, degraded-snapshot, stale-snapshot suppression, and freshness/age counters.",
+    "The ambiguous-handoff event is renamed to 'Reconciled SAB job after submission/runtime handoff' for accurate diagnostics wording."
   ],
   "regression_guards": [
-    "A genuine sustained SAB outage still enters launch recovery after the debounce window.",
-    "A genuinely fresh SAB admin generation still synchronizes configuration because fresh generation invalidates the prior sync signature.",
-    "Provider/settings changes still generate a new configuration signature and synchronize normally.",
-    "Sustained provider no-progress recovery retains the ability to repair missing provider configuration.",
-    "Intentional NewzDeck Pause remains immediate and authoritative.",
-    "v3.6.18 idle-aware pause handling remains preserved.",
-    "v3.6.17 canonical Downloads state, visible-live-job invariant, Remaining consistency, and Smart Import recovery remain preserved.",
-    "v3.6.16 verified Failed/Completed Remove/Cancel remains preserved."
-  ]
+    "The verified validation end-to-end path Automation -> Queue -> SAB -> NNTP -> Completed -> Smart Import remains unchanged.",
+    "Unavailable Usenet releases still move to Failed and are remembered so Automation can try another candidate.",
+    "One-package-at-a-time presentation remains limited to one foreground Active package.",
+    "Intentional NewzDeck Pause remains authoritative.",
+    "Stale SAB queue data cannot trigger engine Pause/Resume recovery.",
+    "Historical SAB generations with live work are quarantined, never adopted as the active engine.",
+    "v3.6.19 non-disruptive lifecycle recovery, v3.6.18 idle-aware pause handling, v3.6.17 canonical Downloads state, and v3.6.16 verified Remove/Cancel remain preserved."
+  ],
+  "name": "Authoritative SAB & Fresh-State Reconciliation"
 }

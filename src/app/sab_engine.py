@@ -464,6 +464,21 @@ class SabDownloadManager:
         self._snapshot_lock = threading.Lock()
         self._snapshot_cache_seconds = 0.22
         self._snapshot_sequence = 0
+        # v3.6.20: all NewzDeck -> SAB HTTP requests share one transport lock.
+        # The anonymized SAB log proved SAB itself stayed alive and downloaded while
+        # NewzDeck saw WinError 10054 from overlapping localhost control requests.
+        # Serialize control-plane traffic and make Queue/History freshness explicit.
+        self._sab_transport_lock = threading.RLock()
+        self._queue_history_lock = threading.RLock()
+        self._last_good_queue_payload: dict[str, Any] | None = None
+        self._last_good_queue_ts = 0.0
+        self._last_good_history_payload: dict[str, Any] | None = None
+        self._last_good_history_ts = 0.0
+        self._last_coherent_sab_snapshot_ts = 0.0
+        self._sab_read_resets = 0
+        self._sab_read_stale_uses = 0
+        self._sab_control_degraded_snapshots = 0
+        self._sab_stale_snapshot_suppressed = 0
         # Queue is the live data plane. History changes much less often, so cache it
         # briefly and refresh immediately when a queue id disappears (the normal
         # Queue -> History handoff). This keeps live progress responsive without
@@ -496,7 +511,7 @@ class SabDownloadManager:
         self._active_bridge_open: set[str] = set()
         self._active_continuity_bridges = 0
         self._active_continuity_last_ts = 0.0
-        # v3.6.19: SAB can briefly report the *whole queue* as Paused during
+        # v3.6.20: SAB can briefly report the *whole queue* as Paused during
         # internal queue/file transitions even though NewzDeck never requested a
         # pause and the underlying transfer resumes moments later. The older Active
         # continuity lease intentionally treats any pause as authoritative, so that
@@ -509,7 +524,7 @@ class SabDownloadManager:
         self._unexpected_sab_pause_grace_seconds = 12.0
         self._unexpected_sab_pause_last_resume_request_ts = 0.0
         self._resume_intent_event = threading.Event()
-        # v3.6.19 canonical Downloads-state invariants.
+        # v3.6.20 canonical Downloads-state invariants.
         # SAB aggregate counters are retained for diagnostics, but user-facing
         # Remaining/counts are derived from the same visible job set as the cards.
         self._snapshot_consistency_mismatches = 0
@@ -531,7 +546,7 @@ class SabDownloadManager:
         # and completion thread can both observe a fast failure without duplicate work.
         self._failed_release_feedback_seen: set[str] = set()
         self._last_sync_signature = ""
-        # v3.6.19: do not let a transient localhost control-plane miss become a
+        # v3.6.20: do not let a transient localhost control-plane miss become a
         # disruptive private-engine/configuration recovery. SAB's data plane can be
         # perfectly healthy while one HTTP probe times out under load.
         self._last_api_success_ts = 0.0
@@ -548,12 +563,31 @@ class SabDownloadManager:
         self._multiple_active_slot_last_ts = 0.0
         self._progress_regression_corrections = 0
         self._progress_regression_last_ts = 0.0
+        # v3.6.20: one authoritative private SAB identity. Historical identities
+        # are retirement credentials only and may never be adopted into engine.json.
+        self._identity_cross_adoptions_blocked = 0
+        self._identity_authoritative_key_repairs = 0
+        self._stale_engine_quarantine_last_ts = 0.0
+        self._stale_engine_ports_seen = 0
+        self._stale_engine_live_slots_paused = 0
+        self._stale_engines_shutdown = 0
+        self._stale_engine_last_port = 0
+        self._stale_engine_last_slots = 0
+        self._stale_duplicate_queue_cleanups = 0
+        self._stale_duplicate_queue_last_ts = 0.0
+        self._completion_control_failures = 0
+        self._completion_backoff_seconds = 2.0
+        self._completion_last_warning_ts = 0.0
+        self._engine_fault = ""
+        self._engine_fault_last_ts = 0.0
+        self._engine_fault_last_logged = ""
         # v3.5.7: keep a lightweight view of SAB's *real* server/socket state.
         # v3.5.5 rendered configured connection capacity as if every socket were
         # active, which hid the exact failure mode where SAB had a Downloading
         # queue entry but zero live NNTP connections.
         self._provider_health_cache: dict[str, Any] = {}
         self._provider_health_ts = 0.0
+        self._provider_health_success_ts = 0.0
         self._provider_unblock_after: dict[str, float] = {}
         self._zero_socket_since = 0.0
         self._last_stall_repair_ts = 0.0
@@ -838,7 +872,7 @@ class SabDownloadManager:
     def _delete_sab_job_verified(self, nzo_id: str, *, delete_files: bool = True) -> tuple[bool, str]:
         """Stop/delete one SAB job and prove a live transfer is gone before hiding it.
 
-        v3.6.19 hardens terminal-history removal as well as live queue removal:
+        v3.6.20 hardens terminal-history removal as well as live queue removal:
         transient localhost API reads are retried, a terminal Failed/Completed
         history record can prove that the job is no longer transferring when Queue
         itself is briefly unreadable, and history cleanup remains secondary to the
@@ -1124,6 +1158,191 @@ class SabDownloadManager:
             out.append(rec)
         return out
 
+
+    def _authoritative_identity_candidates(self) -> list[dict[str, Any]]:
+        """Return credentials belonging only to the current engine generation.
+
+        Historical admin-vN folders are evidence for retiring stale NewzDeck SAB
+        processes, not candidates for normal adoption. This is the key split-brain
+        boundary: current control calls may repair the API key for the *current*
+        generation, but must never jump to another generation or localhost port.
+        """
+        current = _json_read(self.engine_state_file, {})
+        if not isinstance(current, dict):
+            current = {}
+        config_value = str(current.get("config_file") or self.config_file)
+        try:
+            current_cfg = self._canonical_config_path(Path(config_value))
+        except Exception:
+            current_cfg = self.config_file
+
+        rows: list[dict[str, Any]] = []
+        if current:
+            rec = dict(current)
+            rec["source"] = "engine.json"
+            rec["config_file"] = str(current_cfg)
+            rows.append(rec)
+
+        try:
+            candidates = [current_cfg]
+            candidates.extend(sorted(x for x in current_cfg.parent.glob("sabnzbd.ini*") if x.is_file()))
+        except OSError:
+            candidates = [current_cfg]
+
+        for cfg_path in candidates:
+            rec = self._config_identity_from(cfg_path)
+            if not rec:
+                continue
+            rec["config_file"] = str(current_cfg)
+            rec["source"] = f"current-generation:{cfg_path.name}"
+            rows.append(rec)
+
+        current_port = _clamp_int(current.get("port"), 1025, 65535, 0)
+        if not current_port:
+            try:
+                current_port = int(self._load_engine_identity()["port"])
+            except Exception:
+                current_port = 0
+
+        out: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for rec in rows:
+            api_key = str(rec.get("api_key") or "").strip()
+            if not api_key or api_key in seen_keys:
+                continue
+            if current_port:
+                rec["port"] = current_port
+            seen_keys.add(api_key)
+            out.append(rec)
+        return out
+
+    def _historical_authenticated_identity_on_port(
+        self,
+        port: int,
+        *,
+        timeout: float = 0.7,
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Prove a historical NewzDeck-owned SAB on one port without adopting it."""
+        port = int(port or 0)
+        if port <= 0 or not self._probe_version(port, timeout=timeout):
+            return None, ""
+        current = _json_read(self.engine_state_file, {})
+        current_cfg = str((current or {}).get("config_file") or self.config_file).casefold()
+        current_key = str((current or {}).get("api_key") or "")
+        seen: set[str] = set()
+        for rec in self._identity_candidates():
+            if int(rec.get("port") or 0) != port:
+                continue
+            key = str(rec.get("api_key") or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            rec_cfg = str(rec.get("config_file") or "").casefold()
+            # Current-generation credentials belong to authoritative reconciliation,
+            # not stale-engine quarantine.
+            if key == current_key and (not rec_cfg or rec_cfg == current_cfg):
+                continue
+            if self._auth_kind(port, key, timeout=timeout) == "apikey":
+                return dict(rec), key
+        return None, ""
+
+    def _quarantine_known_engine_on_port(
+        self,
+        port: int,
+        *,
+        reason: str,
+        timeout: float = 0.8,
+    ) -> dict[str, Any]:
+        """Pause/shutdown a proven *historical* NewzDeck SAB without adopting it.
+
+        If it still has queue work, Pause preserves the queue and incomplete bytes
+        for forensic/manual recovery while stopping hidden duplicate transfers. If
+        its queue is empty, shutdown releases the stale localhost port.
+        """
+        rec, key = self._historical_authenticated_identity_on_port(port, timeout=timeout)
+        if not rec or not key:
+            return {"authenticated": False, "port": int(port or 0), "slots": 0, "action": ""}
+
+        slots: list[dict[str, Any]] = []
+        try:
+            payload = self._raw_api(int(port), "queue", timeout=1.8, api_key=key, start=0, limit=500)
+            _root, slots = self._queue_slots(payload)
+        except Exception as exc:
+            self._event(
+                "warning",
+                "Authenticated stale NewzDeck SAB but could not inspect its queue",
+                port=int(port), reason=reason, error=str(exc),
+            )
+            return {"authenticated": True, "port": int(port), "slots": -1, "action": "inspect-failed"}
+
+        slot_count = len(slots)
+        self._stale_engine_ports_seen += 1
+        self._stale_engine_last_port = int(port)
+        self._stale_engine_last_slots = slot_count
+        names = [
+            str(x.get("filename") or x.get("name") or "")[:180]
+            for x in slots[:5] if isinstance(x, dict)
+        ]
+        if slot_count:
+            try:
+                self._raw_api(int(port), "pause", timeout=2.5, api_key=key)
+                self._stale_engine_live_slots_paused += slot_count
+                self._event(
+                    "warning",
+                    "Quarantined stale NewzDeck SAB with hidden queue work",
+                    port=int(port), slots=slot_count, reason=reason, jobs=names,
+                )
+                return {"authenticated": True, "port": int(port), "slots": slot_count, "action": "paused"}
+            except Exception as exc:
+                self._event(
+                    "warning",
+                    "Could not pause stale NewzDeck SAB",
+                    port=int(port), slots=slot_count, reason=reason, error=str(exc),
+                )
+                return {"authenticated": True, "port": int(port), "slots": slot_count, "action": "pause-failed"}
+
+        try:
+            self._raw_api(int(port), "shutdown", timeout=2.5, api_key=key)
+            self._stale_engines_shutdown += 1
+            self._event("warning", "Shut down empty stale NewzDeck SAB", port=int(port), reason=reason)
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and not self._port_available(int(port)):
+                time.sleep(0.15)
+            return {"authenticated": True, "port": int(port), "slots": 0, "action": "shutdown"}
+        except Exception as exc:
+            self._event(
+                "warning",
+                "Could not shut down empty stale NewzDeck SAB",
+                port=int(port), reason=reason, error=str(exc),
+            )
+            return {"authenticated": True, "port": int(port), "slots": 0, "action": "shutdown-failed"}
+
+    def _quarantine_stale_private_engines(self, *, force: bool = False) -> None:
+        """Pause hidden historical SAB queues and retire empty old engines.
+
+        This runs at a low cadence after the authoritative engine is healthy. It
+        never changes engine.json and never adopts historical credentials.
+        """
+        now = time.time()
+        if not force and now - self._stale_engine_quarantine_last_ts < 60.0:
+            return
+        self._stale_engine_quarantine_last_ts = now
+        try:
+            current = self._load_engine_identity()
+            current_port = int(current.get("port") or 0)
+        except Exception:
+            return
+
+        ports: list[int] = []
+        for rec in self._identity_candidates():
+            port = _clamp_int(rec.get("port"), 1025, 65535, 0)
+            if port and port != current_port and port not in ports:
+                ports.append(port)
+        for port in ports:
+            if self.shutdown_event.is_set():
+                return
+            self._quarantine_known_engine_on_port(port, reason="historical private SAB identity")
+
     def _load_engine_identity(self) -> dict[str, Any]:
         """Load SAB identity without rotating credentials because of a transient file-read failure."""
         with self._identity_lock:
@@ -1240,9 +1459,17 @@ class SabDownloadManager:
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(url, headers={"User-Agent": "NewzDeck/3.6.19"})
-        with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
-            data = self._decode_api_payload(response.read())
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "NewzDeck/3.6.20", "Connection": "close"},
+        )
+        # SAB's own anonymized log showed one healthy process and successful NNTP
+        # transfers while NewzDeck was receiving 10054 on localhost API calls. Keep
+        # NewzDeck's control traffic single-filed so snapshot/completion/provider
+        # threads cannot concurrently churn CherryPy/Cheroot connections.
+        with self._sab_transport_lock:
+            with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
+                data = self._decode_api_payload(response.read())
         if isinstance(data, dict) and data.get("error"):
             raise RuntimeError(str(data.get("error")))
         return data
@@ -1290,48 +1517,60 @@ class SabDownloadManager:
         return adopted
 
     def _reconcile_live_identity(self, *, timeout: float = 0.7) -> bool:
-        """Find a running NewzDeck SAB and prove a full API key, including old backups."""
-        candidates = self._identity_candidates()
-        ports: list[int] = []
-        for rec in candidates:
-            port = _clamp_int(rec.get("port"), 1025, 65535, 0)
-            if port and port not in ports:
-                ports.append(port)
-        if not ports:
-            try:
-                ports.append(int(self._load_engine_identity()["port"]))
-            except Exception:
-                return False
+        """Repair only the authoritative current SAB generation.
 
-        for port in ports:
-            version = self._probe_version(port, timeout=timeout)
-            if not version:
+        v3.6.19 and older scanned every admin-vN/history credential and could adopt
+        any SAB they authenticated on any old localhost port. With multiple orphaned
+        private SAB processes, a transient auth/control error could therefore switch
+        the running adapter to a different queue. Historical identities are now
+        retirement credentials only.
+        """
+        try:
+            current = self._load_engine_identity()
+        except Exception:
+            return False
+        port = int(current.get("port") or 0)
+        if not port:
+            return False
+        version = self._probe_version(port, timeout=timeout)
+        if not version:
+            return False
+
+        candidates = self._authoritative_identity_candidates()
+        current_key = str(current.get("api_key") or "").strip()
+        current_cfg = str(current.get("config_file") or self.config_file)
+        for rec in candidates:
+            key = str(rec.get("api_key") or "").strip()
+            if not key:
                 continue
-            # Keys associated with this port first, then historical candidates. This
-            # recovers the v3.5.2 split-brain case where disk config/key B replaced
-            # the in-memory key A of the still-running SAB process.
-            ordered = sorted(candidates, key=lambda r: 0 if int(r.get("port") or 0) == port else 1)
-            seen_keys: set[str] = set()
-            for rec in ordered:
-                api_key = str(rec.get("api_key") or "").strip()
-                if not api_key or api_key in seen_keys:
-                    continue
-                seen_keys.add(api_key)
-                if self._auth_kind(port, api_key, timeout=timeout) == "apikey":
-                    self._adopt_identity(
-                        port=port,
-                        api_key=api_key,
-                        nzb_key=str(rec.get("nzb_key") or ""),
-                        config_file=str(rec.get("config_file") or ""),
-                        source=str(rec.get("source") or "identity-recovery"),
-                    )
-                    self._last_ready_ts = time.time()
-                    return True
-            self._last_error = (
-                f"SABnzbd {version} is reachable on localhost:{port}, but its previous private API key "
-                "could not be recovered; NewzDeck will isolate a fresh engine generation"
-            )
+            if self._auth_kind(port, key, timeout=timeout) != "apikey":
+                continue
+            if key != current_key:
+                repaired = dict(current)
+                repaired["api_key"] = key
+                nzb_key = str(rec.get("nzb_key") or "").strip()
+                if nzb_key:
+                    repaired["nzb_key"] = nzb_key
+                repaired["config_file"] = current_cfg
+                self._save_engine_identity(repaired, source="authoritative-key-repair")
+                self._identity_authoritative_key_repairs += 1
+                self._event(
+                    "info",
+                    "Repaired authoritative private SAB API key without changing engine generation",
+                    port=port,
+                )
+            self._last_ready_ts = time.time()
+            self._last_error = ""
+            return True
+
+        # Explicitly do NOT scan/adopt another port here.
+        self._identity_cross_adoptions_blocked += 1
+        self._last_error = (
+            f"SABnzbd {version} is reachable on authoritative localhost:{port}, "
+            "but the current generation API identity does not authenticate"
+        )
         return False
+
 
     def _api(self, mode: str, *, timeout: float = 4.0, include_key: bool = True, _retry_auth: bool = True, **params: Any) -> dict[str, Any]:
         ident = self._load_engine_identity()
@@ -1537,7 +1776,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.19 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.20 (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -1643,19 +1882,29 @@ class SabDownloadManager:
         }
         for key, value in enforced.items():
             misc[key] = value
+        settings = self.settings_getter() or {}
         defaults = {
             "username": "", "password": "", "language": "en", "web_dir": "Glitter",
             "check_new_rel": "0", "config_lock": "0", "start_paused": "0",
-            "download_dir": str(self.incomplete_dir), "complete_dir": str(self.download_dir_getter()),
-            "direct_unpack": "1", "pause_on_post_processing": "0",
         }
         for key, value in defaults.items():
             if key not in misc:
                 misc[key] = value
+        # These are NewzDeck-owned runtime settings. They are written while SAB is
+        # offline so the first live sync does not need to mutate them and recycle
+        # the localhost control listener.
+        misc["download_dir"] = str(self.incomplete_dir)
+        misc["complete_dir"] = str(self.download_dir_getter())
+        misc["direct_unpack"] = "1" if str(settings.get("direct_unpack_mode", "auto")).lower() != "off" else "0"
+        misc["pause_on_post_processing"] = "0"
+        if not cfg.has_section("acenter"):
+            cfg.add_section("acenter")
+        cfg["acenter"]["acenter_enable"] = "0"
         if not cfg.has_section("servers"):
             cfg.add_section("servers")
         with self.config_file.open("w", encoding="utf-8", newline="\n") as f:
             cfg.write(f)
+        self._bootstrap_misc_authoritative = True
 
     def _launch(self) -> None:
         """Start/adopt the private SAB engine with one clean-generation recovery.
@@ -1717,15 +1966,29 @@ class SabDownloadManager:
             # and free port rather than modifying the config underneath the old process.
             if not self._port_available(port):
                 if self._reconcile_live_identity(timeout=0.9):
-                    self._event("info", f"Adopted existing SABnzbd {SAB_VERSION} engine after port probe",
+                    self._event("info", f"Adopted authoritative existing SABnzbd {SAB_VERSION} engine after port probe",
                                 port=self._load_engine_identity()["port"])
                     return True, ""
-                version = self._probe_version(port, timeout=0.7)
-                reason = (f"unrecoverable legacy SAB {version} identity on localhost:{port}"
-                          if version else f"another process occupies localhost:{port}")
-                self._fresh_engine_generation(reason=reason)
-                ident = self._load_engine_identity()
-                port = int(ident["port"])
+
+                quarantined = self._quarantine_known_engine_on_port(
+                    port, reason="authoritative localhost port occupied by historical NewzDeck SAB",
+                )
+                # An empty authenticated stale process may have shut down and freed
+                # the desired authoritative port. A stale engine with queue work is
+                # paused/preserved, so allocate a new generation on another port.
+                if not self._port_available(port):
+                    version = self._probe_version(port, timeout=0.7)
+                    if quarantined.get("authenticated"):
+                        reason = (
+                            f"quarantined stale NewzDeck SAB on localhost:{port} "
+                            f"with {int(quarantined.get('slots') or 0)} preserved queue slot(s)"
+                        )
+                    else:
+                        reason = (f"unrecoverable legacy SAB {version} identity on localhost:{port}"
+                                  if version else f"another process occupies localhost:{port}")
+                    self._fresh_engine_generation(reason=reason)
+                    ident = self._load_engine_identity()
+                    port = int(ident["port"])
 
             self._write_initial_config()
             ident = self._load_engine_identity()
@@ -1754,7 +2017,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.19 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck 3.6.20 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -1934,7 +2197,14 @@ class SabDownloadManager:
 
     @staticmethod
     def _config_servers_root(payload: dict[str, Any]) -> list[dict[str, Any]]:
-        """Normalize SAB get_config(section=servers) across API wrapper shapes."""
+        """Normalize SAB get_config(section=servers) across API wrapper shapes.
+
+        SAB 5.x commonly returns the server collection as a list of singleton
+        dictionaries, e.g. ``[{"server-name": {...}}]``. Older NewzDeck
+        parsing treated that wrapper itself as the server record, so the runtime
+        worker could be present while Diagnostics incorrectly reported 0 configured
+        providers. Flatten both that shape and the direct list/dict variants.
+        """
         if not isinstance(payload, dict):
             return []
         raw: Any = payload.get("config")
@@ -1944,23 +2214,36 @@ class SabDownloadManager:
             raw = payload
         if isinstance(raw, dict):
             raw = raw.get("servers", raw.get("server", raw))
+
+        out: list[dict[str, Any]] = []
         if isinstance(raw, list):
-            return [x for x in raw if isinstance(x, dict)]
-        # Some SAB config responses can expose entries keyed by their server name.
+            for entry in raw:
+                if not isinstance(entry, dict):
+                    continue
+                # Direct server record.
+                if any(k in entry for k in ("name", "servername", "displayname", "host", "serverhost")):
+                    out.append(dict(entry))
+                    continue
+                # SAB 5.x nested shape: [{"server-name": {server fields...}}].
+                for name, value in entry.items():
+                    if not isinstance(value, dict):
+                        continue
+                    item = dict(value)
+                    item.setdefault("name", str(name))
+                    out.append(item)
+            return out
         if isinstance(raw, dict):
-            out: list[dict[str, Any]] = []
             for name, value in raw.items():
                 if not isinstance(value, dict):
                     continue
                 item = dict(value)
                 item.setdefault("name", str(name))
                 out.append(item)
-            return out
-        return []
+        return out
 
     def _configured_managed_servers(self, *, timeout: float = 2.5) -> dict[str, dict[str, Any]]:
         try:
-            payload = self._api("get_config", section="servers", timeout=timeout)
+            payload = self._read_api_retry("get_config", section="servers", timeout=timeout)
         except Exception:
             return {}
         out: dict[str, dict[str, Any]] = {}
@@ -2073,18 +2356,39 @@ class SabDownloadManager:
                 "expected_servers": len(enabled_expected),
                 "configured_servers": len([x for x in enabled_expected if x in configured]),
                 "runtime_servers": len([x for x in enabled_expected if x in matched_names]),
+                "runtime_state_known": True,
+                "control_degraded": False,
+                "control_error": "",
                 "missing_config": missing_config,
                 "missing_runtime": missing_runtime,
             }
+            self._provider_health_success_ts = now
         except Exception as exc:
-            result = {
-                "available": False,
-                "active_connections": 0,
-                "capacity": sum(int(x.get("connections") or 0) for x in enabled_expected.values()),
-                "servers": [], "errors": [], "warnings": [], "summary": str(exc),
-                "expected_servers": len(enabled_expected), "configured_servers": len(configured),
-                "runtime_servers": 0, "missing_config": list(enabled_expected), "missing_runtime": list(enabled_expected),
-            }
+            # A failed localhost status request does not mean SAB lost its NNTP
+            # runtime server. The r2 evidence showed all 52 Easynews connections
+            # successfully established while this exact fallback reported 0/1
+            # runtime. Preserve recent proven provider state or mark runtime UNKNOWN.
+            if (self._is_transient_control_error(exc) and self._provider_health_cache
+                    and now - self._provider_health_success_ts <= 15.0
+                    and bool(self._provider_health_cache.get("available"))):
+                result = dict(self._provider_health_cache)
+                result["control_degraded"] = True
+                result["control_error"] = str(exc)
+                result["runtime_state_known"] = False
+            else:
+                result = {
+                    "available": False,
+                    "control_degraded": self._is_transient_control_error(exc),
+                    "control_error": str(exc),
+                    "runtime_state_known": False,
+                    "active_connections": 0,
+                    "capacity": sum(int(x.get("connections") or 0) for x in enabled_expected.values()),
+                    "servers": [], "errors": [], "warnings": [],
+                    "summary": "SAB status temporarily unavailable" if self._is_transient_control_error(exc) else str(exc),
+                    "expected_servers": len(enabled_expected), "configured_servers": len(configured),
+                    "runtime_servers": -1, "missing_config": [x for x in enabled_expected if x not in configured],
+                    "missing_runtime": [],
+                }
         # Keep the latest real connection-test result available to the Downloads
         # UI, but do not automatically promote a one-off diagnostic socket failure
         # into the provider summary. A provider can reset an individual TCP session
@@ -2237,7 +2541,13 @@ class SabDownloadManager:
         return isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, TimeoutError)) or any(x in text for x in markers)
 
     def _config_api(self, mode: str, *, attempts: int = 3, timeout: float = 4.0, **params: Any) -> dict[str, Any]:
-        """Run an idempotent SAB configuration call with bounded reconnect retry."""
+        """Run an idempotent SAB configuration call with bounded reconnect retry.
+
+        A SAB config mutation can recycle its localhost HTTP listener. On Windows
+        the request that *successfully applied* the setting can therefore end with
+        WinError 10054. Give the listener time to come back before retrying instead
+        of immediately stacking more config mutations onto the recycle window.
+        """
         last: Exception | None = None
         for attempt in range(max(1, int(attempts))):
             try:
@@ -2246,13 +2556,49 @@ class SabDownloadManager:
                 last = exc
                 if not self._is_transient_control_error(exc) or attempt + 1 >= attempts:
                     raise
-                # Let SAB finish a listener/config reload, then reconcile its private
-                # API identity before retrying the idempotent configuration request.
-                time.sleep(0.25 * (attempt + 1))
+                time.sleep(0.35 * (attempt + 1))
                 try:
-                    self._ping(timeout=min(1.0, max(0.5, timeout / 4)))
+                    self._wait_for_engine(min(3.5, 1.5 + attempt))
                 except Exception:
                     pass
+        if last is not None:
+            raise last
+        return {}
+
+    @staticmethod
+    def _tag_sab_payload(payload: dict[str, Any], section: str, *, fresh: bool, age: float = 0.0, error: str = "") -> dict[str, Any]:
+        """Attach NewzDeck-only freshness metadata without mutating cached SAB data."""
+        base = dict(payload or {})
+        if isinstance(base.get(section), dict):
+            root = dict(base.get(section) or {})
+            root["_newzdeck_fresh"] = bool(fresh)
+            root["_newzdeck_age_seconds"] = max(0.0, float(age or 0.0))
+            root["_newzdeck_control_error"] = str(error or "")[:300]
+            base[section] = root
+            return base
+        base["_newzdeck_fresh"] = bool(fresh)
+        base["_newzdeck_age_seconds"] = max(0.0, float(age or 0.0))
+        base["_newzdeck_control_error"] = str(error or "")[:300]
+        return base
+
+    def _read_api_retry(self, mode: str, *, attempts: int = 6, timeout: float = 4.0, **params: Any) -> dict[str, Any]:
+        """Retry read-only SAB API calls through a serialized localhost transport.
+
+        The r2 anonymized SAB log proved SAB stayed alive and its NNTP downloader was
+        healthy while individual NewzDeck HTTP reads saw WinError 10054. Reads are
+        idempotent, so absorb several short resets before declaring the control plane
+        unavailable.
+        """
+        last: Exception | None = None
+        for attempt in range(max(1, int(attempts))):
+            try:
+                return self._api(mode, timeout=timeout, **params)
+            except Exception as exc:
+                last = exc
+                if not self._is_transient_control_error(exc) or attempt + 1 >= attempts:
+                    raise
+                self._sab_read_resets += 1
+                time.sleep(min(0.8, 0.12 * (attempt + 1)))
         if last is not None:
             raise last
         return {}
@@ -2261,7 +2607,10 @@ class SabDownloadManager:
         if not self._ping():
             return
         signature = self._provider_signature()
+        now = time.time()
         if not force and signature == self._last_sync_signature:
+            return
+        if not force and now < float(getattr(self, "_config_sync_retry_after", 0.0) or 0.0):
             return
         self._config_sync_attempts += 1
         settings = self.settings_getter() or {}
@@ -2269,32 +2618,10 @@ class SabDownloadManager:
         complete.mkdir(parents=True, exist_ok=True)
         self.incomplete_dir.mkdir(parents=True, exist_ok=True)
         sync_errors: list[str] = []
-        # Folder and post-processing settings.
-        misc = {
-            "download_dir": str(self.incomplete_dir),
-            "complete_dir": str(complete),
-            "direct_unpack": "1" if str(settings.get("direct_unpack_mode", "auto")).lower() != "off" else "0",
-            "pause_on_post_processing": "0",
-        }
-        for keyword, value in misc.items():
-            try:
-                self._config_api("set_config", section="misc", keyword=keyword, value=value, timeout=4)
-            except Exception as exc:
-                message = f"Could not sync SAB setting {keyword}: {exc}"
-                sync_errors.append(message)
-                self._event("warning", message)
 
-        # SAB is an embedded NewzDeck engine, not a user-facing desktop app. On
-        # Windows SAB enables Action Center notifications by default (including
-        # "Download Completed"), which leaks the implementation detail to users.
-        # NewzDeck owns end-user notifications, so suppress SAB's native Action
-        # Center channel while leaving its internal warnings/history available.
-        try:
-            self._config_api("set_config", section="acenter", keyword="acenter_enable", value="0", timeout=4)
-        except Exception as exc:
-            message = f"Could not disable SAB Windows notifications: {exc}"
-            sync_errors.append(message)
-            self._event("warning", message)
+        # Provider configuration is the critical path. Apply it before any optional
+        # live misc mutation so a listener recycle cannot strand a fresh SAB
+        # generation with no NNTP server loaded.
         desired_names: set[str] = set()
         for index, provider in enumerate(self.providers_getter()):
             if not isinstance(provider, dict) or not provider.get("host"):
@@ -2310,17 +2637,11 @@ class SabDownloadManager:
                     if password == "":
                         raise RuntimeError("saved provider password decrypted to an empty value")
                 except Exception as exc:
-                    # v3.5.5 turned a DPAPI/decryption failure into password="" and
-                    # pushed that blank credential into SAB. SAB would then block the
-                    # server while the queue misleadingly remained Downloading. Keep
-                    # SAB's existing credential intact instead and surface the error.
                     password = None
                     message = f"Could not decrypt provider password for {provider.get('name') or provider.get('host')}: {exc}"
                     sync_errors.append(message)
                     self._event("warning", message)
             role = str(provider.get("role") or "primary").lower()
-            # SAB server priority is 0 (highest) through 99 (lowest). Keep NewzDeck's
-            # role ordering while preserving relative priority inside each role.
             role_base = {"primary": 0, "backup": 33, "recovery": 66}.get(role, 0)
             configured_priority = _clamp_int(provider.get("priority"), 1, 99, 10)
             sab_priority = min(99, role_base + min(32, configured_priority))
@@ -2345,11 +2666,11 @@ class SabDownloadManager:
                 message = f"Could not sync provider {provider.get('name') or provider.get('host')}: {exc}"
                 sync_errors.append(message)
                 self._event("warning", message)
-        # Remove stale NewzDeck-managed server entries and verify that every
-        # enabled provider was actually persisted. SAB can acknowledge set_config
-        # while its runtime Downloader is still using an older server generation.
+
+        # Verify server persistence using the SAB 5.x nested response parser.
+        missing: list[str] = []
         try:
-            cfg = self._config_api("get_config", section="servers", timeout=4)
+            cfg = self._read_api_retry("get_config", section="servers", timeout=4)
             servers = self._config_servers_root(cfg)
             persisted_names: set[str] = set()
             for item in servers:
@@ -2358,7 +2679,7 @@ class SabDownloadManager:
                     persisted_names.add(name)
                     if name not in desired_names:
                         try:
-                            self._config_api("del_config", section="servers", keyword=name, timeout=3)
+                            self._config_api("del_config", section="servers", keyword=name, timeout=3, attempts=2)
                         except Exception:
                             pass
             expected_enabled = set(self._managed_server_expectations()) & desired_names
@@ -2371,27 +2692,65 @@ class SabDownloadManager:
             message = f"Could not verify SAB provider configuration: {exc}"
             sync_errors.append(message)
             self._event("warning", message)
+
+        # A process that NewzDeck just launched already received these values in
+        # sabnzbd.ini before startup. Do not immediately reapply them through the
+        # live API: direct_unpack/pause_on_post_processing can recycle SAB's HTTP
+        # listener and were the source of the r1 startup 10054 loop. Live changes
+        # later in the session still flow through this block normally.
+        bootstrap_misc_ready = bool(getattr(self, "_bootstrap_misc_authoritative", False))
+        if bootstrap_misc_ready:
+            self._bootstrap_misc_authoritative = False
+        else:
+            misc = {
+                "download_dir": str(self.incomplete_dir),
+                "complete_dir": str(complete),
+                "direct_unpack": "1" if str(settings.get("direct_unpack_mode", "auto")).lower() != "off" else "0",
+                "pause_on_post_processing": "0",
+            }
+            for keyword, value in misc.items():
+                try:
+                    self._config_api("set_config", section="misc", keyword=keyword, value=value, timeout=4, attempts=2)
+                except Exception as exc:
+                    message = f"Could not sync SAB setting {keyword}: {exc}"
+                    sync_errors.append(message)
+                    self._event("warning", message)
+            try:
+                self._config_api("set_config", section="acenter", keyword="acenter_enable", value="0", timeout=4, attempts=2)
+            except Exception as exc:
+                message = f"Could not disable SAB Windows notifications: {exc}"
+                sync_errors.append(message)
+                self._event("warning", message)
+
         self._provider_sync_errors = sync_errors[-8:]
+        provider_persisted = not missing
         if sync_errors:
             self._config_sync_failures += 1
             self._config_sync_last_error_ts = time.time()
+            # Missing provider persistence gets a bounded retry after the listener
+            # has had time to settle. Do not enter the old three-second rewrite storm.
+            if not provider_persisted:
+                self._config_sync_retry_after = time.time() + 15.0
+                self._last_sync_signature = ""
+            else:
+                self._config_sync_retry_after = 0.0
+                self._last_sync_signature = signature
             self._config_retry_storms_suppressed += 1
             self._event(
                 "warning",
-                "SAB configuration sync was incomplete; automatic 3-second full rewrite retry suppressed",
-                errors=sync_errors[-3:],
+                "SAB configuration reconciliation completed with non-fatal control errors",
+                provider_persisted=provider_persisted, errors=sync_errors[-3:],
             )
-        # Mark this desired signature as attempted even when one control request
-        # failed. Rewriting every provider entry every three seconds is more harmful
-        # than a transient missed setting. Missing provider configuration is still
-        # explicitly rechecked/repaired by sustained provider-stall recovery, and a
-        # real user setting change naturally creates a new signature.
-        self._last_sync_signature = signature
+        else:
+            self._config_sync_retry_after = 0.0
+            self._last_sync_signature = signature
+
         self._provider_health_ts = 0.0
         health = self._provider_health(force=True)
         self._unblock_managed_servers(health, force=True)
-        self._event("info", "SABnzbd configuration synchronized", providers=len(desired_names), complete_dir=str(complete),
-                    errors=len(sync_errors), active_connections=int(health.get("active_connections", 0) or 0))
+        if provider_persisted:
+            self._event("info", "SABnzbd configuration synchronized", providers=len(desired_names), complete_dir=str(complete),
+                        errors=len(sync_errors), active_connections=int(health.get("active_connections", 0) or 0))
 
     def _presentation_transfer_telemetry(self, *, raw_speed_bps: int, remaining_bytes: int,
                                          queue_active: bool, queue_paused: bool,
@@ -2632,13 +2991,26 @@ class SabDownloadManager:
             try:
                 self.ensure_running(blocking=True)
                 self._sync_configuration()
+                self._quarantine_stale_private_engines()
                 if self._resume_intent_event.is_set():
                     self._resume_intent_event.clear()
                     self._refresh_shared_state()
-                    if not bool(self.state.get("paused", False)):
+                    provider_fault = str((self._provider_health_cache or {}).get("summary") or "")
+                    disk_fault = "disk error" in provider_fault.casefold()
+                    if disk_fault:
+                        self._engine_fault = provider_fault
+                        self._engine_fault_last_ts = time.time()
+                        if provider_fault != self._engine_fault_last_logged:
+                            self._engine_fault_last_logged = provider_fault
+                            self._event(
+                                "error",
+                                "Private SAB queue is paused by a disk error; automatic Resume suppressed",
+                                error=provider_fault,
+                            )
+                    elif not bool(self.state.get("paused", False)):
                         try:
                             self._api("resume", timeout=3)
-                            self._event("info", "Reasserted NewzDeck running queue intent after transient SAB Pause")
+                            self._event("info", "Reasserted NewzDeck running queue intent after sustained SAB Pause")
                         except Exception as resume_exc:
                             self._event("warning", f"Could not reassert SAB queue running state: {resume_exc}")
                 self._flush_pending_submissions(max_items=3)
@@ -2683,7 +3055,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.19",
+            "adapter_version": "3.6.20",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -3137,42 +3509,91 @@ class SabDownloadManager:
                                 file_count=len(items), automation_context=None)
 
     def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Read SAB queue/history with an optimized live-display path.
+        """Read one coherent SAB Queue/History pair through a shared reader.
 
-        Queue contains the rapidly-changing transfer counters and is always fresh.
-        History is cached for at most one second during live polling, but is forced
-        fresh immediately when a queue id disappears so queue->history transitions
-        remain effectively real time.
+        Snapshot polling and the Automation completion monitor used to issue their
+        own concurrent Queue/History requests. The SAB log from the real r2 failure
+        showed SAB itself remained alive, opened all 52 Easynews connections and
+        processed jobs while NewzDeck saw localhost 10054 errors. Serialize these
+        reads, share recent results, and explicitly mark short cached fallbacks stale
+        so they can never drive Pause recovery as if they were current engine truth.
         """
-        queue_data = self._api("queue", start=0, limit=200, timeout=1.5 if live else 4)
-        if not live:
-            history_data = self._api("history", start=0, limit=200, timeout=4)
-            self._live_history_payload = history_data
-            self._live_history_fetch_ts = time.time()
-            _qroot, qslots = self._queue_slots(queue_data)
-            self._live_queue_ids = {str(x.get("nzo_id") or x.get("id") or "") for x in qslots if str(x.get("nzo_id") or x.get("id") or "")}
-            return queue_data, history_data
+        with self._queue_history_lock:
+            now = time.time()
+            queue_fresh = True
+            queue_error = ""
+            try:
+                queue_data = self._read_api_retry(
+                    "queue", start=0, limit=200,
+                    timeout=2.0 if live else 4.0, attempts=6,
+                )
+                self._last_good_queue_payload = dict(queue_data)
+                self._last_good_queue_ts = time.time()
+            except Exception as exc:
+                queue_error = str(exc)
+                age = now - float(self._last_good_queue_ts or 0.0)
+                if self._last_good_queue_payload is None or age > 1.75:
+                    raise
+                queue_data = dict(self._last_good_queue_payload)
+                queue_fresh = False
+                self._sab_read_stale_uses += 1
 
-        now = time.time()
-        _qroot, qslots = self._queue_slots(queue_data)
-        current_ids = {str(x.get("nzo_id") or x.get("id") or "") for x in qslots if str(x.get("nzo_id") or x.get("id") or "")}
-        queue_handoff = bool(self._live_queue_ids - current_ids)
-        cached_history_root, _cached_history_slots = self._history_slots(self._live_history_payload or {})
-        cached_pp_active = int(_num(cached_history_root.get("ppslots"), 0) or 0) > 0
-        history_interval = 0.5 if cached_pp_active else 1.0
-        history_due = (
-            self._live_history_payload is None
-            or now - self._live_history_fetch_ts >= history_interval
-            or queue_handoff
-        )
-        if history_due:
-            history_data = self._api("history", start=0, limit=200, timeout=2.0)
-            self._live_history_payload = history_data
-            self._live_history_fetch_ts = now
-        else:
-            history_data = self._live_history_payload or {}
-        self._live_queue_ids = current_ids
-        return queue_data, history_data
+            queue_age = 0.0 if queue_fresh else max(0.0, now - self._last_good_queue_ts)
+            queue_data = self._tag_sab_payload(
+                queue_data, "queue", fresh=queue_fresh, age=queue_age, error=queue_error
+            )
+            _qroot, qslots = self._queue_slots(queue_data)
+            current_ids = {
+                str(x.get("nzo_id") or x.get("id") or "")
+                for x in qslots if str(x.get("nzo_id") or x.get("id") or "")
+            }
+
+            # History is allowed a slightly longer fallback because it is terminal
+            # state rather than live transfer telemetry. Queue->History handoffs still
+            # force a fresh read whenever possible.
+            queue_handoff = bool(self._live_queue_ids - current_ids) if queue_fresh else False
+            cached_history_root, _cached_history_slots = self._history_slots(self._live_history_payload or {})
+            cached_pp_active = int(_num(cached_history_root.get("ppslots"), 0) or 0) > 0
+            history_interval = 0.5 if cached_pp_active else 1.0
+            history_due = (
+                not live
+                or self._live_history_payload is None
+                or now - self._live_history_fetch_ts >= history_interval
+                or queue_handoff
+            )
+
+            history_fresh = True
+            history_error = ""
+            if history_due:
+                try:
+                    history_data = self._read_api_retry(
+                        "history", start=0, limit=200,
+                        timeout=2.5 if live else 4.0, attempts=6,
+                    )
+                    self._live_history_payload = dict(history_data)
+                    self._live_history_fetch_ts = time.time()
+                    self._last_good_history_payload = dict(history_data)
+                    self._last_good_history_ts = time.time()
+                except Exception as exc:
+                    history_error = str(exc)
+                    age = now - float(self._last_good_history_ts or 0.0)
+                    if self._last_good_history_payload is None or age > 8.0:
+                        raise
+                    history_data = dict(self._last_good_history_payload)
+                    history_fresh = False
+                    self._sab_read_stale_uses += 1
+            else:
+                history_data = dict(self._live_history_payload or self._last_good_history_payload or {})
+                history_fresh = False
+
+            history_age = 0.0 if history_fresh else max(0.0, now - float(self._last_good_history_ts or 0.0))
+            history_data = self._tag_sab_payload(
+                history_data, "history", fresh=history_fresh, age=history_age, error=history_error
+            )
+
+            if queue_fresh:
+                self._live_queue_ids = current_ids
+            return queue_data, history_data
 
     @staticmethod
     def _queue_slots(payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -3209,6 +3630,81 @@ class SabDownloadManager:
         except Exception as exc:
             self._event("warning", f"Could not recover Automation context for SAB job {nzo_id}: {exc}")
             return {}
+
+    def _cleanup_proven_stale_queue_duplicates(self, queue_slots: list[dict[str, Any]]) -> set[str]:
+        """Remove only queue entries that are *provably* stale duplicates.
+
+        Safe cases:
+        1. the exact SAB NZO id is already terminal=completed and imported in the
+           NewzDeck ledger; or
+        2. the SAB id is completely untracked and its exact normalized release name
+           matches a completed/imported NewzDeck job.
+
+        A tracked non-terminal re-download is never removed merely because its name
+        matches an older completion.
+        """
+        self._refresh_shared_state()
+        with self.lock:
+            tracked = dict(self._tracked())
+
+        terminal_ids: set[str] = set()
+        completed_names: set[str] = set()
+        for job_id, meta in tracked.items():
+            if not isinstance(meta, dict):
+                continue
+            terminal = str(meta.get("terminal_status") or "").casefold()
+            if terminal == "completed" and bool(meta.get("imported")):
+                terminal_ids.add(str(job_id))
+                name = _safe_name(str(meta.get("name") or "")).casefold()
+                if name:
+                    completed_names.add(name)
+
+        cleaned: set[str] = set()
+        for slot in queue_slots:
+            if not isinstance(slot, dict):
+                continue
+            nzo_id = str(slot.get("nzo_id") or slot.get("id") or "").strip()
+            if not nzo_id:
+                continue
+            slot_name = _safe_name(str(slot.get("filename") or slot.get("name") or "")).casefold()
+            reason = ""
+            delete_files = False
+            if nzo_id in terminal_ids:
+                reason = "completed/imported SAB job id reappeared in live Queue"
+                delete_files = False
+            elif nzo_id not in tracked and slot_name and slot_name in completed_names:
+                reason = "untracked live Queue entry exactly duplicates an imported release"
+                delete_files = True
+            if not reason:
+                continue
+            try:
+                result = self._api(
+                    "queue", name="delete", value=nzo_id,
+                    del_files=1 if delete_files else 0, timeout=4,
+                )
+                if not self._sab_mutation_accepted(result):
+                    raise RuntimeError(str(result.get("error") or result.get("status") or "SAB rejected deletion"))
+                cleaned.add(nzo_id)
+                self._stale_duplicate_queue_cleanups += 1
+                self._stale_duplicate_queue_last_ts = time.time()
+                if nzo_id not in tracked:
+                    with self.lock:
+                        self._mark_removed_locked(nzo_id, "stale_duplicate")
+                        self._save_state()
+                self._event(
+                    "warning",
+                    "Removed proven stale duplicate from authoritative SAB Queue",
+                    nzo_id=nzo_id,
+                    reason=reason,
+                    name=str(slot.get("filename") or slot.get("name") or "")[:240],
+                )
+            except Exception as exc:
+                self._event(
+                    "warning",
+                    "Could not remove proven stale duplicate from authoritative SAB Queue",
+                    nzo_id=nzo_id, reason=reason, error=str(exc),
+                )
+        return cleaned
 
     def _adopt_untracked_slots(self, queue_slots: list[dict[str, Any]], history_slots: list[dict[str, Any]]) -> int:
         """Adopt SAB jobs created by another NewzDeck runtime into the shared ledger.
@@ -3325,7 +3821,7 @@ class SabDownloadManager:
             self._event("info", "Recovered Automation context for shared SAB job",
                         nzo_id=nzo_id, target_key=str(context.get("target_key") or ""))
         for nzo_id, slot, context, history in additions:
-            message = "Recovered SAB job from legacy automatic-prune tombstone" if nzo_id in legacy_recovered else "Adopted SAB job from another NewzDeck runtime"
+            message = "Recovered SAB job from legacy automatic-prune tombstone" if nzo_id in legacy_recovered else "Reconciled SAB job after submission/runtime handoff"
             self._event("info", message,
                         nzo_id=nzo_id, automation=bool(context), history=history,
                         name=str(slot.get("filename") or slot.get("name") or ""))
@@ -3718,6 +4214,73 @@ class SabDownloadManager:
             "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
         }
 
+    def _control_degraded_snapshot(self, engine: dict[str, Any], now: float, error: str) -> dict[str, Any]:
+        """Render durable NewzDeck state when SAB Queue/History cannot be read.
+
+        Never renew an old raw SAB snapshot indefinitely. The r2 failure showed a
+        job had already failed in SAB while NewzDeck kept presenting an old Queued
+        snapshot as if it were fresh, which also fed the false engine-pause warning.
+        During a sustained localhost read outage, show durable jobs explicitly as
+        control-state unknown and suppress transfer KPIs until a fresh Queue read
+        returns.
+        """
+        self._sab_control_degraded_snapshots += 1
+        with self.lock:
+            tracked = dict(self._tracked())
+        jobs: list[dict[str, Any]] = []
+        collections: list[dict[str, Any]] = []
+        counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0,
+                  "completed": 0, "failed": 0, "cancelled": 0}
+        for nzo_id, meta in tracked.items():
+            job = self._offline_job_from_meta(str(nzo_id), meta, now)
+            status = str(job.get("status") or "queued")
+            if status not in {"completed", "failed", "cancelled"}:
+                job["status"] = "queued"
+                job["speed_bps"] = 0
+                job["eta_seconds"] = 0
+                job["connections_used"] = 0
+                job["status_detail"] = "SAB control channel refreshing • transfer state temporarily unknown"
+                status = "queued"
+            jobs.append(job)
+            collections.append(self._collection_from_job(job, meta))
+            counts[status if status in counts else "queued"] += 1
+        jobs.sort(key=self._display_order_key)
+        collections.sort(key=self._display_order_key)
+        configured_capacity = sum(
+            max(1, _clamp_int(p.get("connections"), 1, 100, 20)
+                - (min(3, max(0, _clamp_int(p.get("connections"), 1, 100, 20) - 1)) if p.get("use_browsing", True) else 0))
+            for p in self.providers_getter()
+            if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True)
+        )
+        telemetry = {
+            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.20 • control channel refreshing",
+            "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0,
+            "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0,
+            "sab_control_degraded": True, "sab_control_error": str(error or "")[:300],
+            "sab_read_resets": int(self._sab_read_resets),
+            "sab_read_stale_uses": int(self._sab_read_stale_uses),
+            "sab_control_degraded_snapshots": int(self._sab_control_degraded_snapshots),
+            "sab_stale_snapshot_suppressed": int(self._sab_stale_snapshot_suppressed),
+            "engine_pause_mismatch": False, "engine_idle_paused": False,
+            "active_card_continuity_bridges": int(self._active_continuity_bridges),
+            "active_card_continuity_last_ts": float(self._active_continuity_last_ts),
+            "bandwidth": {"enabled": False, "active": False},
+        }
+        return {
+            "paused": bool(self.state.get("paused", False)),
+            "jobs": jobs, "collections": collections, "counts": counts,
+            "concurrent_downloads": 1, "folder": str(self.download_dir_getter()),
+            "total_speed_bps": 0, "average_speed_bps": 0,
+            "remaining_bytes": 0, "remaining_unknown": True, "queue_eta_seconds": 0,
+            "post_processing_active": 0,
+            "connections": {"active": 0, "live_active": 0, "open": 0,
+                            "effective_capacity": configured_capacity, "capacity": configured_capacity,
+                            "configured": configured_capacity, "pools": [],
+                            "yenc": {"available": True, "workers": 0}},
+            "telemetry": telemetry, "statistics": self._statistics({}),
+            "engine": {**dict(engine or {}), "last_error": str(error or ""), "control_degraded": True},
+        }
+
     def _snapshot_uncached(self) -> dict[str, Any]:
         now = time.time()
         self._refresh_shared_state()
@@ -3748,7 +4311,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.19 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.20 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -3756,45 +4319,71 @@ class SabDownloadManager:
             queue_payload, history_payload = self._queue_and_history(live=True)
             qroot, qslots = self._queue_slots(queue_payload)
             hroot, hslots = self._history_slots(history_payload)
-            # r3 migration/recovery: if an older NewzDeck build tombstoned a Remove
-            # before SAB actually deleted the live job, enforce that explicit user
-            # intent now. Refresh Queue/History once so aggregate telemetry and cards
-            # immediately reflect the stopped transfer.
-            cleanup_ids = self._enforce_removed_tombstones(qslots)
-            if cleanup_ids:
-                queue_payload, history_payload = self._queue_and_history(live=False)
-                qroot, qslots = self._queue_slots(queue_payload)
-                hroot, hslots = self._history_slots(history_payload)
-                remaining_live=self._slot_ids(qslots)
-                for cleaned_id in cleanup_ids:
-                    if cleaned_id not in remaining_live:
-                        self._orphan_removed_cleanup_count += 1
-                        self._orphan_removed_cleanup_last_ts = time.time()
-                        self._event("warning", "Stopped hidden SAB transfer left by an older unverified Remove/Cancel", nzo_id=cleaned_id)
-                    else:
-                        self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
+            queue_read_fresh = bool(qroot.get("_newzdeck_fresh", True))
+            history_read_fresh = bool(hroot.get("_newzdeck_fresh", True))
+
+            # Never perform destructive reconciliation from a short cached Queue
+            # fallback. Only a fresh SAB Queue response may prove a live job exists.
+            if queue_read_fresh:
+                cleanup_ids = self._enforce_removed_tombstones(qslots)
+                if cleanup_ids:
+                    queue_payload, history_payload = self._queue_and_history(live=False)
+                    qroot, qslots = self._queue_slots(queue_payload)
+                    hroot, hslots = self._history_slots(history_payload)
+                    queue_read_fresh = bool(qroot.get("_newzdeck_fresh", True))
+                    history_read_fresh = bool(hroot.get("_newzdeck_fresh", True))
+                    remaining_live=self._slot_ids(qslots)
+                    for cleaned_id in cleanup_ids:
+                        if cleaned_id not in remaining_live:
+                            self._orphan_removed_cleanup_count += 1
+                            self._orphan_removed_cleanup_last_ts = time.time()
+                            self._event("warning", "Stopped hidden SAB transfer left by an older unverified Remove/Cancel", nzo_id=cleaned_id)
+                        else:
+                            self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
+                stale_duplicate_ids = self._cleanup_proven_stale_queue_duplicates(qslots)
+                if stale_duplicate_ids:
+                    queue_payload, history_payload = self._queue_and_history(live=False)
+                    qroot, qslots = self._queue_slots(queue_payload)
+                    hroot, hslots = self._history_slots(history_payload)
+                    queue_read_fresh = bool(qroot.get("_newzdeck_fresh", True))
+                    history_read_fresh = bool(hroot.get("_newzdeck_fresh", True))
+
             self._adopt_untracked_slots(qslots, hslots)
-            self._kick_completed_automation_imports(qslots, hslots)
+            if history_read_fresh:
+                self._kick_completed_automation_imports(qslots, hslots)
+
             bridge_remaining_hint = _mb_to_bytes(qroot.get("mbleft"))
             if bridge_remaining_hint <= 0:
                 bridge_remaining_hint = sum(
                     _mb_to_bytes(x.get("mbleft")) for x in qslots if isinstance(x, dict)
                 )
-            bridged_pause = self._bridge_unexpected_sab_pause(
-                qroot,
-                engine,
-                now,
-                has_transfer_work=bool(qslots) or bridge_remaining_hint > 0,
-            )
-            if bridged_pause is not None:
-                return bridged_pause
+            # Cached queue data is presentation fallback only. It must never drive
+            # Resume/engine-pause recovery as though it were current engine truth.
+            if queue_read_fresh:
+                bridged_pause = self._bridge_unexpected_sab_pause(
+                    qroot, engine, now,
+                    has_transfer_work=bool(qslots) or bridge_remaining_hint > 0,
+                )
+                if bridged_pause is not None:
+                    return bridged_pause
+                self._last_coherent_sab_snapshot_ts = now
         except Exception as exc:
             self._last_error = str(exc)
-            if self._last_snapshot is not None:
+            coherent_age = now - float(self._last_coherent_sab_snapshot_ts or 0.0)
+            if self._last_snapshot is not None and coherent_age <= 1.5:
+                self._sab_read_stale_uses += 1
                 stale = dict(self._last_snapshot)
-                stale["engine"] = {**engine, "last_error": str(exc)}
+                stale["paused"] = bool(self.state.get("paused", False))
+                stale["engine"] = {**engine, "last_error": str(exc), "control_degraded": True}
+                stale_tel = dict(stale.get("telemetry") or {})
+                stale_tel["sab_control_degraded"] = True
+                stale_tel["sab_control_error"] = str(exc)[:300]
+                stale_tel["engine_pause_mismatch"] = False
+                stale_tel["unexpected_sab_pause_active"] = False
+                stale["telemetry"] = stale_tel
                 return stale
-            qroot, qslots, hroot, hslots = {}, [], {}, []
+            self._sab_stale_snapshot_suppressed += 1
+            return self._control_degraded_snapshot(engine, now, str(exc))
         queue_by = {str(x.get("nzo_id") or x.get("id") or ""): x for x in qslots}
         hist_by = {str(x.get("nzo_id") or x.get("id") or ""): x for x in hslots}
         total_speed = _kb_to_bps(qroot.get("kbpersec"))
@@ -3826,18 +4415,29 @@ class SabDownloadManager:
         queue_remaining_hint = _mb_to_bytes(qroot.get("mbleft"))
         if queue_remaining_hint <= 0:
             queue_remaining_hint = sum(_mb_to_bytes(x.get("mbleft")) for x in qslots if isinstance(x, dict))
-        has_engine_transfer_work = bool(qslots) or queue_remaining_hint > 0
+        has_engine_transfer_work = bool(queue_read_fresh and (qslots or queue_remaining_hint > 0))
         engine_pause_mismatch = self._observe_engine_pause_intent(
-            qroot,
-            now,
-            has_transfer_work=has_engine_transfer_work,
+            qroot, now, has_transfer_work=has_engine_transfer_work,
         )
-        provider_health = self._recover_zero_socket_transfer(
-            queue_active=queue_active_signal, queue_paused=queue_paused, total_speed=total_speed,
-            remaining_bytes=queue_remaining_hint,
-        )
+        if queue_read_fresh:
+            provider_health = self._recover_zero_socket_transfer(
+                queue_active=queue_active_signal, queue_paused=queue_paused, total_speed=total_speed,
+                remaining_bytes=queue_remaining_hint,
+            )
+        else:
+            # A cached Queue sample cannot prove a provider stall. Read cached health
+            # only and wait for fresh Queue truth before any recovery decision.
+            provider_health = self._provider_health(force=False)
         actual_active_connections = int(provider_health.get("active_connections", 0) or 0)
         provider_summary = str(provider_health.get("summary") or "").strip()
+        disk_fault = bool("disk error" in provider_summary.casefold())
+        if disk_fault:
+            self._engine_fault = provider_summary
+            self._engine_fault_last_ts = now
+            self._resume_intent_event.clear()
+            engine_pause_mismatch = False
+        elif self._engine_fault and now - self._engine_fault_last_ts > 15.0:
+            self._engine_fault = ""
         presentation = self._presentation_transfer_telemetry(
             raw_speed_bps=total_speed, remaining_bytes=queue_remaining_hint,
             queue_active=queue_active_signal, queue_paused=queue_paused,
@@ -3912,7 +4512,14 @@ class SabDownloadManager:
             # handoff the same id can transiently appear in both feeds, or a stale
             # queue slot can be observed one poll after history already says Completed.
             # Prefer terminal completion so the UI never resurrects it as Queued.
-            if history_slot is not None and history_status == "completed":
+            meta_terminal = str(meta.get("terminal_status") or "").casefold()
+            if queue_slot is not None and meta_terminal == "completed" and bool(meta.get("imported")):
+                # This should have been removed by _cleanup_proven_stale_queue_duplicates.
+                # If SAB rejected deletion, never hide live transfer bytes behind a
+                # Completed card. Surface it as a stopping/corrupt duplicate.
+                slot = queue_slot
+                history = False
+            elif history_slot is not None and history_status == "completed":
                 slot = history_slot
                 history = True
             elif prior_status == "completed" and history_slot is None:
@@ -4010,6 +4617,11 @@ class SabDownloadManager:
             if history and str(slot.get('status') or '').casefold()=='failed':
                 self._remember_failed_automation_release(nzo_id,meta,slot)
             job = self._job_from_slot(nzo_id, meta, slot, history=history)
+            if not history and str(meta.get("terminal_status") or "").casefold() == "completed" and bool(meta.get("imported")):
+                job["status"] = "cancelling"
+                job["status_detail"] = "Stopping stale duplicate • this release was already imported"
+                job["speed_bps"] = 0
+                job["eta_seconds"] = 0
             if not history:
                 slot_status = str(slot.get("status") or "").casefold()
                 prior = self._job_last_view.get(nzo_id) or {}
@@ -4258,6 +4870,9 @@ class SabDownloadManager:
                        "expected_servers": int(provider_health.get("expected_servers", 0) or 0),
                        "configured_servers": int(provider_health.get("configured_servers", 0) or 0),
                        "runtime_servers": int(provider_health.get("runtime_servers", 0) or 0),
+                       "runtime_state_known": bool(provider_health.get("runtime_state_known", True)),
+                       "provider_control_degraded": bool(provider_health.get("control_degraded", False)),
+                       "provider_control_error": str(provider_health.get("control_error") or ""),
                        "server_errors": list(provider_health.get("errors") or []),
                        "servers": list(provider_health.get("servers") or []),
                        "pools": [{"name": "SABnzbd", "pipeline_depth": 1, "pipeline_enabled": False}] if configured else [],
@@ -4269,7 +4884,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.19", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.20", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -4279,6 +4894,15 @@ class SabDownloadManager:
                                 "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges),
                                 "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts),
                                 "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open),
+                                "sab_queue_fresh": bool(queue_read_fresh),
+                                "sab_queue_age_seconds": float(qroot.get("_newzdeck_age_seconds", 0.0) or 0.0),
+                                "sab_history_fresh": bool(history_read_fresh),
+                                "sab_history_age_seconds": float(hroot.get("_newzdeck_age_seconds", 0.0) or 0.0),
+                                "sab_control_degraded": not bool(queue_read_fresh),
+                                "sab_read_resets": int(self._sab_read_resets),
+                                "sab_read_stale_uses": int(self._sab_read_stale_uses),
+                                "sab_control_degraded_snapshots": int(self._sab_control_degraded_snapshots),
+                                "sab_stale_snapshot_suppressed": int(self._sab_stale_snapshot_suppressed),
                                 "engine_queue_paused_raw": bool(queue_paused),
                                 "engine_has_transfer_work": bool(has_engine_transfer_work),
                                 "engine_idle_paused": bool(
@@ -4309,6 +4933,19 @@ class SabDownloadManager:
                                 "multiple_active_slot_last_ts": float(self._multiple_active_slot_last_ts),
                                 "progress_regression_corrections": int(self._progress_regression_corrections),
                                 "progress_regression_last_ts": float(self._progress_regression_last_ts),
+                                "identity_cross_adoptions_blocked": int(self._identity_cross_adoptions_blocked),
+                                "identity_authoritative_key_repairs": int(self._identity_authoritative_key_repairs),
+                                "stale_engine_ports_seen": int(self._stale_engine_ports_seen),
+                                "stale_engine_live_slots_paused": int(self._stale_engine_live_slots_paused),
+                                "stale_engines_shutdown": int(self._stale_engines_shutdown),
+                                "stale_engine_last_port": int(self._stale_engine_last_port),
+                                "stale_engine_last_slots": int(self._stale_engine_last_slots),
+                                "stale_duplicate_queue_cleanups": int(self._stale_duplicate_queue_cleanups),
+                                "stale_duplicate_queue_last_ts": float(self._stale_duplicate_queue_last_ts),
+                                "completion_control_failures": int(self._completion_control_failures),
+                                "completion_backoff_seconds": float(self._completion_backoff_seconds),
+                                "engine_fault": str(self._engine_fault or ""),
+                                "engine_fault_last_ts": float(self._engine_fault_last_ts),
                                 "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count),
                                 "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts),
                                 "slot_utilization_pct": (100.0 * actual_active_connections / configured) if active_dl and configured else 0, "inflight_articles": 0,
@@ -4558,8 +5195,10 @@ class SabDownloadManager:
         threading.Thread(target=worker, args=(chosen,), name="newzdeck-sab-import-kick", daemon=True).start()
 
     def _completion_loop(self) -> None:
-        while not self.shutdown_event.wait(2.0):
+        delay = 2.0
+        while not self.shutdown_event.wait(delay):
             if self.media_automation is None:
+                delay = 2.0
                 continue
             try:
                 queue_payload, history_payload = self._queue_and_history()
@@ -4579,8 +5218,23 @@ class SabDownloadManager:
                         self._remember_failed_automation_release(nzo_id, meta, slot)
                 self._process_completed_automation_slots(qslots, hslots)
                 self._retry_pending_automation_cleanups()
+                delay = 2.0
+                self._completion_backoff_seconds = delay
             except Exception as exc:
-                self._event("warning", f"Automation completion monitor failed: {exc}")
+                self._completion_control_failures += 1
+                if self._is_transient_control_error(exc):
+                    delay = min(30.0, max(4.0, delay * 1.8))
+                else:
+                    delay = min(15.0, max(3.0, delay * 1.4))
+                self._completion_backoff_seconds = delay
+                now = time.time()
+                if now - self._completion_last_warning_ts >= max(15.0, delay):
+                    self._completion_last_warning_ts = now
+                    self._event(
+                        "warning",
+                        f"Automation completion monitor failed; backing off {delay:.0f}s: {exc}",
+                    )
+
 
     @staticmethod
     def _pid_is_alive(pid: int) -> bool:

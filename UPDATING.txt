@@ -1,23 +1,23 @@
-NewzDeck v3.6.19
-Non-Disruptive SAB Runtime & Single-Foreground Downloads
+NewzDeck v3.6.20
+Authoritative SAB & Fresh-State Reconciliation
 Updating
 
 INSTALLED NEWZDECK
 ------------------
 Use NewzDeck > About & Updates > Install Update.
 
-The installer-owned update lifecycle introduced in v3.6.12 remains authoritative:
+The installer-owned update lifecycle remains authoritative:
   1. Capture whether the background service and tray are present/running.
-  2. Close the browser-hosted NewzDeck app window from the signed-in Setup session.
+  2. Close the browser-hosted NewzDeck app window.
   3. Stop the tray and background service.
   4. Replace NewzDeck program files.
-  5. Run the newly installed helper as a second app-window-close safety net.
+  5. Run the newly installed helper as an app-window-close safety net.
   6. Repair and START the existing background service.
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.19 changes private-SAB lifecycle management so transient localhost control
-misses do not cause disruptive launch/configuration cycles during active downloads.
+v3.6.20 promotes the accepted serialized SAB-control / fresh-state reconciliation
+architecture while preserving the verified Automation -> download -> Smart Import path.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and
