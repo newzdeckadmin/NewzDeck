@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.20** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.21** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.20_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.21_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -35,18 +35,18 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.20 highlights
+## v3.6.21 highlights
 
-v3.6.20 promotes the accepted serialized SAB-control and fresh-state reconciliation architecture.
+v3.6.21 promotes the accepted Newsgroups image-browsing and Related Media work.
 
-- **One authoritative SAB runtime:** historical NewzDeck SAB generations are quarantined or retired rather than adopted as the active engine.
-- **Fresh state stays authoritative:** Downloads and Automation share one serialized Queue/History reader with bounded retries and stale-data leases.
-- **No stale pause loop:** cached Queue state cannot trigger Pause/Resume recovery or renew an old Downloads snapshot indefinitely.
-- **Truthful degraded state:** if SAB's localhost control channel is briefly unreadable, speed/Remaining become unknown until fresh data returns.
-- **Safe handoff recovery:** ambiguous `addlocalfile` resets reconcile accepted jobs without duplicate submission.
-- **Provider/config stability:** SAB 5.x server configuration is parsed correctly and authoritative misc settings are bootstrapped before fresh engine launch.
-- **Verified end to end:** validation completed Automation -> Queue -> SAB -> NNTP -> Completed -> Smart Import.
-- **Better diagnostics:** Copy Diagnostics exports Queue/History transport counters and handoff wording is clearer.
+- **Direct image downloads:** loose images selected from Newsgroups finish directly in the configured Download Folder root instead of an extra image/job folder.
+- **Dedicated Related Media pane:** grouped image sets are organized separately from the main gallery and update live during Continuous browsing.
+- **Faster long browsing sessions:** measured DOM windowing and incremental set indexing reduce Chromium layout/regrouping work as thousands of posts accumulate.
+- **Faster broken-set rejection:** bounded health probes avoid walking very large missing image sets member by member.
+- **Stable set covers:** stable set ownership, bounded retrieval, reserved scheduler capacity, cache-first activation, and in-place visible-task promotion prevent cover cards from being stranded behind offscreen work.
+- **Preserved All Posts behavior:** binary Preview/details remains available in All Posts.
+- **Expanded diagnostics:** Related Media queue, timing, promotion, activation, cache, and pre-navigation state are available through Copy Diagnostics.
+
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -68,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.20_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.21_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

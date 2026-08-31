@@ -3055,7 +3055,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.20",
+            "adapter_version": "3.6.21",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -3084,7 +3084,8 @@ class SabDownloadManager:
 
     def _track_add(self, nzo_id: str, *, name: str, source_name: str, provider_id: str,
                    expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None,
-                   priority: str = "normal") -> None:
+                   priority: str = "normal", browser_flat_images: bool = False,
+                   browser_flat_filenames: list[str] | None = None, browser_flat_staging_name: str = "") -> None:
         self._refresh_shared_state()
         with self.lock:
             tracked = self._tracked()
@@ -3106,11 +3107,248 @@ class SabDownloadManager:
                 # report an empty/stale history ``storage`` field for direct-media
                 # jobs, so keep NewzDeck's own deterministic hint as a second
                 # source of truth for Smart Import.
-                "output_hint": str(self.download_dir_getter() / _safe_name(name)),
+                "output_hint": str(self.download_dir_getter() if browser_flat_images else self.download_dir_getter() / _safe_name(name)),
+                "browser_flat_images": bool(browser_flat_images),
+                "browser_flat_filenames": [Path(str(x)).name for x in (browser_flat_filenames or []) if Path(str(x)).name],
+                "browser_flat_staging_name": _safe_name(browser_flat_staging_name, "") if browser_flat_staging_name else "",
+                "browser_flattened": False,
                 "_updated_ts": time.time(),
             }
             self.state.setdefault("removed_jobs", {}).pop(str(nzo_id), None)
             self._save_state()
+
+    @staticmethod
+    def _browser_flat_destination(root: Path, filename: str, reserved: set[str]) -> Path:
+        """Return a collision-safe file path directly under *root*."""
+        base = Path(str(filename or "download.bin")).name or "download.bin"
+        candidate = root / base
+        stem, suffix = candidate.stem, candidate.suffix
+        index = 2
+        while candidate.exists() or str(candidate).casefold() in reserved:
+            candidate = root / f"{stem} ({index}){suffix}"
+            index += 1
+        reserved.add(str(candidate).casefold())
+        return candidate
+
+    def _flatten_completed_browser_images(self, nzo_id: str, meta: dict[str, Any], slot: dict[str, Any]) -> bool:
+        """Finalize a direct Newsgroups image job with no per-job output folder.
+
+        SAB remains the authoritative transfer engine, so it necessarily stages an NZB
+        in a job directory while it works. r2 gives new loose-image jobs a unique
+        ``NewzDeck Images <token>`` SAB-only name, then uses the *fresh Completed*
+        history storage path to move the finished payload into Download Folder itself.
+        The visible NewzDeck job name remains the image name. Automation, imported
+        NZBs, videos and All Posts/browser_set packages never receive this marker.
+        """
+        if not bool(meta.get("browser_flat_images")):
+            return False
+        root = Path(self.download_dir_getter()).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        if bool(meta.get("browser_flattened")):
+            slot["storage"] = str(root)
+            slot["path"] = str(root)
+            return True
+
+        expected = [Path(str(x)).name for x in (meta.get("browser_flat_filenames") or []) if Path(str(x)).name]
+        if not expected:
+            return False
+        expected_folded = {x.casefold() for x in expected}
+        staging_name = str(meta.get("browser_flat_staging_name") or "").strip()
+        raw_storage = str(slot.get("storage") or slot.get("path") or "").strip()
+
+        # Prefer the explicit r2 staging directory. SAB history occasionally reports
+        # the complete root itself during the final rename window, so the internal
+        # staging identity is the deterministic fallback rather than a guessed image
+        # filename directory.
+        source_candidates: list[Path] = []
+        if staging_name:
+            source_candidates.append(root / staging_name)
+        if raw_storage:
+            source_candidates.append(Path(raw_storage).expanduser())
+        legacy_name = _safe_name(str(meta.get("name") or ""), "")
+        if legacy_name:
+            source_candidates.append(root / legacy_name)
+
+        source: Path | None = None
+        seen_paths: set[str] = set()
+        for candidate in source_candidates:
+            try:
+                resolved = candidate.resolve()
+                folded = str(resolved).casefold()
+                if folded in seen_paths:
+                    continue
+                seen_paths.add(folded)
+                resolved.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            if resolved.exists():
+                source = resolved
+                break
+        if source is None:
+            return False
+
+        try:
+            source.relative_to(root)
+        except ValueError:
+            self._event("warning", "Skipped loose-image flatten outside Download Folder", nzo_id=nzo_id, storage=str(source))
+            return False
+
+        image_suffixes = {
+            ".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".gif", ".webp", ".bmp",
+            ".tif", ".tiff", ".avif", ".heic", ".heif", ".jxl",
+        }
+
+        # SAB can return a single completed file directly in the root. That is already
+        # the desired layout; only normalize NewzDeck's bookkeeping.
+        if source.is_file() and source.parent == root:
+            if source.name.casefold() not in expected_folded and source.suffix.casefold() not in image_suffixes:
+                return False
+            moved_names = [source.name]
+        else:
+            if not source.is_dir():
+                return False
+            all_files = [x for x in source.rglob("*") if x.is_file()]
+            if not all_files:
+                return False
+
+            # Exact decoded/header names are preferred. If SAB normalized a decoded
+            # image filename, a fresh history storage directory is still job-specific,
+            # so image payloads in that directory are safe to flatten as a fallback.
+            by_name: dict[str, list[Path]] = {}
+            for candidate in all_files:
+                by_name.setdefault(candidate.name.casefold(), []).append(candidate)
+            selected: list[Path] = []
+            remaining: dict[str, int] = {}
+            for filename in expected:
+                key = filename.casefold()
+                remaining[key] = remaining.get(key, 0) + 1
+            exact_ok = True
+            for key, count in remaining.items():
+                matches = by_name.get(key, [])
+                if len(matches) < count:
+                    exact_ok = False
+                    break
+                selected.extend(matches[:count])
+            if not exact_ok:
+                selected = [x for x in all_files if x.suffix.casefold() in image_suffixes]
+                if not selected and len(all_files) == len(expected):
+                    # Last-resort compatibility for an image format whose extension
+                    # NewzDeck does not yet know; this directory came from the fresh
+                    # SAB history slot for an explicitly image-only job.
+                    selected = list(all_files)
+            if not selected:
+                return False
+
+            trusted_r2_staging = bool(
+                staging_name
+                and staging_name.casefold().startswith("newzdeck images ")
+                and source.parent == root
+                and source.name.casefold() == staging_name.casefold()
+            )
+
+            # Stage before deleting/renaming anything. This handles the old r1 shape
+            # Download\photo.jpg\photo.jpg and the r2 internal staging directory while
+            # preserving collision-safe root naming.
+            stage = root / f".newzdeck-flat-{uuid.uuid4().hex}"
+            stage.mkdir(parents=False, exist_ok=False)
+            staged: list[tuple[Path, Path]] = []
+            try:
+                for index, candidate in enumerate(selected):
+                    temp = stage / f"{index:06d}-{candidate.name}"
+                    shutil.move(str(candidate), str(temp))
+                    staged.append((candidate, temp))
+            except Exception as exc:
+                for original, temp in reversed(staged):
+                    if not temp.exists() or original.exists():
+                        continue
+                    try:
+                        original.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(temp), str(original))
+                    except Exception:
+                        pass
+                shutil.rmtree(stage, ignore_errors=True)
+                self._event("warning", "Could not stage completed loose-image job", nzo_id=nzo_id, error=str(exc))
+                return False
+
+            # r2's uniquely named directory is NewzDeck-owned staging for this exact
+            # image-only job. Once its payload has been staged, remove it completely so
+            # no empty/image-named/engine-residue folder is left behind. Legacy r1 jobs
+            # use conservative empty-directory cleanup only.
+            try:
+                if trusted_r2_staging:
+                    shutil.rmtree(source)
+                else:
+                    dirs = sorted((x for x in source.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True)
+                    for directory in dirs:
+                        try:
+                            directory.rmdir()
+                        except OSError:
+                            pass
+                    try:
+                        source.rmdir()
+                    except OSError:
+                        pass
+            except OSError as exc:
+                # Files are still safely staged; continue to root finalization and let
+                # the next completion pass retry directory cleanup if needed.
+                self._event("warning", "Loose-image staging directory cleanup deferred", nzo_id=nzo_id, error=str(exc))
+
+            reserved: set[str] = set()
+            final_plan: list[tuple[Path, Path, Path]] = []
+            for original, temp in staged:
+                final_plan.append((original, temp, self._browser_flat_destination(root, original.name, reserved)))
+
+            finalized: list[tuple[Path, Path, Path]] = []
+            try:
+                for original, temp, dest in final_plan:
+                    shutil.move(str(temp), str(dest))
+                    finalized.append((original, temp, dest))
+            except Exception as exc:
+                for original, temp, dest in reversed(finalized):
+                    if not dest.exists() or original.exists():
+                        continue
+                    try:
+                        original.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(dest), str(original))
+                    except Exception:
+                        pass
+                for original, temp in staged:
+                    if not temp.exists() or original.exists():
+                        continue
+                    try:
+                        original.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(temp), str(original))
+                    except Exception:
+                        pass
+                shutil.rmtree(stage, ignore_errors=True)
+                self._event("warning", "Could not flatten completed loose-image job", nzo_id=nzo_id, error=str(exc))
+                return False
+            shutil.rmtree(stage, ignore_errors=True)
+            moved_names = [dest.name for _, _, dest in final_plan]
+
+            # If a transient Windows lock prevented deleting the r2 staging folder,
+            # don't mark the cleanup final yet. Files are already flat, and the next
+            # fresh Completed pass can remove the now-payload-free directory.
+            if trusted_r2_staging and source.exists():
+                try:
+                    shutil.rmtree(source)
+                except OSError:
+                    return False
+
+        with self.lock:
+            live = self._tracked().get(str(nzo_id))
+            if isinstance(live, dict):
+                live["browser_flattened"] = True
+                live["browser_flattened_files"] = list(moved_names)
+                live["resolved_output"] = str(root)
+                live["output_hint"] = str(root)
+                self._touch_job_locked(live)
+                meta.update(live)
+                self._save_state()
+        slot["storage"] = str(root)
+        slot["path"] = str(root)
+        self._event("info", "Placed completed Newsgroups images directly in Download Folder", nzo_id=nzo_id, files=len(moved_names))
+        return True
 
     def _priority_value(self, priority: str) -> int:
         return {"high": 1, "normal": 0, "low": -1}.get(str(priority).lower(), 0)
@@ -3375,7 +3613,8 @@ class SabDownloadManager:
 
     def _submit_nzb(self, provider_id: str, source_name: str, raw: bytes, *, name: str,
                     expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None = None,
-                    priority: str = "normal", password: str = "") -> dict[str, Any]:
+                    priority: str = "normal", password: str = "", browser_flat_images: bool = False,
+                    browser_flat_filenames: list[str] | None = None) -> dict[str, Any]:
         # Synchronous callers (ordinary NZB imports) may still ensure SAB is ready.
         # Interactive/Automation Grabs use queue_nzb() and therefore never block the
         # browser request on this startup/control path.
@@ -3391,10 +3630,18 @@ class SabDownloadManager:
         cleanup = bool(settings.get("cleanup_archives", False) or automation_context)
         pp = 3 if cleanup else 2
 
-        before_ids = self._sab_ids_for_name(name, timeout=1.6)
+        # Direct loose-image selections need SAB for the proven transfer engine, but
+        # SAB always completes an NZB inside a job-named directory. Give those jobs a
+        # unique NewzDeck-owned internal name so completion cleanup can identify the
+        # staging directory unambiguously without depending on decoded filenames.
+        sab_job_name = _safe_name(name)
+        if browser_flat_images:
+            sab_job_name = _safe_name(f"NewzDeck Images {uuid.uuid4().hex[:12]}")
+
+        before_ids = self._sab_ids_for_name(sab_job_name, timeout=1.6)
         result: dict[str, Any] = {}
         try:
-            result = self._api("addlocalfile", name=str(path), nzbname=_safe_name(name), cat="*", script="Default",
+            result = self._api("addlocalfile", name=str(path), nzbname=sab_job_name, cat="*", script="Default",
                                priority=self._priority_value(priority), pp=pp, password=password or None, timeout=12)
         except Exception as exc:
             if not self._is_transient_control_error(exc):
@@ -3403,7 +3650,7 @@ class SabDownloadManager:
             # addlocalfile is not blindly retried: the reset may have happened *after*
             # SAB accepted the NZB. First prove whether a new matching queue/history
             # ID appeared. This prevents duplicate jobs after an ambiguous HTTP reset.
-            confirmed = self._confirm_new_sab_submission(name, before_ids)
+            confirmed = self._confirm_new_sab_submission(sab_job_name, before_ids)
             if confirmed:
                 result = {"nzo_ids": [confirmed]}
                 self._event("warning", "Recovered SAB addlocalfile response after localhost connection reset", nzo_id=confirmed)
@@ -3411,15 +3658,15 @@ class SabDownloadManager:
                 # If SAB can now be queried successfully and no new job exists, one
                 # retry is safe. If its state remains unknowable, fail closed with a
                 # human message rather than risking a duplicate submission.
-                current_ids = self._sab_ids_for_name(name, timeout=1.6)
+                current_ids = self._sab_ids_for_name(sab_job_name, timeout=1.6)
                 if before_ids is not None and current_ids is not None and not (current_ids - before_ids):
                     time.sleep(0.25)
                     try:
-                        result = self._api("addlocalfile", name=str(path), nzbname=_safe_name(name), cat="*", script="Default",
+                        result = self._api("addlocalfile", name=str(path), nzbname=sab_job_name, cat="*", script="Default",
                                            priority=self._priority_value(priority), pp=pp, password=password or None, timeout=12)
                     except Exception as retry_exc:
                         if self._is_transient_control_error(retry_exc):
-                            confirmed = self._confirm_new_sab_submission(name, before_ids)
+                            confirmed = self._confirm_new_sab_submission(sab_job_name, before_ids)
                             if confirmed:
                                 result = {"nzo_ids": [confirmed]}
                             else:
@@ -3435,7 +3682,7 @@ class SabDownloadManager:
             wrapped = result.get("result") if isinstance(result.get("result"), dict) else {}
             ids = wrapped.get("nzo_ids") if isinstance(wrapped.get("nzo_ids"), list) else []
         if not ids:
-            confirmed = self._confirm_new_sab_submission(name, before_ids, wait_seconds=1.2)
+            confirmed = self._confirm_new_sab_submission(sab_job_name, before_ids, wait_seconds=1.2)
             if confirmed:
                 ids = [confirmed]
         if not ids:
@@ -3443,7 +3690,9 @@ class SabDownloadManager:
         nzo_id = str(ids[0])
         self._track_add(nzo_id, name=name, source_name=source_name, provider_id=provider_id,
                         expected_bytes=expected_bytes, file_count=file_count, automation_context=automation_context,
-                        priority=priority)
+                        priority=priority, browser_flat_images=browser_flat_images,
+                        browser_flat_filenames=browser_flat_filenames,
+                        browser_flat_staging_name=sab_job_name if browser_flat_images else "")
         # Explicitly wake SAB after addlocalfile. This is idempotent when the queue is
         # already running and avoids leaving a newly-added job behind a stale internal
         # downloader pause after a service/engine hand-off.
@@ -3460,7 +3709,8 @@ class SabDownloadManager:
             pass
         return {"ok": True, "collection_id": nzo_id, "collection_name": _safe_name(name),
                 "files": file_count, "added": [{"id": nzo_id, "filename": _safe_name(name), "collection_id": nzo_id}],
-                "duplicates": [], "skipped": [], "warnings": [], "folder": str(self.download_dir_getter() / _safe_name(name)),
+                "duplicates": [], "skipped": [], "warnings": [],
+                "folder": str(self.download_dir_getter() if browser_flat_images else self.download_dir_getter() / _safe_name(name)),
                 "engine": "SABnzbd", "engine_version": SAB_VERSION}
 
     def add_nzb(self, provider_id: str, source_name: str, raw: bytes, automation_context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -3505,8 +3755,17 @@ class SabDownloadManager:
         name = _safe_name(str((items[0].get("media") or {}).get("filename") or items[0].get("subject") or "NewzDeck Download"))
         raw = build_nzb_bytes(name, items)
         expected = sum(max(0, int(x.get("bytes", 0) or sum(int(s.get("bytes", 0) or 0) for s in (x.get("segments") or [])))) for x in items if isinstance(x, dict))
+        loose_images = bool(items) and all(
+            isinstance(x, dict)
+            and str((x.get("media") or {}).get("kind") or "").casefold() == "image"
+            and str(x.get("source") or "").casefold() != "browser_set"
+            and not str(x.get("collection_id") or "").strip()
+            for x in items
+        )
+        flat_filenames = [Path(str((x.get("media") or {}).get("filename") or "")).name for x in items] if loose_images else []
         return self._submit_nzb(provider_id, name + ".nzb", raw, name=name, expected_bytes=expected,
-                                file_count=len(items), automation_context=None)
+                                file_count=len(items), automation_context=None,
+                                browser_flat_images=loose_images, browser_flat_filenames=flat_filenames)
 
     def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
         """Read one coherent SAB Queue/History pair through a shared reader.
@@ -4253,7 +4512,7 @@ class SabDownloadManager:
             if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True)
         )
         telemetry = {
-            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.20 • control channel refreshing",
+            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.21 • control channel refreshing",
             "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0,
             "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0,
             "sab_control_degraded": True, "sab_control_error": str(error or "")[:300],
@@ -4311,7 +4570,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.20 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.21 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -4616,6 +4875,8 @@ class SabDownloadManager:
             self._job_missing_since.pop(nzo_id, None)
             if history and str(slot.get('status') or '').casefold()=='failed':
                 self._remember_failed_automation_release(nzo_id,meta,slot)
+            if history and history_read_fresh and str(slot.get('status') or '').casefold() == 'completed' and bool(meta.get('browser_flat_images')):
+                self._flatten_completed_browser_images(nzo_id, meta, slot)
             job = self._job_from_slot(nzo_id, meta, slot, history=history)
             if not history and str(meta.get("terminal_status") or "").casefold() == "completed" and bool(meta.get("imported")):
                 job["status"] = "cancelling"
@@ -4884,7 +5145,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.20", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.21", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -5197,27 +5458,30 @@ class SabDownloadManager:
     def _completion_loop(self) -> None:
         delay = 2.0
         while not self.shutdown_event.wait(delay):
-            if self.media_automation is None:
-                delay = 2.0
-                continue
             try:
                 queue_payload, history_payload = self._queue_and_history()
                 _, qslots = self._queue_slots(queue_payload)
-                _, hslots = self._history_slots(history_payload)
+                hroot, hslots = self._history_slots(history_payload)
                 self._adopt_untracked_slots(qslots, hslots)
                 self._refresh_shared_state()
                 by_id = {str(x.get("nzo_id") or x.get("id") or ""): x for x in hslots}
                 with self.lock:
                     tracked = dict(self._tracked())
-                for nzo_id, meta in tracked.items():
-                    context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
-                    if not _is_smart_import_context(context) or meta.get("imported"):
-                        continue
-                    slot = by_id.get(nzo_id)
-                    if slot is not None and str(slot.get("status") or "").casefold() == "failed":
-                        self._remember_failed_automation_release(nzo_id, meta, slot)
-                self._process_completed_automation_slots(qslots, hslots)
-                self._retry_pending_automation_cleanups()
+                if bool(hroot.get("_newzdeck_fresh", True)):
+                    for nzo_id, meta in tracked.items():
+                        slot = by_id.get(nzo_id)
+                        if slot is not None and str(slot.get("status") or "").casefold() == "completed" and bool(meta.get("browser_flat_images")):
+                            self._flatten_completed_browser_images(nzo_id, meta, slot)
+                if self.media_automation is not None:
+                    for nzo_id, meta in tracked.items():
+                        context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+                        if not _is_smart_import_context(context) or meta.get("imported"):
+                            continue
+                        slot = by_id.get(nzo_id)
+                        if slot is not None and str(slot.get("status") or "").casefold() == "failed":
+                            self._remember_failed_automation_release(nzo_id, meta, slot)
+                    self._process_completed_automation_slots(qslots, hslots)
+                    self._retry_pending_automation_cleanups()
                 delay = 2.0
                 self._completion_backoff_seconds = delay
             except Exception as exc:
@@ -5232,7 +5496,7 @@ class SabDownloadManager:
                     self._completion_last_warning_ts = now
                     self._event(
                         "warning",
-                        f"Automation completion monitor failed; backing off {delay:.0f}s: {exc}",
+                        f"SAB completion monitor failed; backing off {delay:.0f}s: {exc}",
                     )
 
 

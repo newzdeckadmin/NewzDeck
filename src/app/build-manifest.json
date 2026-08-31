@@ -1,30 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.20",
-  "base_version": "3.6.19",
-  "release": "Authoritative SAB & Fresh-State Reconciliation",
-  "adapter_version": "3.6.20",
+  "version": "3.6.21",
+  "base_version": "3.6.20",
+  "release": "Newsgroups Image Browsing & Related Media",
+  "adapter_version": "3.6.21",
   "changes": [
-    "Promotes the accepted accepted validation build serialized SAB control and fresh-state reconciliation architecture to production.",
-    "Restricts normal SAB API identity reconciliation to the authoritative current generation and quarantines historical NewzDeck SAB engines instead of adopting them.",
-    "Removes only proven stale duplicate queue entries while preserving legitimate tracked re-downloads.",
-    "Bootstraps authoritative SAB misc configuration before launch and correctly parses SAB 5.x nested server configuration.",
-    "Serializes NewzDeck-to-SAB control traffic and shares one coherent Queue/History reader across Downloads and Automation completion monitoring.",
-    "Bounds cached SAB Queue/History fallback; stale cached state cannot indefinitely renew itself, trigger Pause/Resume recovery, or drive destructive queue reconciliation.",
-    "When the SAB control channel remains unreadable beyond the short coherence lease, Downloads shows an explicit refreshing/degraded state instead of presenting stale speed or Remaining values as current.",
-    "Provider runtime state is treated as unknown rather than zero when the SAB status request itself fails.",
-    "Ambiguous addlocalfile connection resets reconcile accepted SAB jobs without duplicate submission.",
-    "Copy Diagnostics now exports Queue/History reset, short-cache, degraded-snapshot, stale-snapshot suppression, and freshness/age counters.",
-    "The ambiguous-handoff event is renamed to 'Reconciled SAB job after submission/runtime handoff' for accurate diagnostics wording."
+    "Loose images selected directly from Newsgroups finish in the configured Download Folder root instead of remaining inside image- or job-named completion folders.",
+    "Broken and incomplete related-image sets are rejected with bounded parallel health sampling instead of walking very large dead sets member by member.",
+    "Visual browsing uses a dedicated Related Media side pane for grouped image sets while All Posts retains its existing binary Preview/details pane.",
+    "Continuous browsing updates Related Media sets incrementally in place and keeps grouped members out of the main image stream without rebuilding the whole gallery.",
+    "Long Continuous sessions use measured gallery DOM windowing and a persistent incremental media-set index to reduce Chromium layout and regrouping work.",
+    "Definitive missing/incomplete/corrupt image failures avoid redundant full-preview recovery and failed-card cleanup is batched.",
+    "Related Media covers are owned by stable set keys, use bounded sequential retrieval, never escalate into full-preview recovery, and expose explicit terminal/retry states.",
+    "Visible Related Media covers receive reserved capacity within the existing preview concurrency budget so gallery activity cannot starve the side pane.",
+    "Related Media activation consumes cached thumbnails first, survives Continuous gallery-generation/index changes within the same browse session, and reuses isolated bounded cover requests.",
+    "Queued Related Media cover work is promoted in place when an offscreen set becomes visible, eliminating the long-loading state that previously required a Diagnostics/Newsgroups view cycle to recover.",
+    "Diagnostics report Related Media queue visibility, promotions, activation/cache behavior, start/run timing, target misses, repairs, and pre-navigation state."
   ],
   "regression_guards": [
-    "The verified validation end-to-end path Automation -> Queue -> SAB -> NNTP -> Completed -> Smart Import remains unchanged.",
-    "Unavailable Usenet releases still move to Failed and are remembered so Automation can try another candidate.",
-    "One-package-at-a-time presentation remains limited to one foreground Active package.",
-    "Intentional NewzDeck Pause remains authoritative.",
-    "Stale SAB queue data cannot trigger engine Pause/Resume recovery.",
-    "Historical SAB generations with live work are quarantined, never adopted as the active engine.",
-    "v3.6.19 non-disruptive lifecycle recovery, v3.6.18 idle-aware pause handling, v3.6.17 canonical Downloads state, and v3.6.16 verified Remove/Cancel remain preserved."
+    "NewzDeck v3.6.20 authoritative SAB Queue/History control and fresh-state reconciliation remain unchanged.",
+    "Automation, Smart Import, Discover/TMDB, Metadata Server, Windows service/tray/runtime handoff, installer/updater, and normal SAB package behavior retain their existing contracts.",
+    "All Posts binary Preview/details behavior remains available when All Posts is selected.",
+    "Grouped or package-style downloads outside direct loose-image browsing retain their existing folder semantics."
   ],
-  "name": "Authoritative SAB & Fresh-State Reconciliation"
+  "name": "Newsgroups Image Browsing & Related Media"
 }
