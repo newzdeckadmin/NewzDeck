@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.21
+## Current release: v3.6.22
 
-**v3.6.21 is the current stable production release.**
+**v3.6.22 is the current stable production release.**
 
-The `v3.6.21` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.22` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.22 - All Posts Binary Resolution & Recovery.** Makes complete reconstructed multipart binaries actionable before friendly-name resolution, automatically drains bounded filename work, distinguishes opaque/missing/unavailable/retryable outcomes, backs off on transient provider failures, keeps long package reconstruction polling alive, flattens direct loose-binary downloads into the configured Download Folder, and adds conservative PAR2/archival obfuscated-name recovery.
 
 - **v3.6.21 - Newsgroups Image Browsing & Related Media.** Moves Group Related Media into a dedicated side pane, flattens direct loose-image downloads into the configured Download Folder, adds measured Continuous-gallery DOM windowing and incremental media-set indexing, bounds broken-set/image recovery work, and hardens Related Media cover scheduling with stable set ownership, reserved capacity, cache-first activation, and visible queue promotion.
 

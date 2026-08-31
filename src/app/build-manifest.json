@@ -1,27 +1,30 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.21",
-  "base_version": "3.6.20",
-  "release": "Newsgroups Image Browsing & Related Media",
-  "adapter_version": "3.6.21",
+  "version": "3.6.22",
+  "base_version": "3.6.21",
+  "release": "All Posts Binary Resolution & Recovery",
+  "adapter_version": "3.6.22",
   "changes": [
-    "Loose images selected directly from Newsgroups finish in the configured Download Folder root instead of remaining inside image- or job-named completion folders.",
-    "Broken and incomplete related-image sets are rejected with bounded parallel health sampling instead of walking very large dead sets member by member.",
-    "Visual browsing uses a dedicated Related Media side pane for grouped image sets while All Posts retains its existing binary Preview/details pane.",
-    "Continuous browsing updates Related Media sets incrementally in place and keeps grouped members out of the main image stream without rebuilding the whole gallery.",
-    "Long Continuous sessions use measured gallery DOM windowing and a persistent incremental media-set index to reduce Chromium layout and regrouping work.",
-    "Definitive missing/incomplete/corrupt image failures avoid redundant full-preview recovery and failed-card cleanup is batched.",
-    "Related Media covers are owned by stable set keys, use bounded sequential retrieval, never escalate into full-preview recovery, and expose explicit terminal/retry states.",
-    "Visible Related Media covers receive reserved capacity within the existing preview concurrency budget so gallery activity cannot starve the side pane.",
-    "Related Media activation consumes cached thumbnails first, survives Continuous gallery-generation/index changes within the same browse session, and reuses isolated bounded cover requests.",
-    "Queued Related Media cover work is promoted in place when an offscreen set becomes visible, eliminating the long-loading state that previously required a Diagnostics/Newsgroups view cycle to recover.",
-    "Diagnostics report Related Media queue visibility, promotions, activation/cache behavior, start/run timing, target misses, repairs, and pre-navigation state."
+    "Makes structurally complete All Posts multipart binaries actionable even before a friendly filename is available, with bounded priority name probes and safe generated-name fallback.",
+    "Automatically drains loaded unresolved-name work in bounded batches while yielding to package reconstruction and preserving responsive Continuous browsing.",
+    "Keeps progressive package reconstruction polling alive with guarded backoff until completion or navigation cancellation instead of abandoning long reconstructions.",
+    "Separates resolved, obfuscated-name, no-filename, article-unavailable, and retryable provider outcomes so transient NNTP trouble is never mislabeled as permanent Name Unavailable.",
+    "Retries representative multipart segments and applies provider backoff/circuit breaking when name probes encounter transient connection or throttle failures.",
+    "Places direct loose Newsgroup binary downloads in the configured Download Folder root without a per-file subfolder, matching direct loose-image behavior.",
+    "Preserves opaque yEnc source tokens and detects completed file types when a friendly filename cannot be recovered.",
+    "Adds opportunistic exact post-download filename recovery from PAR2 FileDesc metadata using byte length plus full-file MD5, including PAR2-before-payload and payload-before-PAR2 reconciliation.",
+    "Adds conservative RAR/ZIP/7-Zip member-name hints without guessing or falsely renaming the outer archive."
   ],
   "regression_guards": [
+    "Only a PAR2 FileDesc full MD5 plus exact byte-length match may automatically replace an opaque generated filename with a protected original filename.",
+    "Archive member names remain hints only and do not rename an outer archive volume without exact metadata proof.",
+    "Opaque yEnc source tokens remain safe fallback identities and direct loose downloads continue to land in the configured Download Folder root.",
+    "An extensionless yEnc name= value remains OBFUSCATED NAME rather than NO FILENAME or generic NAME UNAVAILABLE.",
+    "Transient provider failures remain retryable and are not converted to permanent filename classifications.",
+    "Progressive package reconstruction retains priority over automatic filename resolution and long-running polling continues until completion or navigation cancellation.",
+    "Grouped binary/NZB packages retain their existing package-directory behavior.",
     "NewzDeck v3.6.20 authoritative SAB Queue/History control and fresh-state reconciliation remain unchanged.",
-    "Automation, Smart Import, Discover/TMDB, Metadata Server, Windows service/tray/runtime handoff, installer/updater, and normal SAB package behavior retain their existing contracts.",
-    "All Posts binary Preview/details behavior remains available when All Posts is selected.",
-    "Grouped or package-style downloads outside direct loose-image browsing retain their existing folder semantics."
+    "Automation, Smart Import, Discover/TMDB, Metadata Server, Windows service/tray/runtime handoff, installer/updater, and normal NZB collection behavior remain unchanged."
   ],
-  "name": "Newsgroups Image Browsing & Related Media"
+  "name": "All Posts Binary Resolution & Recovery"
 }

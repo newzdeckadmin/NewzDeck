@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -214,6 +215,106 @@ def _safe_name(value: str, fallback: str = "NewzDeck Download") -> str:
 
 
 
+def _browser_opaque_filename(value: str) -> bool:
+    name = Path(str(value or "").replace("\\", "/").split("/")[-1]).name.strip()
+    stem = Path(name).stem
+    compact = re.sub(r"[^A-Za-z0-9]", "", stem)
+    if not compact:
+        return True
+    if re.fullmatch(r"[a-fA-F0-9]{14,}", compact):
+        return True
+    separators = len(re.findall(r"[._ -]", stem))
+    if separators == 0 and len(compact) >= 20:
+        digits = len(re.findall(r"\d", compact))
+        vowels = len(re.findall(r"[aeiou]", compact, re.I))
+        if digits >= 3 and vowels / max(1, len(compact)) < 0.18:
+            return True
+    return False
+
+
+def _browser_par2_descriptors(path: Path) -> list[dict[str, Any]]:
+    """Read exact protected-file identities from a local PAR2 FileDesc packet."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return []
+    magic = b"PAR2\x00PKT"
+    if not data.startswith(magic) and magic not in data[:1024 * 1024]:
+        return []
+    out: list[dict[str, Any]] = []
+    pos = 0
+    while True:
+        idx = data.find(magic, pos)
+        if idx < 0 or idx + 64 > len(data):
+            break
+        try:
+            packet_len = int(struct.unpack_from("<Q", data, idx + 8)[0])
+        except (struct.error, ValueError):
+            break
+        if packet_len < 64 or packet_len > 64 * 1024 * 1024 or idx + packet_len > len(data):
+            pos = idx + 8
+            continue
+        if data[idx + 48:idx + 64] == b"PAR 2.0\x00FileDesc" and packet_len >= 120:
+            try:
+                size = int(struct.unpack_from("<Q", data, idx + 112)[0])
+            except (struct.error, ValueError):
+                size = -1
+            raw = data[idx + 120:idx + packet_len].rstrip(b"\x00")
+            name = ""
+            for enc in ("utf-8", "cp1252", "latin-1"):
+                try:
+                    name = raw.decode(enc).strip().replace("\\", "/").split("/")[-1]
+                    break
+                except UnicodeDecodeError:
+                    name = ""
+            if name and size >= 0:
+                out.append({"filename": _safe_name(name, ""), "size": size, "md5": data[idx + 80:idx + 96].hex()})
+        pos = idx + packet_len
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, str]] = set()
+    for row in out:
+        key = (str(row.get("filename") or "").casefold(), int(row.get("size", -1)), str(row.get("md5") or ""))
+        if not key[0] or key in seen:
+            continue
+        seen.add(key); unique.append(row)
+    return unique[:500]
+
+
+def _browser_file_md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as src:
+        while True:
+            chunk = src.read(4 * 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _browser_recovery_key(provider_id: str, group: str) -> str:
+    return hashlib.sha256((str(provider_id) + "\n" + str(group)).encode("utf-8", errors="replace")).hexdigest()
+
+
+def _browser_title_hint(names: list[str]) -> str:
+    candidates: list[str] = []
+    for raw in names:
+        base = Path(str(raw or "").replace("\\", "/").split("/")[-1]).name.strip()
+        base = re.sub(r"(?i)[._ -]part0*\d{1,5}\.rar$", "", base)
+        base = re.sub(r"(?i)\.r\d{2,3}$", "", base)
+        base = re.sub(r"(?i)\.(?:rar|zip|7z|mkv|mp4|m4v|avi|mov|webm|mp3|flac|wav|iso|img|exe|pdf|epub|nfo|sfv)$", "", base)
+        base = base.strip(" ._-[]()")
+        if len(base) >= 4 and not _browser_opaque_filename(base):
+            candidates.append(base)
+    if not candidates:
+        return ""
+    counts: dict[str, tuple[int, str]] = {}
+    for candidate in candidates:
+        norm = re.sub(r"[._ -]+", " ", candidate).casefold().strip()
+        count, _ = counts.get(norm, (0, candidate))
+        counts[norm] = (count + 1, candidate)
+    return max(counts.values(), key=lambda item: (item[0], len(item[1])))[1][:512]
+
+
 def _automation_identity(context: dict[str, Any] | None) -> tuple[str, str, str]:
     """Return human-readable target, original release and planned library root.
 
@@ -412,6 +513,7 @@ class SabDownloadManager:
         self.incomplete_dir = self.root / "incomplete"
         self.cache_dir = self.root / "cache"
         self.state_file = self.root / "newzdeck-jobs.json"
+        self.browser_name_recovery_file = self.root / "browser-name-recovery.json"
         self.state_lock_file = self.root / ".newzdeck-jobs.lock"
         self.engine_state_file = self.root / "engine.json"
         self.identity_history_file = self.root / "engine-identities.json"
@@ -3055,7 +3157,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.21",
+            "adapter_version": "3.6.22",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -3085,7 +3187,8 @@ class SabDownloadManager:
     def _track_add(self, nzo_id: str, *, name: str, source_name: str, provider_id: str,
                    expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None,
                    priority: str = "normal", browser_flat_images: bool = False,
-                   browser_flat_filenames: list[str] | None = None, browser_flat_staging_name: str = "") -> None:
+                   browser_flat_filenames: list[str] | None = None, browser_flat_staging_name: str = "",
+                   browser_group: str = "") -> None:
         self._refresh_shared_state()
         with self.lock:
             tracked = self._tracked()
@@ -3112,6 +3215,11 @@ class SabDownloadManager:
                 "browser_flat_filenames": [Path(str(x)).name for x in (browser_flat_filenames or []) if Path(str(x)).name],
                 "browser_flat_staging_name": _safe_name(browser_flat_staging_name, "") if browser_flat_staging_name else "",
                 "browser_flattened": False,
+                "browser_group": str(browser_group or ""),
+                "filename_recovery_source": "",
+                "filename_recovery_exact": False,
+                "filename_recovery_hint": "",
+                "filename_recovery_hint_source": "",
                 "_updated_ts": time.time(),
             }
             self.state.setdefault("removed_jobs", {}).pop(str(nzo_id), None)
@@ -3201,7 +3309,7 @@ class SabDownloadManager:
         # SAB can return a single completed file directly in the root. That is already
         # the desired layout; only normalize NewzDeck's bookkeeping.
         if source.is_file() and source.parent == root:
-            if source.name.casefold() not in expected_folded and source.suffix.casefold() not in image_suffixes:
+            if source.name.casefold() not in expected_folded and source.suffix.casefold() not in image_suffixes and not (str(meta.get("browser_group") or "") and len(expected) == 1):
                 return False
             moved_names = [source.name]
         else:
@@ -3241,7 +3349,7 @@ class SabDownloadManager:
 
             trusted_r2_staging = bool(
                 staging_name
-                and staging_name.casefold().startswith("newzdeck images ")
+                and (staging_name.casefold().startswith("newzdeck images ") or staging_name.casefold().startswith("newzdeck loose "))
                 and source.parent == root
                 and source.name.casefold() == staging_name.casefold()
             )
@@ -3345,10 +3453,191 @@ class SabDownloadManager:
                 self._touch_job_locked(live)
                 meta.update(live)
                 self._save_state()
+        moved_names = self._browser_name_recovery_after_flatten(nzo_id, meta, root, list(moved_names))
         slot["storage"] = str(root)
         slot["path"] = str(root)
-        self._event("info", "Placed completed Newsgroups images directly in Download Folder", nzo_id=nzo_id, files=len(moved_names))
+        self._event("info", "Placed completed loose Newsgroups files directly in Download Folder", nzo_id=nzo_id, files=len(moved_names))
         return True
+
+    def _browser_recovery_catalog(self, meta: dict[str, Any]) -> list[dict[str, Any]]:
+        provider_id = str(meta.get("provider_id") or "")
+        group = str(meta.get("browser_group") or "")
+        if not provider_id or not group:
+            return []
+        key = _browser_recovery_key(provider_id, group)
+        with self.lock:
+            raw = _json_read(self.browser_name_recovery_file, {"catalogs": {}})
+        catalogs = raw.get("catalogs") if isinstance(raw, dict) and isinstance(raw.get("catalogs"), dict) else {}
+        entry = catalogs.get(key) if isinstance(catalogs.get(key), dict) else {}
+        return [dict(x) for x in (entry.get("descriptors") or []) if isinstance(x, dict)]
+
+    def _store_browser_par2_catalog(self, meta: dict[str, Any], path: Path) -> int:
+        descriptors = _browser_par2_descriptors(path)
+        provider_id = str(meta.get("provider_id") or "")
+        group = str(meta.get("browser_group") or "")
+        if not descriptors or not provider_id or not group:
+            return 0
+        key = _browser_recovery_key(provider_id, group)
+        with self.lock:
+            raw = _json_read(self.browser_name_recovery_file, {"catalogs": {}})
+            catalogs = raw.get("catalogs") if isinstance(raw, dict) and isinstance(raw.get("catalogs"), dict) else {}
+            catalogs = dict(catalogs)
+            current = catalogs.get(key) if isinstance(catalogs.get(key), dict) else {}
+            merged = [dict(x) for x in (current.get("descriptors") or []) if isinstance(x, dict)]
+            seen = {(str(x.get("filename") or "").casefold(), int(x.get("size", -1) or -1), str(x.get("md5") or "")) for x in merged}
+            for row in descriptors:
+                marker = (str(row.get("filename") or "").casefold(), int(row.get("size", -1) or -1), str(row.get("md5") or ""))
+                if marker not in seen:
+                    seen.add(marker); merged.append(dict(row))
+            catalogs[key] = {"provider_id": provider_id, "group": group, "descriptors": merged[:1000], "updated_ts": time.time(), "source": path.name}
+            _atomic_json_write(self.browser_name_recovery_file, {"version": 1, "catalogs": catalogs})
+        self._event("info", "Loaded PAR2 filename recovery catalog", group=group, descriptors=len(descriptors), source=path.name)
+        return len(descriptors)
+
+    def _recover_flat_file_from_catalog(self, meta: dict[str, Any], root: Path, filename: str) -> str:
+        current = root / Path(str(filename or "")).name
+        if not current.exists() or not current.is_file() or not _browser_opaque_filename(current.name):
+            return current.name if current.exists() else filename
+        try:
+            size = current.stat().st_size
+        except OSError:
+            return filename
+        candidates = [x for x in self._browser_recovery_catalog(meta) if int(x.get("size", -1) or -1) == size and str(x.get("md5") or "")]
+        if not candidates:
+            return current.name
+        try:
+            digest = _browser_file_md5(current)
+        except OSError:
+            return current.name
+        exact = [x for x in candidates if str(x.get("md5") or "").casefold() == digest.casefold()]
+        names = {_safe_name(str(x.get("filename") or ""), "") for x in exact}
+        names.discard("")
+        names = {x for x in names if not _browser_opaque_filename(x)}
+        if len(names) != 1:
+            return current.name
+        recovered = next(iter(names))
+        reserved = {str(x).casefold() for x in root.iterdir() if x.exists() and x != current}
+        target = self._browser_flat_destination(root, recovered, reserved)
+        try:
+            current.replace(target)
+        except OSError:
+            return current.name
+        meta["filename_recovery_source"] = "PAR2 FileDesc"
+        meta["filename_recovery_exact"] = True
+        self._event("info", "Recovered exact obfuscated filename from PAR2 metadata", original=current.name, recovered=target.name, group=str(meta.get("browser_group") or ""))
+        return target.name
+
+    def _reconcile_browser_group_names(self, current_nzo_id: str, current_meta: dict[str, Any], root: Path) -> None:
+        provider_id = str(current_meta.get("provider_id") or "")
+        group = str(current_meta.get("browser_group") or "")
+        if not provider_id or not group or not self._browser_recovery_catalog(current_meta):
+            return
+        with self.lock:
+            peers = [(str(k), v) for k, v in self._tracked().items() if isinstance(v, dict) and str(v.get("provider_id") or "") == provider_id and str(v.get("browser_group") or "") == group and bool(v.get("browser_flattened"))]
+        changed = False
+        for nzo_id, peer in peers:
+            names = [Path(str(x)).name for x in (peer.get("browser_flattened_files") or []) if Path(str(x)).name]
+            if not names:
+                continue
+            updated = []
+            for name in names:
+                recovered = self._recover_flat_file_from_catalog(peer, root, name)
+                updated.append(recovered)
+                if recovered != name:
+                    changed = True
+            if updated != names:
+                with self.lock:
+                    live = self._tracked().get(nzo_id)
+                    if isinstance(live, dict):
+                        live["browser_flattened_files"] = updated
+                        live["filename_recovery_source"] = str(peer.get("filename_recovery_source") or "PAR2 FileDesc")
+                        live["filename_recovery_exact"] = bool(peer.get("filename_recovery_exact"))
+                        live["resolved_output"] = str(root)
+                        self._touch_job_locked(live)
+        if changed:
+            with self.lock:
+                self._save_state()
+            self._last_snapshot_ts = 0.0
+
+    def _capture_browser_archive_hint(self, meta: dict[str, Any], root: Path, filename: str) -> None:
+        path = root / Path(str(filename or "")).name
+        if not path.exists() or not path.is_file() or not _browser_opaque_filename(path.name):
+            return
+        try:
+            with path.open("rb") as src:
+                head = src.read(16)
+        except OSError:
+            return
+        names: list[str] = []
+        source = ""
+        if head.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+            try:
+                with zipfile.ZipFile(path, "r") as archive:
+                    names = [Path(str(x)).name for x in archive.namelist() if Path(str(x)).name][:100]
+                source = "ZIP contents"
+            except Exception:
+                names = []
+        elif head.startswith((b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")):
+            candidates = [
+                self.engine_dir / "win" / "unrar" / "x64" / "UnRAR.exe",
+                self.engine_dir / "win" / "unrar" / "UnRAR.exe",
+                self.engine_dir / "UnRAR.exe",
+            ]
+            tool = next((x for x in candidates if x.exists()), None)
+            if tool is not None:
+                try:
+                    kwargs: dict[str, Any] = {"capture_output": True, "text": True, "timeout": 8, "cwd": str(root), "errors": "replace"}
+                    if os.name == "nt":
+                        kwargs["creationflags"] = 0x08000000
+                    proc = subprocess.run([str(tool), "lb", "-p-", str(path)], **kwargs)
+                    names = [Path(line.strip()).name for line in str(proc.stdout or "").splitlines() if line.strip()][:100]
+                    source = "RAR contents"
+                except Exception:
+                    names = []
+        hint = _browser_title_hint(names)
+        if not hint:
+            return
+        meta["filename_recovery_hint"] = hint
+        meta["filename_recovery_hint_source"] = source
+        self._event("info", "Recovered archive title hint for obfuscated download", hint=hint, source=source, group=str(meta.get("browser_group") or ""))
+
+    def _browser_name_recovery_after_flatten(self, nzo_id: str, meta: dict[str, Any], root: Path, moved_names: list[str]) -> list[str]:
+        if not str(meta.get("browser_group") or ""):
+            return moved_names
+        # A newly completed PAR2 may unlock exact names for payloads downloaded
+        # earlier. Catalog first, then reconcile both old and new files.
+        for name in list(moved_names):
+            path = root / Path(str(name)).name
+            try:
+                with path.open("rb") as src:
+                    is_par2 = src.read(16).startswith(b"PAR2\x00PKT")
+            except OSError:
+                is_par2 = False
+            if is_par2:
+                self._store_browser_par2_catalog(meta, path)
+        updated = [self._recover_flat_file_from_catalog(meta, root, name) for name in moved_names]
+        for name in updated:
+            self._capture_browser_archive_hint(meta, root, name)
+        if updated != moved_names:
+            with self.lock:
+                live = self._tracked().get(str(nzo_id))
+                if isinstance(live, dict):
+                    live["browser_flattened_files"] = updated
+                    live["filename_recovery_source"] = str(meta.get("filename_recovery_source") or "PAR2 FileDesc")
+                    live["filename_recovery_exact"] = bool(meta.get("filename_recovery_exact"))
+                    self._touch_job_locked(live)
+                    self._save_state()
+            meta["browser_flattened_files"] = updated
+        with self.lock:
+            live = self._tracked().get(str(nzo_id))
+            if isinstance(live, dict):
+                if meta.get("filename_recovery_hint"):
+                    live["filename_recovery_hint"] = str(meta.get("filename_recovery_hint") or "")
+                    live["filename_recovery_hint_source"] = str(meta.get("filename_recovery_hint_source") or "")
+                self._touch_job_locked(live)
+                self._save_state()
+        self._reconcile_browser_group_names(nzo_id, meta, root)
+        return updated
 
     def _priority_value(self, priority: str) -> int:
         return {"high": 1, "normal": 0, "low": -1}.get(str(priority).lower(), 0)
@@ -3614,7 +3903,7 @@ class SabDownloadManager:
     def _submit_nzb(self, provider_id: str, source_name: str, raw: bytes, *, name: str,
                     expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None = None,
                     priority: str = "normal", password: str = "", browser_flat_images: bool = False,
-                    browser_flat_filenames: list[str] | None = None) -> dict[str, Any]:
+                    browser_flat_filenames: list[str] | None = None, browser_group: str = "") -> dict[str, Any]:
         # Synchronous callers (ordinary NZB imports) may still ensure SAB is ready.
         # Interactive/Automation Grabs use queue_nzb() and therefore never block the
         # browser request on this startup/control path.
@@ -3636,7 +3925,7 @@ class SabDownloadManager:
         # staging directory unambiguously without depending on decoded filenames.
         sab_job_name = _safe_name(name)
         if browser_flat_images:
-            sab_job_name = _safe_name(f"NewzDeck Images {uuid.uuid4().hex[:12]}")
+            sab_job_name = _safe_name(f"NewzDeck Loose {uuid.uuid4().hex[:12]}")
 
         before_ids = self._sab_ids_for_name(sab_job_name, timeout=1.6)
         result: dict[str, Any] = {}
@@ -3692,7 +3981,8 @@ class SabDownloadManager:
                         expected_bytes=expected_bytes, file_count=file_count, automation_context=automation_context,
                         priority=priority, browser_flat_images=browser_flat_images,
                         browser_flat_filenames=browser_flat_filenames,
-                        browser_flat_staging_name=sab_job_name if browser_flat_images else "")
+                        browser_flat_staging_name=sab_job_name if browser_flat_images else "",
+                        browser_group=browser_group)
         # Explicitly wake SAB after addlocalfile. This is idempotent when the queue is
         # already running and avoids leaving a newly-added job behind a stale internal
         # downloader pause after a service/engine hand-off.
@@ -3755,17 +4045,25 @@ class SabDownloadManager:
         name = _safe_name(str((items[0].get("media") or {}).get("filename") or items[0].get("subject") or "NewzDeck Download"))
         raw = build_nzb_bytes(name, items)
         expected = sum(max(0, int(x.get("bytes", 0) or sum(int(s.get("bytes", 0) or 0) for s in (x.get("segments") or [])))) for x in items if isinstance(x, dict))
-        loose_images = bool(items) and all(
+        loose_browser = bool(items) and all(
             isinstance(x, dict)
-            and str((x.get("media") or {}).get("kind") or "").casefold() == "image"
-            and str(x.get("source") or "").casefold() != "browser_set"
+            and str(x.get("source") or "").casefold() == "browser_loose"
             and not str(x.get("collection_id") or "").strip()
             for x in items
         )
-        flat_filenames = [Path(str((x.get("media") or {}).get("filename") or "")).name for x in items] if loose_images else []
+        flat_filenames = []
+        if loose_browser:
+            for index, x in enumerate(items):
+                media = x.get("media") if isinstance(x.get("media"), dict) else {}
+                candidate = str(media.get("filename") or x.get("raw_yenc_name") or f"file-{index+1}.bin")
+                flat_filenames.append(Path(candidate.replace("\\", "/")).name or f"file-{index+1}.bin")
+        if loose_browser and items:
+            first = items[0] if isinstance(items[0], dict) else {}
+            first_media = first.get("media") if isinstance(first.get("media"), dict) else {}
+            name = _safe_name(str(first_media.get("filename") or first.get("raw_yenc_name") or name))
         return self._submit_nzb(provider_id, name + ".nzb", raw, name=name, expected_bytes=expected,
                                 file_count=len(items), automation_context=None,
-                                browser_flat_images=loose_images, browser_flat_filenames=flat_filenames)
+                                browser_flat_images=loose_browser, browser_flat_filenames=flat_filenames, browser_group=group)
 
     def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
         """Read one coherent SAB Queue/History pair through a shared reader.
@@ -4283,10 +4581,12 @@ class SabDownloadManager:
         eta_seconds = 0 if history else _duration_seconds(slot.get("timeleft"))
         if eta_seconds <= 0 and not history and speed > 0 and expected > downloaded:
             eta_seconds = int((expected - downloaded) / speed)
+        flat_names = [Path(str(x)).name for x in (meta.get("browser_flattened_files") or []) if Path(str(x)).name]
+        visible_filename = flat_names[0] if bool(meta.get("browser_flattened")) and len(flat_names) == 1 else str(slot.get("filename") or meta.get("name") or "NZB package")
         return {
             "id": nzo_id, "identity": nzo_id, "collection_id": nzo_id, "collection_name": str(meta.get("name") or slot.get("filename") or "NZB"),
             "provider_id": str(meta.get("provider_id") or ""), "provider_name": "SABnzbd engine", "origin_provider_id": str(meta.get("provider_id") or ""),
-            "group": "", "filename": str(slot.get("filename") or meta.get("name") or "NZB package"), "kind": "file",
+            "group": str(meta.get("browser_group") or ""), "filename": visible_filename, "kind": "file",
             "status": status, "expected_bytes": expected, "downloaded_bytes": max(0, downloaded), "actual_size": expected if status == "completed" else 0,
             "current_part": int(round(pct)), "processed_parts": int(round(pct)), "successful_parts": int(round(pct)), "failed_parts": 0,
             "total_parts": 100, "speed_bps": speed, "eta_seconds": eta_seconds, "connections_used": 0, "path": storage, "partial_path": str(slot.get("path") or ""),
@@ -4306,6 +4606,8 @@ class SabDownloadManager:
             "import_stalled": bool(import_stalled),
             "release_failure_recorded": bool(meta.get("failure_feedback_recorded")),
             "release_failure_reason": str(meta.get("failure_reason") or ""),
+            "filename_recovery_source": str(meta.get("filename_recovery_source") or ""), "filename_recovery_exact": bool(meta.get("filename_recovery_exact")),
+            "filename_recovery_hint": str(meta.get("filename_recovery_hint") or ""), "filename_recovery_hint_source": str(meta.get("filename_recovery_hint_source") or ""),
             "collection_role": "payload", "is_auxiliary": False, "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
         }
 
@@ -4512,7 +4814,7 @@ class SabDownloadManager:
             if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True)
         )
         telemetry = {
-            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.21 • control channel refreshing",
+            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.22 • control channel refreshing",
             "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0,
             "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0,
             "sab_control_degraded": True, "sab_control_error": str(error or "")[:300],
@@ -4570,7 +4872,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.21 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.22 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -5145,7 +5447,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.21", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.22", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),

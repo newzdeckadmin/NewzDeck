@@ -1828,6 +1828,9 @@ select{color-scheme:dark}
 .binary-resolve-btn:disabled{opacity:.55;cursor:default}
 .binary-name-resolved,.name-resolved-chip{display:inline-flex;align-items:center;flex:0 0 auto;height:18px;padding:0 6px;border:1px solid rgba(70,190,160,.20);border-radius:999px;background:rgba(23,79,63,.24);color:#77cdb0;font-size:8px;font-weight:850;letter-spacing:.02em;white-space:nowrap}
 .name-resolved-chip{height:19px;margin-left:2px;text-transform:none;letter-spacing:0}
+.name-resolved-chip.unresolved{border-color:rgba(215,154,88,.24);background:rgba(91,58,25,.22);color:#d4aa78}
+.name-resolved-chip.resolving{border-color:rgba(78,183,207,.20);background:rgba(16,62,74,.22);color:#82c9d5}
+.name-resolved-chip.opaque{border-color:rgba(183,125,255,.26);background:rgba(73,42,104,.24);color:#c6a3ef}
 .binary-package-name-source{color:#75bda9!important}
 @media(max-width:1180px){.binary-list-summary .binary-resolve-btn{margin-left:0;margin-top:4px}}
 

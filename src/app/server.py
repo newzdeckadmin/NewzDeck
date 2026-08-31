@@ -204,6 +204,7 @@ PREVIEW_CONNECTION_IDLE_CLOSE_SECONDS = 3.0
 NAME_RESOLUTION_WORKER_COUNT = 3
 NAME_RESOLUTION_PROBE_BYTES = 96 * 1024
 NAME_RESOLUTION_SOCKET_TIMEOUT = 4.5
+NAME_RESOLUTION_REPRESENTATIVE_PROBES = 3
 NAME_RESOLUTION_METADATA_MAX_BYTES = 4 * 1024 * 1024
 NAME_RESOLUTION_ARCHIVE_PROBE_BYTES = 512 * 1024
 NAME_RESOLUTION_ARCHIVE_WIRE_MAX_BYTES = 768 * 1024
@@ -281,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.21"
+APP_VERSION = "3.6.22"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -2745,9 +2746,13 @@ _NAME_RESOLUTION_CACHE_LOCK = threading.RLock()
 _NAME_RESOLUTION_CACHE: dict[str, dict[str, Any]] | None = None
 NAME_RESOLUTION_EXECUTOR = ThreadPoolExecutor(max_workers=NAME_RESOLUTION_WORKER_COUNT, thread_name_prefix="usenet-name")
 
-def _resolution_filename_media(filename: str) -> dict[str, Any] | None:
+def _clean_yenc_source_name(filename: str) -> str:
+    """Sanitize a yEnc name= value without deciding whether it is a conventional filename."""
     name = str(filename or "").replace("\\", "/").split("/")[-1].strip().strip('"\'')
-    name = "".join(ch for ch in name if ord(ch) >= 32 and ch not in "\x7f")[:512]
+    return "".join(ch for ch in name if ord(ch) >= 32 and ch not in "\x7f")[:512]
+
+def _resolution_filename_media(filename: str) -> dict[str, Any] | None:
+    name = _clean_yenc_source_name(filename)
     if not name or "." not in name:
         return None
     ext = Path(name).suffix.lower().lstrip(".")
@@ -2863,6 +2868,90 @@ def _parse_par2_filenames(data: bytes) -> list[str]:
                 names.append(name[:512])
         pos = idx + packet_len
     return names[:250]
+
+def _parse_par2_file_descriptors(data: bytes) -> list[dict[str, Any]]:
+    """Return exact PAR2 FileDesc identity records for local filename recovery.
+
+    PAR2 FileDesc packets carry the protected file's original filename, byte length
+    and full-file MD5.  That combination lets NewzDeck map an opaque Usenet payload
+    back to its exact protected filename without guessing from release-title text.
+    """
+    out: list[dict[str, Any]] = []
+    pos = 0
+    magic = b"PAR2\x00PKT"
+    while True:
+        idx = data.find(magic, pos)
+        if idx < 0 or idx + 64 > len(data):
+            break
+        try:
+            packet_len = int(struct.unpack_from("<Q", data, idx + 8)[0])
+        except (struct.error, ValueError):
+            break
+        if packet_len < 64 or packet_len > 64 * 1024 * 1024 or idx + packet_len > len(data):
+            pos = idx + 8
+            continue
+        packet_type = data[idx + 48:idx + 64]
+        if packet_type == b"PAR 2.0\x00FileDesc" and packet_len >= 120:
+            full_md5 = bytes(data[idx + 80:idx + 96])
+            try:
+                file_size = int(struct.unpack_from("<Q", data, idx + 112)[0])
+            except (struct.error, ValueError):
+                file_size = 0
+            raw_name = data[idx + 120:idx + packet_len].rstrip(b"\x00")
+            name = ""
+            for encoding in ("utf-8", "cp1252", "latin-1"):
+                try:
+                    name = raw_name.decode(encoding).strip().replace("\\", "/").split("/")[-1]
+                    break
+                except UnicodeDecodeError:
+                    name = ""
+            if name and file_size >= 0 and len(full_md5) == 16:
+                out.append({"filename": name[:512], "size": file_size, "md5": full_md5.hex()})
+        pos = idx + packet_len
+    # Deduplicate identical records while retaining packet order.
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, str]] = set()
+    for item in out:
+        key = (str(item.get("filename") or "").casefold(), int(item.get("size", 0) or 0), str(item.get("md5") or ""))
+        if key in seen:
+            continue
+        seen.add(key); unique.append(item)
+    return unique[:500]
+
+def _local_par2_file_descriptors(path: Path) -> list[dict[str, Any]]:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return []
+    if not data.startswith(b"PAR2\x00PKT") and b"PAR2\x00PKT" not in data[:1024 * 1024]:
+        return []
+    return _parse_par2_file_descriptors(data)
+
+def _file_md5_hex(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as src:
+        while True:
+            chunk = src.read(4 * 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def _local_archive_title_hint(path: Path) -> tuple[str, str]:
+    """Return a conservative release/title hint from an already-downloaded archive.
+
+    This is deliberately a hint only. Archive member names can identify the release,
+    but they do not prove the original outer archive-volume filename. Exact renaming
+    is reserved for PAR2 FileDesc MD5 matches.
+    """
+    try:
+        with path.open("rb") as src:
+            prefix = src.read(NAME_RESOLUTION_ARCHIVE_PROBE_BYTES)
+    except OSError:
+        return "", ""
+    names, source = _parse_archive_prefix_filenames(prefix)
+    hint = _metadata_title_hint(names)
+    return hint, source if hint else ""
 
 def _parse_sfv_filenames(data: bytes) -> list[str]:
     text = data.decode("utf-8", errors="replace")
@@ -3184,8 +3273,10 @@ def _probe_yenc_name(provider: dict[str, Any], group: str, target: int | str) ->
             control = _control_view(line)
             if control.lower().startswith(b"=ybegin"):
                 _parse_yenc_begin(control, meta)
-                media = _resolution_filename_media(str(meta.get("name") or ""))
-                return (str(media.get("filename")) if media else ""), meta
+                # Preserve the literal yEnc name= value even when it is deliberately
+                # opaque or extensionless.  Classification happens in the worker so
+                # "name supplied but obfuscated" is not collapsed into "no filename".
+                return _clean_yenc_source_name(str(meta.get("name") or "")), meta
         return "", meta
     finally:
         # body_control_prefix intentionally leaves BODY unread; abort instead of
@@ -3226,19 +3317,80 @@ def _probe_small_metadata(provider: dict[str, Any], group: str, item: dict[str, 
     finally:
         temp.unlink(missing_ok=True)
 
+def _representative_name_probe_targets(item: dict[str, Any]) -> list[int | str]:
+    """Return a small spread of usable segment references for filename probing.
+
+    One missing article must not condemn a complete reconstructed multipart.  yEnc's
+    =ybegin control line normally appears on every segment, so first/middle/last is
+    enough to distinguish a genuinely nameless post from one bad representative block
+    without turning name discovery into another download pass.
+    """
+    segments = [x for x in (item.get("segments") or []) if isinstance(x, dict)]
+    source = segments if segments else [item]
+    if not source:
+        return []
+    indexes = [0]
+    if len(source) > 2:
+        indexes.append(len(source) // 2)
+    if len(source) > 1:
+        indexes.append(len(source) - 1)
+    targets: list[int | str] = []
+    seen: set[str] = set()
+    for idx in indexes[:NAME_RESOLUTION_REPRESENTATIVE_PROBES]:
+        segment = source[idx]
+        target: int | str | None = segment.get("article")
+        if target is None or not str(target).strip():
+            target = str(segment.get("message_id") or item.get("message_id") or "").strip() or None
+        if target is None:
+            continue
+        value: int | str = int(target) if isinstance(target, (int, float)) or str(target).isdigit() else str(target)
+        marker = str(value)
+        if marker in seen:
+            continue
+        seen.add(marker); targets.append(value)
+    return targets
+
+
+def _name_probe_failure(client_key: str, failure: dict[str, Any], *, attempts: int = 1) -> dict[str, Any]:
+    retryable = bool(failure.get("retryable"))
+    code = str(failure.get("code") or "name_probe_failed")
+    label = str(failure.get("label") or "Filename probe failed")
+    # Connection pressure deserves a slightly longer cool-down than an isolated
+    # timeout/reset.  The frontend treats this as a circuit-breaker signal and
+    # retries the same candidates instead of advancing down the page.
+    backoff = 8 if code == "connection_limit" else 5 if code in {"timeout", "connection_refused", "connection", "tls", "io", "dns", "segment_failed"} else 0
+    return {
+        "client_key": client_key, "resolved": False, "error": label,
+        "code": code, "retryable": retryable, "deferred": retryable,
+        "backoff_seconds": backoff, "probe_attempts": int(attempts),
+    }
+
+
 def _resolve_article_name_worker(provider: dict[str, Any], provider_id: str, group: str, item: dict[str, Any]) -> dict[str, Any]:
     client_key = str(item.get("client_key") or "")
     returned_fields = ("source", "confidence", "title_hint", "metadata_source", "metadata_names", "archive_source", "archive_names", "title_source", "archive_checked")
-    segments = [x for x in (item.get("segments") or []) if isinstance(x, dict)]
-    first = segments[0] if segments else item
-    target: int | str | None = first.get("article")
-    if target is None or not str(target).strip():
-        target = str(first.get("message_id") or item.get("message_id") or "").strip() or None
-    if target is None:
-        return {"client_key": client_key, "resolved": False, "error": "No retrievable article reference"}
-    target_value = int(target) if isinstance(target, (int, float)) or str(target).isdigit() else str(target)
+    targets = _representative_name_probe_targets(item)
+    if not targets:
+        return {"client_key": client_key, "resolved": False, "error": "No retrievable article reference", "code": "no_article_reference", "retryable": False, "deferred": False}
+    target_value = targets[0]
 
     cached = _name_resolution_lookup(provider_id, group, item)
+    cached_status = str((cached or {}).get("name_status") or "")
+    if cached and cached_status == "opaque_yenc_name" and str(cached.get("raw_yenc_name") or ""):
+        return {
+            "client_key": client_key, "resolved": False, "cached": True,
+            "error": "yEnc supplied an opaque or extensionless source name; download remains available",
+            "code": "opaque_yenc_name", "name_status": "opaque", "name_present": True,
+            "raw_yenc_name": str(cached.get("raw_yenc_name") or "")[:512],
+            "retryable": False, "deferred": False, "probe_attempts": int(cached.get("probe_attempts", 1) or 1),
+        }
+    if cached and cached_status == "filename_not_supplied":
+        return {
+            "client_key": client_key, "resolved": False, "cached": True,
+            "error": "Representative yEnc headers did not supply a name= value",
+            "code": "filename_not_supplied", "name_status": "not_supplied", "name_present": False,
+            "retryable": False, "deferred": False, "probe_attempts": int(cached.get("probe_attempts", 1) or 1),
+        }
     if cached and str(cached.get("filename") or ""):
         filename = str(cached.get("filename"))
         media = _resolution_filename_media(filename)
@@ -3261,13 +3413,75 @@ def _resolve_article_name_worker(provider: dict[str, Any], provider_id: str, gro
         cached_result = {**{k: cached.get(k) for k in returned_fields}, "archive_checked": bool(archive_recent or not _archive_probe_candidate(filename))}
         return {"client_key": client_key, "resolved": True, "cached": True, "filename": filename, "media": media, **cached_result}
 
-    try:
-        filename, ymeta = _probe_yenc_name(provider, group, target_value)
-    except Exception as exc:
-        return {"client_key": client_key, "resolved": False, "error": classify_nntp_failure(exc).get("label") or str(exc)}
+    filename = ""
+    opaque_yenc_name = ""
+    ymeta: dict[str, Any] = {}
+    successful_body_probes = 0
+    missing_probes = 0
+    # Probe a representative spread.  Permanent per-article absence (423/430)
+    # advances to another segment; provider/network pressure defers immediately
+    # so one throttled batch cannot turn the rest of the page into NAME UNAVAILABLE.
+    for attempt_no, probe_target in enumerate(targets, start=1):
+        try:
+            raw_yenc_name, ymeta = _probe_yenc_name(provider, group, probe_target)
+            successful_body_probes += 1
+            if raw_yenc_name:
+                media_candidate = _resolution_filename_media(raw_yenc_name)
+                target_value = probe_target
+                if media_candidate:
+                    filename = str(media_candidate.get("filename") or raw_yenc_name)
+                else:
+                    opaque_yenc_name = raw_yenc_name
+                # A successfully parsed yEnc name= value is authoritative for this
+                # multipart.  Do not burn two more BODY probes simply because the
+                # uploader intentionally omitted a recognizable extension.
+                break
+        except Exception as exc:
+            failure = classify_nntp_failure(exc)
+            if bool(failure.get("retryable")):
+                return _name_probe_failure(client_key, failure, attempts=attempt_no)
+            if str(failure.get("code") or "") == "article_missing":
+                missing_probes += 1
+                continue
+            return _name_probe_failure(client_key, failure, attempts=attempt_no)
+
     media = _resolution_filename_media(filename)
     if not media:
-        return {"client_key": client_key, "resolved": False, "error": "No filename was exposed by the yEnc header"}
+        key = _name_resolution_cache_key(provider_id, group, item)
+        if opaque_yenc_name:
+            entry = {
+                "filename": "", "raw_yenc_name": opaque_yenc_name, "name_status": "opaque_yenc_name",
+                "source": "yEnc header", "confidence": "high", "subject": str(item.get("subject") or ""),
+                "probe_attempts": successful_body_probes + missing_probes, "ts": time.time(),
+            }
+            return {
+                "client_key": client_key, "resolved": False,
+                "error": "yEnc supplied an opaque or extensionless source name; download remains available",
+                "code": "opaque_yenc_name", "name_status": "opaque", "name_present": True,
+                "raw_yenc_name": opaque_yenc_name, "retryable": False, "deferred": False,
+                "probe_attempts": successful_body_probes + missing_probes,
+                "_cache_key": key, "_cache_entry": entry,
+            }
+        if successful_body_probes:
+            entry = {
+                "filename": "", "raw_yenc_name": "", "name_status": "filename_not_supplied",
+                "source": "yEnc header", "confidence": "high", "subject": str(item.get("subject") or ""),
+                "probe_attempts": successful_body_probes + missing_probes, "ts": time.time(),
+            }
+            return {
+                "client_key": client_key, "resolved": False,
+                "error": "Representative yEnc headers did not supply a name= value",
+                "code": "filename_not_supplied", "name_status": "not_supplied", "name_present": False,
+                "retryable": False, "deferred": False,
+                "probe_attempts": successful_body_probes + missing_probes,
+                "_cache_key": key, "_cache_entry": entry,
+            }
+        return {
+            "client_key": client_key, "resolved": False,
+            "error": "Representative article blocks were unavailable for filename probing",
+            "code": "probe_articles_missing", "retryable": False, "deferred": False,
+            "probe_attempts": missing_probes,
+        }
     metadata_names, metadata_source = _probe_small_metadata(provider, group, item, filename)
     metadata_hint = _metadata_title_hint(metadata_names)
     title_hint = metadata_hint
@@ -3290,26 +3504,64 @@ def _resolve_article_name_worker(provider: dict[str, Any], provider_id: str, gro
     result_fields = {**{k: entry.get(k) for k in returned_fields}, "archive_checked": bool(archive_checked_ts or not _archive_probe_candidate(filename))}
     return {"client_key": client_key, "resolved": True, "cached": False, "filename": media["filename"], "media": media, "_cache_key": key, "_cache_entry": entry, **result_fields}
 
-def resolve_article_names(provider_id: str, group: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+def resolve_article_names(provider_id: str, group: str, items: list[dict[str, Any]], *, download_fallback: bool = False) -> dict[str, Any]:
     provider = provider_by_id(provider_id)
     limited = [dict(item) for item in items[:12] if isinstance(item, dict)]
     future_items = [(NAME_RESOLUTION_EXECUTOR.submit(_resolve_article_name_worker, provider, provider_id, group, item), item) for item in limited]
     futures = [future for future, _ in future_items]
-    done, pending = wait(futures, timeout=40)
+    done, pending = wait(futures, timeout=70)
     results: list[dict[str, Any]] = []
     for future, item in future_items:
         if future not in done:
             future.cancel()
-            results.append({"client_key": str(item.get("client_key") or ""), "resolved": False, "error": "Name probe timed out"})
+            results.append({
+                "client_key": str(item.get("client_key") or ""), "resolved": False,
+                "error": "Provider timed out during filename probing", "code": "timeout",
+                "retryable": True, "deferred": True, "backoff_seconds": 5,
+            })
             continue
         try:
             results.append(future.result())
         except Exception as exc:
-            results.append({"client_key": str(item.get("client_key") or ""), "resolved": False, "error": str(exc)[:300]})
+            failure = classify_nntp_failure(exc)
+            results.append(_name_probe_failure(str(item.get("client_key") or ""), failure))
     pending_cache = [(str(result.pop("_cache_key")), dict(result.pop("_cache_entry"))) for result in results if result.get("_cache_key") and isinstance(result.get("_cache_entry"), dict)]
     _store_name_resolution_entries(pending_cache)
+    if download_fallback:
+        by_key = {str(item.get("client_key") or ""): item for item in limited}
+        for result in results:
+            if result.get("resolved"):
+                continue
+            item = by_key.get(str(result.get("client_key") or ""), {})
+            fallback_item = {**item, "raw_yenc_name": str(result.get("raw_yenc_name") or item.get("raw_yenc_name") or "")}
+            result["fallback_media"] = _generated_unresolved_media(provider_id, group, fallback_item)
     resolved = sum(1 for result in results if result.get("resolved"))
-    return {"results": results, "requested": len(limited), "resolved": resolved, "unresolved": len(limited) - resolved}
+    retryable = sum(1 for result in results if bool(result.get("retryable")))
+    opaque_names = sum(1 for result in results if str(result.get("code") or "") == "opaque_yenc_name")
+    no_filename = sum(1 for result in results if str(result.get("code") or "") == "filename_not_supplied")
+    article_unavailable = sum(1 for result in results if str(result.get("code") or "") in {"probe_articles_missing", "no_article_reference"})
+    permanent_unavailable = sum(1 for result in results if not result.get("resolved") and not result.get("retryable") and str(result.get("code") or "") not in {"opaque_yenc_name", "filename_not_supplied"})
+    backoff_seconds = max([int(result.get("backoff_seconds", 0) or 0) for result in results] or [0])
+    # Two transient failures in one small batch is enough evidence of provider
+    # pressure to stop advancing.  The browser retries this same frontier after
+    # the requested backoff instead of labelling later files unavailable.
+    circuit_open = bool(retryable >= 2 or any(str(result.get("code") or "") == "connection_limit" for result in results))
+    if circuit_open and backoff_seconds < 5:
+        backoff_seconds = 5
+    if opaque_names or no_filename or article_unavailable:
+        DIAGNOSTICS.event(
+            "info", "name-resolution", "Filename probe classifications",
+            group=group, requested=len(limited), resolved=resolved, retryable=retryable,
+            opaque_yenc_names=opaque_names, filename_not_supplied=no_filename,
+            article_unavailable=article_unavailable, permanent_unavailable=permanent_unavailable,
+        )
+    return {
+        "results": results, "requested": len(limited), "resolved": resolved,
+        "unresolved": len(limited) - resolved, "retryable": retryable,
+        "opaque_names": opaque_names, "filename_not_supplied": no_filename,
+        "article_unavailable": article_unavailable, "permanent_unavailable": permanent_unavailable,
+        "circuit_open": circuit_open, "backoff_seconds": backoff_seconds,
+    }
 
 _YENC_DECODE_TABLE = bytes(((i - 42) & 0xFF) for i in range(256))
 
@@ -3632,6 +3884,80 @@ def sniff_mime(path: Path, fallback: str) -> str:
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "image/webp"
     return fallback
+
+def _generated_unresolved_media(provider_id: str, group: str, item: dict[str, Any]) -> dict[str, Any]:
+    """Create a stable temporary identity for a complete binary whose filename is unavailable.
+
+    The identity is based on article references rather than list position so the same
+    reconstructed multipart receives the same temporary name across reloads.
+    """
+    refs: list[tuple[str, str, int]] = []
+    for seg in (item.get("segments") or []):
+        if not isinstance(seg, dict):
+            continue
+        article = seg.get("article")
+        refs.append((str(seg.get("message_id") or ""), str(article if article is not None else ""), int(seg.get("part", 1) or 1)))
+    if not refs:
+        article = item.get("article")
+        refs.append((str(item.get("message_id") or ""), str(article if article is not None else ""), 1))
+    raw = json.dumps({"provider": provider_id, "group": group, "refs": refs}, sort_keys=True, separators=(",", ":")).encode("utf-8", errors="replace")
+    token = hashlib.sha256(raw).hexdigest()[:12].upper()
+    source_yenc_name = _clean_yenc_source_name(str(item.get("raw_yenc_name") or ""))
+    if source_yenc_name:
+        safe_source = safe_download_name(source_yenc_name)
+        filename = safe_source if Path(safe_source).suffix else f"{safe_source}.bin"
+    else:
+        filename = f"NewzDeck_Unresolved_{token}.bin"
+    return {
+        "filename": filename, "extension": Path(filename).suffix.lower().lstrip(".") or "bin", "kind": "file",
+        "mime": "application/octet-stream", "generated_name": True,
+        "original_filename_unavailable": True, "source_yenc_name": source_yenc_name,
+        "name_status": "opaque" if source_yenc_name else "unavailable",
+    }
+
+def _signature_media(path: Path, generated_filename: str) -> dict[str, Any] | None:
+    """Infer a conservative file type for a generated-name download from magic bytes."""
+    try:
+        with path.open("rb") as f:
+            head = f.read(4096)
+            iso = b""
+            try:
+                f.seek(0x8001)
+                iso = f.read(5)
+            except OSError:
+                pass
+    except OSError:
+        return None
+    ext = ""; mime = "application/octet-stream"; kind = "file"
+    if head.startswith(b"\xff\xd8\xff"): ext, mime, kind = "jpg", "image/jpeg", "image"
+    elif head.startswith(b"\x89PNG\r\n\x1a\n"): ext, mime, kind = "png", "image/png", "image"
+    elif head.startswith((b"GIF87a", b"GIF89a")): ext, mime, kind = "gif", "image/gif", "image"
+    elif head.startswith(b"BM"): ext, mime, kind = "bmp", "image/bmp", "image"
+    elif len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP": ext, mime, kind = "webp", "image/webp", "image"
+    elif head.startswith((b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")): ext, mime = "rar", "application/vnd.rar"
+    elif head.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")): ext, mime = "zip", "application/zip"
+    elif head.startswith(b"7z\xbc\xaf'\x1c"): ext, mime = "7z", "application/x-7z-compressed"
+    elif head.startswith(b"PAR2\x00PKT"): ext, mime = "par2", "application/octet-stream"
+    elif head.startswith(b"%PDF-"): ext, mime = "pdf", "application/pdf"
+    elif head.startswith(b"\x1aE\xdf\xa3"): ext, mime, kind = "mkv", "video/x-matroska", "video"
+    elif len(head) >= 12 and head[4:8] == b"ftyp": ext, mime, kind = "mp4", "video/mp4", "video"
+    elif len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"AVI ": ext, mime, kind = "avi", "video/x-msvideo", "video"
+    elif head.startswith(b"fLaC"): ext, mime = "flac", "audio/flac"
+    elif head.startswith(b"ID3") or (len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0): ext, mime = "mp3", "audio/mpeg"
+    elif head.startswith(b"\x1f\x8b"): ext, mime = "gz", "application/gzip"
+    elif head.startswith(b"BZh"): ext, mime = "bz2", "application/x-bzip2"
+    elif head.startswith(b"\xfd7zXZ\x00"): ext, mime = "xz", "application/x-xz"
+    elif head.startswith(b"MZ"): ext, mime = "exe", "application/vnd.microsoft.portable-executable"
+    elif iso == b"CD001": ext, mime = "iso", "application/x-iso9660-image"
+    if not ext:
+        return None
+    stem = Path(generated_filename or "NewzDeck_Unresolved").stem or "NewzDeck_Unresolved"
+    filename = f"{stem}.{ext}"
+    return {
+        "filename": filename, "extension": ext, "kind": kind, "mime": mime,
+        "generated_name": True, "original_filename_unavailable": True,
+        "type_inferred_from_signature": True,
+    }
 
 _preview_lock = threading.Lock()
 _preview_tokens: dict[str, dict[str, Any]] = {}
@@ -7203,6 +7529,7 @@ class DownloadManager:
             job.setdefault("collection_name", "")
             job.setdefault("collection_expected", 0)
             job.setdefault("destination_subdir", "")
+            job.setdefault("destination_root", False)
             job.setdefault("post_status", "")
             job.setdefault("post_progress", 0)
             job.setdefault("post_message", "")
@@ -7276,6 +7603,12 @@ class DownloadManager:
             job.setdefault("category_folder", "")
             job.setdefault("automation_source", "")
             job.setdefault("automation_context", {})
+            job.setdefault("generated_filename", False)
+            job.setdefault("original_filename_unavailable", False)
+            job.setdefault("filename_recovery_source", "")
+            job.setdefault("filename_recovery_hint", "")
+            job.setdefault("filename_recovery_hint_source", "")
+            job.setdefault("filename_recovery_exact", False)
         for job in self.jobs:
             cid = str(job.get("collection_id") or "")
             if not cid:
@@ -7902,12 +8235,16 @@ class DownloadManager:
                 segments = item.get("segments") or []
                 if not isinstance(media, dict) or not isinstance(segments, list) or not segments:
                     continue
+                if not media.get("filename") and bool(item.get("allow_unresolved")):
+                    media = _generated_unresolved_media(provider_id, group, {**item, "segments": segments})
                 filename = safe_download_name(media.get("filename") or "download.bin")
                 identity = self._job_identity(provider_id, group, media, segments)
                 if identity in existing:
                     duplicates.append(filename)
                     continue
                 expected = sum(max(0, int(s.get("bytes", 0) or 0)) for s in segments)
+                item_source = str(item.get("source", "browser") or "browser")
+                force_destination_root = bool(item.get("destination_root")) and item_source == "browser_loose"
                 job_segments = [dict(seg) for seg in segments]
                 if download_provider_id != provider_id:
                     for seg in job_segments:
@@ -7918,18 +8255,23 @@ class DownloadManager:
                     "origin_provider_id": provider_id, "origin_provider_name": origin_provider.get("name") or origin_provider.get("host") or "Provider",
                     "group": group, "filename": filename, "kind": media.get("kind", "file"),
                     "segments": job_segments, "media": media,
+                    "generated_filename": bool(media.get("generated_name")),
+                    "original_filename_unavailable": bool(media.get("original_filename_unavailable")),
+                    "filename_recovery_source": ("obfuscated yEnc name" if media.get("source_yenc_name") else "generated fallback") if media.get("generated_name") else "",
+                    "filename_recovery_hint": "", "filename_recovery_hint_source": "", "filename_recovery_exact": False,
                     "status": "queued", "expected_bytes": expected, "downloaded_bytes": 0,
                     "current_part": 0, "total_parts": len(segments), "speed_bps": 0, "connections_used": 0,
                     "path": "", "error": "", "created_ts": now, "started_ts": 0,
                     "completed_ts": 0, "cancel_requested": False,
                     "recovered_parts": 0, "recovery_sources": {},
                     "priority": str(item.get("priority") or "normal") if str(item.get("priority") or "normal") in {"high","normal","low"} else "normal", "paused": False, "queue_order": queue_tail + len(added) + 1,
-                    "destination_mode": destination_mode,
-                    "destination_subdir": safe_folder_name(str(item.get("destination_subdir", "") or "")) if item.get("destination_subdir") else "",
+                    "destination_mode": "flat" if force_destination_root else destination_mode,
+                    "destination_subdir": "" if force_destination_root else (safe_folder_name(str(item.get("destination_subdir", "") or "")) if item.get("destination_subdir") else ""),
+                    "destination_root": force_destination_root,
                     "category": str(item.get("category") or "")[:80],
                     "category_folder": safe_folder_name(str(item.get("category_folder") or "")) if item.get("category_folder") else "",
                     "automation_source": str(item.get("automation_source") or "")[:40],
-                    "source": str(item.get("source", "browser") or "browser"),
+                    "source": item_source,
                     "collection_id": str(item.get("collection_id", "") or ""),
                     "collection_name": str(item.get("collection_name", "") or ""),
                     "collection_expected": max(0, int(item.get("collection_expected", 0) or 0)),
@@ -7952,7 +8294,7 @@ class DownloadManager:
                 }
                 self.jobs.append(job)
                 existing.add(identity)
-                added.append({"id": job["id"], "filename": filename})
+                added.append({"id": job["id"], "filename": filename, "generated_name": bool(job.get("generated_filename"))})
                 cid = str(job.get("collection_id") or "")
                 if cid and str(job.get("source") or "") == "browser_set":
                     browser_collections.setdefault(cid, {
@@ -8855,18 +9197,19 @@ class DownloadManager:
     def _reserve_download_path(self, filename: str, job: dict[str, Any]) -> Path:
         mode = str(job.get("destination_mode", "flat"))
         folder = DOWNLOAD_DIR
-        category_folder = safe_folder_name(str(job.get("category_folder") or "")) if job.get("category_folder") else ""
-        if category_folder:
-            folder = folder / category_folder
-        subdir = safe_folder_name(str(job.get("destination_subdir") or "")) if job.get("destination_subdir") else ""
-        if subdir:
-            folder = folder / subdir
-        if mode == "newsgroup":
-            folder = folder / safe_folder_name(job.get("group") or "Newsgroup")
-        elif mode == "kind":
-            folder = folder / ("Images" if job.get("kind") == "image" else "Videos" if job.get("kind") == "video" else "Other")
-        elif mode == "newsgroup_kind":
-            folder = folder / safe_folder_name(job.get("group") or "Newsgroup") / ("Images" if job.get("kind") == "image" else "Videos" if job.get("kind") == "video" else "Other")
+        if not bool(job.get("destination_root")):
+            category_folder = safe_folder_name(str(job.get("category_folder") or "")) if job.get("category_folder") else ""
+            if category_folder:
+                folder = folder / category_folder
+            subdir = safe_folder_name(str(job.get("destination_subdir") or "")) if job.get("destination_subdir") else ""
+            if subdir:
+                folder = folder / subdir
+            if mode == "newsgroup":
+                folder = folder / safe_folder_name(job.get("group") or "Newsgroup")
+            elif mode == "kind":
+                folder = folder / ("Images" if job.get("kind") == "image" else "Videos" if job.get("kind") == "video" else "Other")
+            elif mode == "newsgroup_kind":
+                folder = folder / safe_folder_name(job.get("group") or "Newsgroup") / ("Images" if job.get("kind") == "image" else "Videos" if job.get("kind") == "video" else "Other")
         folder.mkdir(parents=True, exist_ok=True)
         base = folder / safe_download_name(filename)
         stem, suffix = base.stem, base.suffix
@@ -8900,6 +9243,206 @@ class DownloadManager:
                 if job and str(job.get("provider_id") or "") == str(provider_id) and job.get("status") in ("downloading", "cancelling"):
                     count += 1
             return max(1, count)
+
+    def _apply_exact_recovered_filename(self, job: dict[str, Any], dest: Path, recovered_name: str, source: str) -> Path:
+        recovered_name = safe_download_name(_clean_yenc_source_name(recovered_name))
+        if not recovered_name or recovered_name.casefold() == dest.name.casefold():
+            with self.lock:
+                job["filename_recovery_source"] = source
+                job["filename_recovery_exact"] = True
+                job["generated_filename"] = False
+                job["original_filename_unavailable"] = False
+            return dest
+        media = _resolution_filename_media(recovered_name)
+        if media is None:
+            ext = Path(recovered_name).suffix.lower().lstrip(".")
+            media = {
+                "filename": recovered_name, "extension": ext, "kind": "file",
+                "mime": mimetypes.guess_type(recovered_name)[0] or "application/octet-stream",
+            }
+        old_key = str(dest).lower()
+        with self.lock:
+            self.reserved_paths.discard(old_key)
+            final_dest = self._reserve_download_path(recovered_name, job)
+        try:
+            dest.replace(final_dest)
+        except Exception:
+            with self.lock:
+                self.reserved_paths.discard(str(final_dest).lower())
+                self.reserved_paths.add(old_key)
+            return dest
+        with self.lock:
+            job["filename"] = final_dest.name
+            job["media"] = {**media, "generated_name": False, "original_filename_unavailable": False}
+            job["kind"] = str(media.get("kind") or "file")
+            job["generated_filename"] = False
+            job["original_filename_unavailable"] = False
+            job["filename_recovery_source"] = source
+            job["filename_recovery_exact"] = True
+            job["path"] = str(final_dest)
+        return final_dest
+
+    def _par2_descriptor_sources_for_job(self, job: dict[str, Any], include_path: Path | None = None) -> list[tuple[Path, list[dict[str, Any]]]]:
+        origin = str(job.get("origin_provider_id") or job.get("provider_id") or "")
+        group = str(job.get("group") or "")
+        paths: list[Path] = []
+        if include_path is not None and include_path.exists():
+            paths.append(include_path)
+        with self.lock:
+            peers = [dict(x) for x in self.jobs if str(x.get("origin_provider_id") or x.get("provider_id") or "") == origin and str(x.get("group") or "") == group and str(x.get("path") or "")]
+        for peer in peers:
+            p = Path(str(peer.get("path") or ""))
+            if p.exists() and p not in paths:
+                paths.append(p)
+        sources: list[tuple[Path, list[dict[str, Any]]]] = []
+        for path in paths:
+            try:
+                with path.open("rb") as src:
+                    head = src.read(16)
+            except OSError:
+                continue
+            if not head.startswith(b"PAR2\x00PKT"):
+                continue
+            descriptors = _local_par2_file_descriptors(path)
+            if descriptors:
+                sources.append((path, descriptors))
+        return sources
+
+    def _recover_generated_filename_from_par2(self, job: dict[str, Any], dest: Path, *, include_par2_path: Path | None = None) -> Path:
+        if not bool(job.get("generated_filename")) or not dest.exists():
+            return dest
+        try:
+            size = dest.stat().st_size
+        except OSError:
+            return dest
+        candidates: list[tuple[Path, dict[str, Any]]] = []
+        for source_path, descriptors in self._par2_descriptor_sources_for_job(job, include_path=include_par2_path):
+            for descriptor in descriptors:
+                if int(descriptor.get("size", -1) or -1) != size:
+                    continue
+                recovered_name = _clean_yenc_source_name(str(descriptor.get("filename") or ""))
+                if not recovered_name or _filename_looks_obfuscated(recovered_name):
+                    continue
+                candidates.append((source_path, descriptor))
+        if not candidates:
+            return dest
+        try:
+            digest = _file_md5_hex(dest)
+        except OSError:
+            return dest
+        exact = [(source_path, descriptor) for source_path, descriptor in candidates if str(descriptor.get("md5") or "").casefold() == digest.casefold()]
+        names = {str(descriptor.get("filename") or "") for _, descriptor in exact}
+        if len(names) != 1:
+            return dest
+        source_path, descriptor = exact[0]
+        recovered_name = str(descriptor.get("filename") or "")
+        final_dest = self._apply_exact_recovered_filename(job, dest, recovered_name, "PAR2 FileDesc")
+        if final_dest != dest or recovered_name.casefold() == dest.name.casefold():
+            DIAGNOSTICS.event("info", "filename-recovery", f"Recovered exact filename from PAR2 metadata: {recovered_name}", group=str(job.get("group") or ""), par2=str(source_path.name))
+        return final_dest
+
+    def _capture_obfuscated_archive_hint(self, job: dict[str, Any], dest: Path) -> None:
+        if not bool(job.get("generated_filename")) or not dest.exists():
+            return
+        hint, source = _local_archive_title_hint(dest)
+        if not hint:
+            return
+        with self.lock:
+            job["filename_recovery_hint"] = hint
+            job["filename_recovery_hint_source"] = source
+        DIAGNOSTICS.event("info", "filename-recovery", f"Recovered archive title hint: {hint}", group=str(job.get("group") or ""), source=source)
+
+    def _reconcile_completed_generated_jobs_from_par2(self, par2_job: dict[str, Any], par2_path: Path) -> None:
+        descriptors = _local_par2_file_descriptors(par2_path)
+        if not descriptors:
+            return
+        origin = str(par2_job.get("origin_provider_id") or par2_job.get("provider_id") or "")
+        group = str(par2_job.get("group") or "")
+        sizes = {int(x.get("size", -1) or -1) for x in descriptors}
+        with self.lock:
+            peers = [x for x in self.jobs if x is not par2_job and x.get("status") == "completed" and bool(x.get("generated_filename")) and str(x.get("origin_provider_id") or x.get("provider_id") or "") == origin and str(x.get("group") or "") == group and str(x.get("path") or "")]
+        for peer in peers:
+            path = Path(str(peer.get("path") or ""))
+            try:
+                if not path.exists() or path.stat().st_size not in sizes:
+                    continue
+            except OSError:
+                continue
+            new_path = self._recover_generated_filename_from_par2(peer, path, include_par2_path=par2_path)
+            if new_path != path:
+                with self.lock:
+                    peer["path"] = str(new_path)
+        with self.lock:
+            self._save()
+
+    def _post_download_obfuscated_name_recovery(self, job: dict[str, Any], dest: Path) -> Path:
+        """Recover opaque browser-download names from already-downloaded local evidence.
+
+        Exact renames require a PAR2 FileDesc MD5+length match. Archive member names
+        are retained only as a title hint because they do not prove the original
+        outer archive-volume filename.
+        """
+        dest = self._recover_generated_filename_from_par2(job, dest)
+        self._capture_obfuscated_archive_hint(job, dest)
+        try:
+            with dest.open("rb") as src:
+                is_par2 = src.read(16).startswith(b"PAR2\x00PKT")
+        except OSError:
+            is_par2 = False
+        if is_par2:
+            self._reconcile_completed_generated_jobs_from_par2(job, dest)
+        return dest
+
+    def _finalize_generated_filename(self, job: dict[str, Any], dest: Path, transfer_names: list[str] | None = None) -> Path:
+        if not bool(job.get("generated_filename")):
+            return dest
+        recovered: dict[str, Any] | None = None
+        for raw_name in transfer_names or []:
+            media = _resolution_filename_media(str(raw_name or ""))
+            if media:
+                recovered = {**media, "generated_name": False, "original_filename_unavailable": False}
+                break
+        source = "yEnc transfer" if recovered else ""
+        if recovered is None:
+            recovered = _signature_media(dest, str(job.get("filename") or dest.name))
+            if recovered:
+                source = "file signature"
+        if recovered is None:
+            with self.lock:
+                job["filename_recovery_source"] = "generated fallback"
+                job["original_filename_unavailable"] = True
+            return dest
+        final_name = safe_download_name(str(recovered.get("filename") or dest.name))
+        final_dest = dest
+        if final_name.casefold() != dest.name.casefold():
+            old_key = str(dest).lower()
+            with self.lock:
+                self.reserved_paths.discard(old_key)
+                final_dest = self._reserve_download_path(final_name, job)
+            try:
+                dest.replace(final_dest)
+            except Exception:
+                with self.lock:
+                    self.reserved_paths.discard(str(final_dest).lower())
+                    self.reserved_paths.add(old_key)
+                return dest
+        with self.lock:
+            job["filename"] = final_dest.name
+            job["media"] = recovered
+            job["kind"] = str(recovered.get("kind") or "file")
+            job["generated_filename"] = bool(recovered.get("generated_name"))
+            job["original_filename_unavailable"] = bool(recovered.get("original_filename_unavailable"))
+            job["filename_recovery_source"] = source
+        if source == "yEnc transfer":
+            try:
+                first = (job.get("segments") or [{}])[0] or {}
+                cache_item = {"message_id": str(job.get("message_id") or first.get("message_id") or ""), "article": first.get("article")}
+                origin_id = str(job.get("origin_provider_id") or job.get("provider_id") or "")
+                cache_key = _name_resolution_cache_key(origin_id, str(job.get("group") or ""), cache_item)
+                _store_name_resolution_entries([(cache_key, {"filename": final_dest.name, "source": "yEnc header", "confidence": "high", "ts": time.time(), "title_hint": "", "metadata_source": "", "metadata_names": [], "archive_source": "", "archive_names": [], "archive_checked_ts": 0.0, "title_source": "yEnc header"})])
+            except Exception:
+                pass
+        return final_dest
 
     def _process(self, job: dict[str, Any], cancel_event: threading.Event, run_token: str):
         provider = provider_by_id(job["provider_id"])
@@ -8998,6 +9541,9 @@ class DownloadManager:
                 shutil.copy2(source, temp)
                 self._wait_if_paused(job, cancel_event, run_token)
                 temp.replace(dest)
+                dest = self._finalize_generated_filename(job, dest, [])
+                dest = self._post_download_obfuscated_name_recovery(job, dest)
+                filename = str(job.get("filename") or filename)
                 with self.lock:
                     job["downloaded_bytes"] = int(job.get("expected_bytes") or source.stat().st_size)
                     job["current_part"] = len(segments)
@@ -9681,6 +10227,10 @@ class DownloadManager:
                 if expected_full and actual_size != expected_full:
                     raise NntpError(f"Multipart assembly size mismatch: expected {expected_full:,} bytes, assembled {actual_size:,}")
             temp.replace(dest)
+            transfer_names = [str((results[i].get("meta") or {}).get("name") or "") for i in range(len(segments))]
+            dest = self._finalize_generated_filename(job, dest, transfer_names)
+            dest = self._post_download_obfuscated_name_recovery(job, dest)
+            filename = str(job.get("filename") or filename)
             with self.lock:
                 job["path"] = str(dest)
                 job["partial_path"] = ""
@@ -12093,12 +12643,25 @@ class AppHandler(SimpleHTTPRequestHandler):
             raise ValueError("Provider and newsgroup are required")
         if not isinstance(items, list):
             raise ValueError("Invalid name-resolution request")
-        result = resolve_article_names(provider_id, group, items)
+        result = resolve_article_names(provider_id, group, items, download_fallback=bool(data.get("download_fallback")))
         if result.get("resolved"):
-            # Header pages are cheap to reload and must not keep an older grouped
-            # snapshot after the persistent name cache learns real filenames.
+            # Completed header pages are cheap to reload after the persistent name
+            # cache learns real filenames.  A progressive smart-binary page is
+            # different: its background reconstruction worker may replace that exact
+            # pending cache entry only when it still exists.  Deleting it here makes
+            # the UI poll start reconstruction over, and an aggressive resolver can
+            # starve package completion indefinitely.  Preserve pending entries; the
+            # reconstruction pass applies the persistent name cache before publishing
+            # its completed page.
             with ARTICLE_PAGE_CACHE_LOCK:
-                stale = [key for key in ARTICLE_PAGE_CACHE if len(key) >= 2 and key[0] == provider_id and key[1] == group]
+                stale = []
+                for key, cached in ARTICLE_PAGE_CACHE.items():
+                    if len(key) < 2 or key[0] != provider_id or key[1] != group:
+                        continue
+                    payload = (cached or {}).get("payload") or {}
+                    if bool(payload.get("smart_binary_pending")):
+                        continue
+                    stale.append(key)
                 for key in stale:
                     ARTICLE_PAGE_CACHE.pop(key, None)
         return self._json(200, result)

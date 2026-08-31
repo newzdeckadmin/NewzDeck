@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.21** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.22** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.21_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.22_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -32,20 +32,22 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Discover movies and TV** with TMDB-powered posters, backdrops, metadata, cast/crew, trending titles, new releases, recommendations, filtering, and responsive title details.
 - **Automate TV and movies** with monitored libraries, quality profiles, Wanted items, calendar, history, root folders, and Newznab-compatible indexers.
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
-- **Grab and organize once** from Discover without having to add the Movie or safely identifiable TV release to Automation first.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.21 highlights
+## v3.6.22 highlights
 
-v3.6.21 promotes the accepted Newsgroups image-browsing and Related Media work.
+v3.6.22 promotes the accepted All Posts binary-resolution and obfuscated-name recovery work built on v3.6.21.
 
-- **Direct image downloads:** loose images selected from Newsgroups finish directly in the configured Download Folder root instead of an extra image/job folder.
-- **Dedicated Related Media pane:** grouped image sets are organized separately from the main gallery and update live during Continuous browsing.
-- **Faster long browsing sessions:** measured DOM windowing and incremental set indexing reduce Chromium layout/regrouping work as thousands of posts accumulate.
-- **Faster broken-set rejection:** bounded health probes avoid walking very large missing image sets member by member.
-- **Stable set covers:** stable set ownership, bounded retrieval, reserved scheduler capacity, cache-first activation, and in-place visible-task promotion prevent cover cards from being stranded behind offscreen work.
-- **Preserved All Posts behavior:** binary Preview/details remains available in All Posts.
-- **Expanded diagnostics:** Related Media queue, timing, promotion, activation, cache, and pre-navigation state are available through Copy Diagnostics.
+- **Download complete binaries even before a friendly name is known.** Complete reconstructed multipart items remain actionable while NewzDeck performs bounded filename probes.
+- **Automatic full name-resolution pass.** Loaded unresolved items are processed in safe batches without requiring repeated Resolve names clicks.
+- **Honest resolution states.** NewzDeck distinguishes resolved filenames, opaque yEnc names, genuinely missing names, unavailable articles, and retryable provider failures.
+- **Provider-aware retry/backoff.** Temporary NNTP failures pause and retry instead of falsely turning everything after a cutoff into NAME UNAVAILABLE.
+- **Reliable long reconstruction.** Package reconstruction polling continues with backoff until it completes or the browse session changes.
+- **Flat loose-binary downloads.** Individual Newsgroup binaries finish directly in the configured Download Folder root rather than a filename-named subfolder.
+- **Conservative obfuscated-name recovery.** Exact PAR2 FileDesc size + full-MD5 matches can restore a protected filename; archive member names remain hints rather than speculative renames.
+- **Preserved image browsing.** v3.6.21 Related Media, Continuous browsing, direct loose-image placement, cover scheduling, and long-session performance work remain intact.
+
+See [the full v3.6.22 release notes](release/RELEASE_NOTES_v3.6.22.md).
 
 ## Requirements
 
@@ -68,7 +70,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.21_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.22_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
