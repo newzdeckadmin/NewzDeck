@@ -1,30 +1,25 @@
-NewzDeck v3.6.22
-All Posts Binary Resolution & Recovery
+NewzDeck v3.6.23
+Accent-Insensitive Automation Search
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.22
+WHAT'S NEW IN v3.6.23
 
-- Complete All Posts multipart binaries remain downloadable even when their
-  posted filename is delayed, absent, or deliberately obfuscated.
-- Name resolution now drains loaded unresolved items automatically in bounded
-  batches and distinguishes RESOLVED, OBFUSCATED NAME, NO FILENAME,
-  ARTICLE UNAVAILABLE, and retryable provider outcomes.
-- Temporary provider failures back off and retry instead of turning the rest of
-  a page into permanent NAME UNAVAILABLE results.
-- Long package reconstruction continues polling until completion or navigation
-  cancellation instead of giving up after a short fixed polling window.
-- Direct loose binary downloads now finish in the configured Download Folder
-  root without a per-file subfolder, matching direct loose-image behavior.
-- Opaque yEnc names remain valid download identities; completed file signatures
-  can supply a safe extension where possible.
-- Exact PAR2 FileDesc metadata can opportunistically recover a protected
-  filename using byte length plus full-file MD5, in either PAR2/payload order.
-- Archive contents can provide conservative NAME HINT information without
-  guessing the original outer archive filename.
+- Automation and Interactive Search now treat Latin accents/diacritics as
+  equivalent to the ASCII naming commonly used by Usenet releases.
+- 90 Day Fiancé now safely finds and accepts releases named
+  90.Day.Fiance.SxxExx while keeping the canonical library/display title.
+- Newznab TV/movie and generic fallback queries use an accent-folded
+  compatibility title when needed.
+- The same normalization is used for safe release matching/scoring, filesystem
+  reconciliation, and Smart Import title identity checks.
+- Common non-decomposing Latin characters such as ø, ł, æ, œ and ß are handled
+  for search/matching without changing stored metadata.
+- Existing token-based safety remains intact: Silo does not match EPSILON, and
+  S.W.A.T. / 9-1-1 retain their prior stylized-title behavior.
 
-NewzDeck v3.6.21 image browsing/Related Media behavior and v3.6.20
-SAB/Downloads/Automation reliability behavior are preserved.
-Normal installed updates preserve settings, provider configuration, Automation
-data, history, queue state, and user data.
+NewzDeck v3.6.22 All Posts binary resolution/recovery, v3.6.21 image browsing
+and Related Media, and v3.6.20 authoritative SAB/Downloads behavior are
+preserved. Normal installed updates preserve settings, provider configuration,
+Automation data, history, queue state, and user data.

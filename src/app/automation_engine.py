@@ -13,6 +13,7 @@ import secrets
 import shutil
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -120,8 +121,29 @@ def _date(s: Any) -> str:
     s = str(s or '').strip()
     return s[:10] if re.match(r'^\d{4}-\d{2}-\d{2}', s) else ''
 
+_TITLE_FOLD_TRANSLATION = str.maketrans({
+    'ø':'o','Ø':'O','ł':'l','Ł':'L','æ':'ae','Æ':'AE','œ':'oe','Œ':'OE',
+    'ð':'d','Ð':'D','þ':'th','Þ':'Th','đ':'d','Đ':'D','ı':'i','ß':'ss','ẞ':'SS',
+})
+
+def _fold_title_text(value: Any) -> str:
+    """Fold Latin diacritics/ligatures without changing the stored media title.
+
+    Usenet release naming commonly drops accents even when TMDB's canonical title
+    preserves them (for example ``90 Day Fiancé`` -> ``90 Day Fiance``).  Keep
+    display/library identity untouched and use this folded form only for matching
+    and indexer search compatibility.
+    """
+    text=str(value or '').translate(_TITLE_FOLD_TRANSLATION)
+    text=unicodedata.normalize('NFKD',text)
+    return ''.join(ch for ch in text if not unicodedata.combining(ch))
+
+def _indexer_search_title(value: Any) -> str:
+    folded=re.sub(r'\s+',' ',_fold_title_text(value)).strip()
+    return folded or str(value or '').strip()
+
 def _norm(s: Any) -> str:
-    return re.sub(r'[^a-z0-9]+', ' ', str(s or '').casefold()).strip()
+    return re.sub(r'[^a-z0-9]+', ' ', _fold_title_text(s).casefold()).strip()
 
 def _slug_match(name: str, title: str, year: int | str | None = None) -> bool:
     """Safely match a media title against a release name.
@@ -4358,6 +4380,7 @@ class MediaAutomationEngine:
         kind=item.get('kind')
         category=idx.get('categories_tv') if kind=='tv' else idx.get('categories_movies')
         title=str(item.get('title') or '').strip()
+        search_title=_indexer_search_title(title)
         headers={'User-Agent':f'NewzDeck/{self.version}','Accept':'application/rss+xml,application/xml,text/xml,*/*'}
 
         def request(params:dict[str,Any], timeout:float) -> list[dict[str,Any]]:
@@ -4365,7 +4388,7 @@ class MediaAutomationEngine:
             raw=self._http_bytes_deadline(url,timeout,headers,12*1024*1024)
             return self._parse_newznab_items(raw,idx)
 
-        primary={'t':'tvsearch' if kind=='tv' else 'movie','q':title,'limit':100,'cat':category}
+        primary={'t':'tvsearch' if kind=='tv' else 'movie','q':search_title,'limit':100,'cat':category}
         if kind=='tv' and season is not None:
             primary['season']=int(season)
             if episode is not None: primary['ep']=int(episode)
@@ -4388,7 +4411,7 @@ class MediaAutomationEngine:
         # Newznab implementations vary considerably in tvsearch/movie support.
         # A bounded generic search is a compatibility fallback and also prevents a
         # slow specialized endpoint from making Interactive Search unusable.
-        generic_title=title
+        generic_title=search_title
         if kind=='tv' and season is not None:
             generic_title += f' S{int(season):02d}'
             if episode is not None: generic_title += f'E{int(episode):02d}'

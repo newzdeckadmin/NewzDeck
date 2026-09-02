@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.22** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.23** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.22_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.23_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,20 +34,19 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.22 highlights
+## v3.6.23 highlights
 
-v3.6.22 promotes the accepted All Posts binary-resolution and obfuscated-name recovery work built on v3.6.21.
+v3.6.23 promotes the accepted accent-insensitive Automation search fix built on v3.6.22.
 
-- **Download complete binaries even before a friendly name is known.** Complete reconstructed multipart items remain actionable while NewzDeck performs bounded filename probes.
-- **Automatic full name-resolution pass.** Loaded unresolved items are processed in safe batches without requiring repeated Resolve names clicks.
-- **Honest resolution states.** NewzDeck distinguishes resolved filenames, opaque yEnc names, genuinely missing names, unavailable articles, and retryable provider failures.
-- **Provider-aware retry/backoff.** Temporary NNTP failures pause and retry instead of falsely turning everything after a cutoff into NAME UNAVAILABLE.
-- **Reliable long reconstruction.** Package reconstruction polling continues with backoff until it completes or the browse session changes.
-- **Flat loose-binary downloads.** Individual Newsgroup binaries finish directly in the configured Download Folder root rather than a filename-named subfolder.
-- **Conservative obfuscated-name recovery.** Exact PAR2 FileDesc size + full-MD5 matches can restore a protected filename; archive member names remain hints rather than speculative renames.
-- **Preserved image browsing.** v3.6.21 Related Media, Continuous browsing, direct loose-image placement, cover scheduling, and long-session performance work remain intact.
+- **Accent-insensitive release matching:** canonical titles such as `90 Day Fiancé` safely match ordinary scene/Usenet naming such as `90.Day.Fiance.SxxExx`.
+- **Indexer compatibility titles:** Newznab TV/movie and generic fallback searches use an accent-folded query title when needed, improving results from indexers that store ASCII release names.
+- **Canonical metadata stays canonical:** TMDB/library/display names are not rewritten; `90 Day Fiancé` remains `90 Day Fiancé` in NewzDeck.
+- **Consistent identity checks:** the same folded normalization is used for release filtering/scoring, filesystem reconciliation, and Smart Import title matching.
+- **Broader Latin compatibility:** decomposed accents and common characters such as `ø`, `ł`, `æ`, `œ`, and `ß` are normalized for search/matching only.
+- **Safe matching preserved:** token/phrase matching still prevents false positives such as `Silo` matching the release-group token `EPSILON`; existing `S.W.A.T.` and `9-1-1` handling remains intact.
+- **v3.6.22 preserved:** All Posts unresolved/obfuscated binary handling, long reconstruction polling, flat loose-binary placement, and conservative PAR2/archive recovery are unchanged.
 
-See [the full v3.6.22 release notes](release/RELEASE_NOTES_v3.6.22.md).
+See [the full v3.6.23 release notes](release/RELEASE_NOTES_v3.6.23.md).
 
 ## Requirements
 
@@ -70,7 +69,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.22_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.23_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -1,30 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.22",
-  "base_version": "3.6.21",
-  "release": "All Posts Binary Resolution & Recovery",
-  "adapter_version": "3.6.22",
+  "version": "3.6.23",
+  "base_version": "3.6.22",
+  "release": "Accent-Insensitive Automation Search",
+  "adapter_version": "3.6.23",
   "changes": [
-    "Makes structurally complete All Posts multipart binaries actionable even before a friendly filename is available, with bounded priority name probes and safe generated-name fallback.",
-    "Automatically drains loaded unresolved-name work in bounded batches while yielding to package reconstruction and preserving responsive Continuous browsing.",
-    "Keeps progressive package reconstruction polling alive with guarded backoff until completion or navigation cancellation instead of abandoning long reconstructions.",
-    "Separates resolved, obfuscated-name, no-filename, article-unavailable, and retryable provider outcomes so transient NNTP trouble is never mislabeled as permanent Name Unavailable.",
-    "Retries representative multipart segments and applies provider backoff/circuit breaking when name probes encounter transient connection or throttle failures.",
-    "Places direct loose Newsgroup binary downloads in the configured Download Folder root without a per-file subfolder, matching direct loose-image behavior.",
-    "Preserves opaque yEnc source tokens and detects completed file types when a friendly filename cannot be recovered.",
-    "Adds opportunistic exact post-download filename recovery from PAR2 FileDesc metadata using byte length plus full-file MD5, including PAR2-before-payload and payload-before-PAR2 reconciliation.",
-    "Adds conservative RAR/ZIP/7-Zip member-name hints without guessing or falsely renaming the outer archive."
+    "Normalizes Latin diacritics and common non-decomposing Latin letters for safe title matching while preserving the canonical TMDB/library title unchanged.",
+    "Automation and Interactive Search Newznab queries use an accent-folded compatibility title, so canonical titles such as 90 Day Fiancé search release naming such as 90 Day Fiance.",
+    "The same accent-insensitive normalization is used by local release safety matching, scoring, filesystem reconciliation, and Smart Import title identity checks.",
+    "Preserves NewzDeck v3.6.22 All Posts binary resolution/recovery and all earlier SAB, Downloads, Automation, Smart Import, Discover/TMDB, and Windows runtime behavior."
   ],
   "regression_guards": [
-    "Only a PAR2 FileDesc full MD5 plus exact byte-length match may automatically replace an opaque generated filename with a protected original filename.",
-    "Archive member names remain hints only and do not rename an outer archive volume without exact metadata proof.",
-    "Opaque yEnc source tokens remain safe fallback identities and direct loose downloads continue to land in the configured Download Folder root.",
-    "An extensionless yEnc name= value remains OBFUSCATED NAME rather than NO FILENAME or generic NAME UNAVAILABLE.",
-    "Transient provider failures remain retryable and are not converted to permanent filename classifications.",
-    "Progressive package reconstruction retains priority over automatic filename resolution and long-running polling continues until completion or navigation cancellation.",
-    "Grouped binary/NZB packages retain their existing package-directory behavior.",
-    "NewzDeck v3.6.20 authoritative SAB Queue/History control and fresh-state reconciliation remain unchanged.",
-    "Automation, Smart Import, Discover/TMDB, Metadata Server, Windows service/tray/runtime handoff, installer/updater, and normal NZB collection behavior remain unchanged."
+    "90 Day Fiancé must safely match 90.Day.Fiance.SxxExx release names without changing the stored/displayed title.",
+    "Pokémon must match Pokemon and Beyoncé must match Beyonce.",
+    "Silo must still not match the release-group token EPSILON; accent folding must not reintroduce arbitrary substring matching.",
+    "S.W.A.T. and 9-1-1 stylized/acrostic matching behavior remains preserved.",
+    "Movie year safety checks remain unchanged after title matching.",
+    "NewzDeck v3.6.22 unresolved/obfuscated binary behavior and v3.6.20 authoritative SAB Queue/History behavior remain unchanged."
   ],
-  "name": "All Posts Binary Resolution & Recovery"
+  "name": "Accent-Insensitive Automation Search"
 }
