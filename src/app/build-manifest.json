@@ -1,22 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.23",
-  "base_version": "3.6.22",
-  "release": "Accent-Insensitive Automation Search",
-  "adapter_version": "3.6.23",
+  "version": "3.6.24",
+  "base_version": "3.6.23",
+  "release": "Durable Download Statistics",
+  "adapter_version": "3.6.24",
   "changes": [
-    "Normalizes Latin diacritics and common non-decomposing Latin letters for safe title matching while preserving the canonical TMDB/library title unchanged.",
-    "Automation and Interactive Search Newznab queries use an accent-folded compatibility title, so canonical titles such as 90 Day Fiancé search release naming such as 90 Day Fiance.",
-    "The same accent-insensitive normalization is used by local release safety matching, scoring, filesystem reconciliation, and Smart Import title identity checks.",
-    "Preserves NewzDeck v3.6.22 All Posts binary resolution/recovery and all earlier SAB, Downloads, Automation, Smart Import, Discover/TMDB, and Windows runtime behavior."
+    "Uses SABnzbd server_stats.total as the exact persistent SAB lifetime byte counter and adds it to the preserved pre-SAB NewzDeck baseline.",
+    "Persists completed SAB statistics exactly once per NZO id in the shared cross-process ledger so service/desktop handoff and History clearing cannot double-count or erase lifetime totals.",
+    "Backfills retained SAB History and Archive in bounded pages to recover available download_time and downloaded-byte data for cumulative Transfer Time and weighted Average Speed.",
+    "Persists the highest observed transfer speed immediately so Peak Speed survives runtime restarts.",
+    "Adds Download Statistics provenance and timing-coverage diagnostics while preserving v3.6.23 Automation title matching and all earlier accepted production behavior."
   ],
   "regression_guards": [
-    "90 Day Fiancé must safely match 90.Day.Fiance.SxxExx release names without changing the stored/displayed title.",
-    "Pokémon must match Pokemon and Beyoncé must match Beyonce.",
-    "Silo must still not match the release-group token EPSILON; accent folding must not reintroduce arbitrary substring matching.",
-    "S.W.A.T. and 9-1-1 stylized/acrostic matching behavior remains preserved.",
-    "Movie year safety checks remain unchanged after title matching.",
-    "NewzDeck v3.6.22 unresolved/obfuscated binary behavior and v3.6.20 authoritative SAB Queue/History behavior remain unchanged."
+    "Total Downloaded must not remain frozen at the legacy pre-SAB value once server_stats is available.",
+    "A completed SAB history record must be accounted exactly once even when multiple NewzDeck runtimes observe it.",
+    "Peak Speed must survive a fresh process restart.",
+    "Clearing completed SAB History after accounting must not reduce durable lifetime statistics.",
+    "Average Speed must use bytes whose transfer duration is known rather than the larger lifetime byte total when old timing data is unavailable.",
+    "v3.6.23 90 Day Fiancé / 90 Day Fiance matching remains intact.",
+    "v3.6.22 unresolved/obfuscated binary behavior and v3.6.20 authoritative SAB Queue/History behavior remain unchanged."
   ],
-  "name": "Accent-Insensitive Automation Search"
+  "name": "Durable Download Statistics"
 }

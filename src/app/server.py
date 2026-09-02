@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.23"
+APP_VERSION = "3.6.24"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11735,7 +11735,7 @@ def diagnostics_snapshot() -> dict[str, Any]:
         pool_stats = snap.get('connections') or pool_stats
     return {
         'version': APP_VERSION, 'uptime_seconds': int(time.time()-base.get('started',time.time())), 'memory_bytes': _process_memory_bytes(),
-        'providers': providers, 'connections': pool_stats, 'downloads': {'counts': snap.get('counts',{}), 'speed_bps': snap.get('total_speed_bps',0), 'concurrent_downloads': snap.get('concurrent_downloads',0), 'telemetry': snap.get('telemetry',{}), 'collections': snap.get('collections',[]), 'engine': snap.get('engine',{})},
+        'providers': providers, 'connections': pool_stats, 'downloads': {'counts': snap.get('counts',{}), 'speed_bps': snap.get('total_speed_bps',0), 'concurrent_downloads': snap.get('concurrent_downloads',0), 'telemetry': snap.get('telemetry',{}), 'statistics': snap.get('statistics',{}), 'collections': snap.get('collections',[]), 'engine': snap.get('engine',{})},
         'storage': {'disk': disk_info, 'thumbnail_cache': thumbnail_cache_stats(), 'preview_cache_bytes': _dir_size(CACHE_DIR), 'download_temp_bytes': _dir_size(DOWNLOAD_TEMP_DIR), 'data_bytes': _dir_size(DATA_DIR)},
         'thumbnail_decode': thumbnail_decode_stats(),
         'thumbnail_transfer': thumbnail_transfer_stats(),
@@ -11765,6 +11765,24 @@ def diagnostics_report() -> str:
             f"history_fresh={bool(tel.get('sab_history_fresh',True))}; "
             f"history_age_seconds={float(tel.get('sab_history_age_seconds',0) or 0):.3f}"
         )
+        stats=(d.get('downloads') or {}).get('statistics') or {}
+        if stats:
+            lines.append(
+                "Download statistics ledger: "
+                f"source={stats.get('statistics_source','legacy')}; "
+                f"total_bytes={int(stats.get('total_downloaded_bytes',0) or 0)}; "
+                f"legacy_bytes={int(stats.get('legacy_baseline_downloaded_bytes',0) or 0)}; "
+                f"sab_bytes={int(stats.get('sab_total_downloaded_bytes',0) or 0)}; "
+                f"timed_bytes={int(stats.get('timed_downloaded_bytes',0) or 0)}; "
+                f"transfer_seconds={float(stats.get('transfer_seconds',0) or 0):.3f}; "
+                f"average_bps={int(stats.get('average_speed_bps',0) or 0)}; "
+                f"coverage_pct={float(stats.get('average_coverage_percent',0) or 0):.2f}; "
+                f"peak_bps={int(stats.get('peak_speed_bps',0) or 0)}; "
+                f"accounted_jobs={int(stats.get('history_accounted_jobs',0) or 0)}; "
+                f"backfill_complete={bool(stats.get('history_backfill_complete',False))}; "
+                f"backfill_partial={bool(stats.get('history_backfill_partial',False))}; "
+                f"backfill_slots={int(stats.get('history_backfill_slots_seen',0) or 0)}"
+            )
         probe=conn.get('provider_test') or {}
         if probe.get('tested'):
             lines.append(f"Provider connection test: ok={probe.get('ok',False)}; message={probe.get('summary','')}")

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.23** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.24** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.23_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.24_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,19 +34,20 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.23 highlights
+## v3.6.24 highlights
 
-v3.6.23 promotes the accepted accent-insensitive Automation search fix built on v3.6.22.
+v3.6.24 promotes the accepted durable Download Statistics fix built on v3.6.23.
 
-- **Accent-insensitive release matching:** canonical titles such as `90 Day Fiancé` safely match ordinary scene/Usenet naming such as `90.Day.Fiance.SxxExx`.
-- **Indexer compatibility titles:** Newznab TV/movie and generic fallback searches use an accent-folded query title when needed, improving results from indexers that store ASCII release names.
-- **Canonical metadata stays canonical:** TMDB/library/display names are not rewritten; `90 Day Fiancé` remains `90 Day Fiancé` in NewzDeck.
-- **Consistent identity checks:** the same folded normalization is used for release filtering/scoring, filesystem reconciliation, and Smart Import title matching.
-- **Broader Latin compatibility:** decomposed accents and common characters such as `ø`, `ł`, `æ`, `œ`, and `ß` are normalized for search/matching only.
-- **Safe matching preserved:** token/phrase matching still prevents false positives such as `Silo` matching the release-group token `EPSILON`; existing `S.W.A.T.` and `9-1-1` handling remains intact.
-- **v3.6.22 preserved:** All Posts unresolved/obfuscated binary handling, long reconstruction polling, flat loose-binary placement, and conservative PAR2/archive recovery are unchanged.
+- **Durable lifetime totals:** Total Downloaded now combines the preserved pre-SAB NewzDeck baseline with SABnzbd's persistent lifetime byte counter instead of remaining frozen at an old legacy value.
+- **Restart-safe completion accounting:** completed SAB jobs are recorded exactly once in the shared cross-process ledger, preventing service/desktop handoff from double-counting or losing statistics.
+- **Real transfer time:** retained SAB History and Archive are backfilled for available `download_time` values, and new completions continue accumulating transfer time in the background.
+- **Weighted average speed:** Average Speed uses downloaded bytes whose transfer timing is actually known, with diagnostics exposing coverage when older timing was already deleted.
+- **Persistent peak speed:** the highest observed transfer rate is saved immediately and survives NewzDeck, service, and PC restarts.
+- **History-independent statistics:** clearing completed SAB History no longer reduces lifetime counters that NewzDeck has already captured.
+- **Expanded diagnostics:** Copy Diagnostics exposes legacy/SAB byte provenance, timed-byte coverage, accounted completions, backfill state, reconciliation time, and the durable peak.
+- **v3.6.23 preserved:** accent-insensitive Automation/Newznab matching, including `90 Day Fiancé` ↔ `90 Day Fiance`, remains intact.
 
-See [the full v3.6.23 release notes](release/RELEASE_NOTES_v3.6.23.md).
+See [the full v3.6.24 release notes](release/RELEASE_NOTES_v3.6.24.md).
 
 ## Requirements
 
@@ -69,7 +70,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.23_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.24_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

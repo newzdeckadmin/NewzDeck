@@ -182,6 +182,27 @@ def _mb_to_bytes(value: Any) -> int:
     return max(0, int(_num(value) * 1024 * 1024))
 
 
+def _sab_size_to_bytes(value: Any) -> int:
+    """Parse SAB human-readable sizes such as ``678.1 G`` into bytes.
+
+    Queue ``mb``/``mbleft`` fields are numeric MiB and continue to use
+    ``_mb_to_bytes``. History aggregate sizes are formatted strings, so treating
+    them as numeric MiB silently turns values like ``678.1 G`` into zero.
+    """
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        return 0
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?)(?:I?B)?", text, re.I)
+    if not match:
+        return 0
+    amount = float(match.group(1))
+    unit = match.group(2).upper()
+    power = {"": 0, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6}.get(unit, 0)
+    return max(0, int(amount * (1024 ** power)))
+
+
 def _kb_to_bps(value: Any) -> int:
     return max(0, int(_num(value) * 1024))
 
@@ -531,6 +552,7 @@ class SabDownloadManager:
         self.state.setdefault("paused", False)
         self.state.setdefault("jobs", {})
         self.state.setdefault("statistics", {})
+        self.state.setdefault("statistics_accounted_jobs", {})
         self.state.setdefault("completed_imports", {})
         self.state.setdefault("removed_jobs", {})
         self.state.setdefault("removed_job_reasons", {})
@@ -724,6 +746,13 @@ class SabDownloadManager:
         self._telemetry_active_until = 0.0
         self._provisioning = False
         self._download_progress: dict[str, Any] = {"active": False, "bytes": 0, "total": 0, "started": 0.0}
+        # v3.6.24 durable SAB statistics. The public Download Statistics panel
+        # must survive process restarts, service/desktop handoff and History clears.
+        self._statistics_server_poll_ts = 0.0
+        self._statistics_backfill_started = False
+        self._statistics_backfill_lock = threading.Lock()
+        self._statistics_backfill_thread: threading.Thread | None = None
+        self._ensure_statistics_schema(self.state)
         self._engine_thread = None
         self._completion_thread = None
         self._background_threads_lock = threading.Lock()
@@ -838,6 +867,7 @@ class SabDownloadManager:
         out.setdefault("version", ENGINE_STATE_VERSION)
         out["jobs"] = dict(out.get("jobs") or {}) if isinstance(out.get("jobs"), dict) else {}
         out["statistics"] = dict(out.get("statistics") or {}) if isinstance(out.get("statistics"), dict) else {}
+        out["statistics_accounted_jobs"] = dict(out.get("statistics_accounted_jobs") or {}) if isinstance(out.get("statistics_accounted_jobs"), dict) else {}
         out["completed_imports"] = dict(out.get("completed_imports") or {}) if isinstance(out.get("completed_imports"), dict) else {}
         out["removed_jobs"] = dict(out.get("removed_jobs") or {}) if isinstance(out.get("removed_jobs"), dict) else {}
         out["removed_job_reasons"] = dict(out.get("removed_job_reasons") or {}) if isinstance(out.get("removed_job_reasons"), dict) else {}
@@ -923,11 +953,27 @@ class SabDownloadManager:
 
         stats = dict(disk.get("statistics") or {})
         for key, val in (memory.get("statistics") or {}).items():
-            if isinstance(val, (int, float)) and isinstance(stats.get(key), (int, float)):
+            if key == "tracking_since_ts" and isinstance(val, (int, float)):
+                existing = _num(stats.get(key), 0)
+                incoming = _num(val, 0)
+                if incoming > 0 and (existing <= 0 or incoming < existing):
+                    stats[key] = incoming
+            elif isinstance(val, (int, float)) and isinstance(stats.get(key), (int, float)):
+                # Durable statistics are monotonic counters/maxima. Cross-process
+                # merge must therefore never move them backwards.
                 stats[key] = max(stats[key], val)
             elif key not in stats:
                 stats[key] = val
         merged["statistics"] = stats
+        accounted: dict[str, float] = {}
+        for source in (disk.get("statistics_accounted_jobs", {}), memory.get("statistics_accounted_jobs", {})):
+            if not isinstance(source, dict):
+                continue
+            for nzo_id, completed_ts in source.items():
+                key = str(nzo_id or "").strip()
+                if key:
+                    accounted[key] = max(_num(accounted.get(key), 0), _num(completed_ts, 0))
+        merged["statistics_accounted_jobs"] = accounted
         merged["completed_imports"] = {**dict(disk.get("completed_imports") or {}), **dict(memory.get("completed_imports") or {})}
         merged["version"] = max(int(disk.get("version") or ENGINE_STATE_VERSION), int(memory.get("version") or ENGINE_STATE_VERSION))
         return merged
@@ -947,6 +993,246 @@ class SabDownloadManager:
                 merged = self._merge_shared_states(disk, self.state)
                 _atomic_json_write(self.state_file, merged)
                 self.state = merged
+
+    def _ensure_statistics_schema(self, state: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Migrate legacy/session statistics into a durable SAB-aware schema.
+
+        ``downloads.json`` is the pre-SAB baseline. The private SAB engine owns a
+        separate lifetime byte counter, so the two are additive rather than competing
+        values. The migration is idempotent and deliberately keeps the original
+        tracking date.
+        """
+        target = state if isinstance(state, dict) else self.state
+        stats = dict(target.get("statistics") or {}) if isinstance(target.get("statistics"), dict) else {}
+        legacy = self.legacy_statistics if isinstance(self.legacy_statistics, dict) else {}
+        if int(_num(stats.get("statistics_schema_version"), 0)) < 1:
+            old_total = max(0, int(_num(stats.get("total_downloaded_bytes"), 0)))
+            old_files = max(0, int(_num(stats.get("completed_files"), 0)))
+            old_transfer = max(0.0, _num(stats.get("transfer_seconds"), 0))
+            old_peak = max(0, int(_num(stats.get("peak_speed_bps"), 0)))
+            old_recovered = max(0, int(_num(stats.get("recovered_blocks"), 0)))
+            stats["legacy_baseline_total_downloaded_bytes"] = max(
+                max(0, int(_num(legacy.get("total_downloaded_bytes"), 0))), old_total
+            )
+            stats["legacy_baseline_completed_files"] = max(
+                max(0, int(_num(legacy.get("completed_files"), 0))), old_files
+            )
+            stats["legacy_baseline_transfer_seconds"] = max(
+                max(0.0, _num(legacy.get("transfer_seconds"), 0)), old_transfer
+            )
+            stats["legacy_baseline_peak_speed_bps"] = max(
+                max(0, int(_num(legacy.get("peak_speed_bps"), 0))), old_peak
+            )
+            stats["legacy_baseline_recovered_blocks"] = max(
+                max(0, int(_num(legacy.get("recovered_blocks"), 0))), old_recovered
+            )
+            candidates = [
+                _num(stats.get("tracking_since_ts"), 0),
+                _num(legacy.get("tracking_since_ts"), 0),
+            ]
+            positives = [x for x in candidates if x > 0]
+            stats["tracking_since_ts"] = min(positives) if positives else time.time()
+            stats["sab_total_downloaded_bytes"] = max(0, int(_num(stats.get("sab_total_downloaded_bytes"), 0)))
+            stats["sab_completed_files"] = max(0, int(_num(stats.get("sab_completed_files"), 0)))
+            stats["sab_transfer_seconds"] = max(0.0, _num(stats.get("sab_transfer_seconds"), 0))
+            stats["sab_timed_downloaded_bytes"] = max(0, int(_num(stats.get("sab_timed_downloaded_bytes"), 0)))
+            stats["durable_peak_speed_bps"] = max(
+                max(0, int(_num(stats.get("durable_peak_speed_bps"), 0))),
+                int(stats["legacy_baseline_peak_speed_bps"]),
+            )
+            stats["statistics_schema_version"] = 1
+        # Ensure every v3.6.24 field exists even if an earlier test partially wrote schema 1.
+        defaults = {
+            "sab_total_downloaded_bytes": 0,
+            "sab_server_total_observed_bytes": 0,
+            "sab_server_total_observed_ts": 0.0,
+            "sab_completed_files": 0,
+            "sab_transfer_seconds": 0.0,
+            "sab_timed_downloaded_bytes": 0,
+            "durable_peak_speed_bps": max(0, int(_num(stats.get("legacy_baseline_peak_speed_bps"), 0))),
+            "history_backfill_complete": 0,
+            "history_backfill_partial": 0,
+            "history_backfill_slots_seen": 0,
+            "statistics_last_reconciled_ts": 0.0,
+        }
+        for key, value in defaults.items():
+            stats.setdefault(key, value)
+        target["statistics"] = stats
+        if not isinstance(target.get("statistics_accounted_jobs"), dict):
+            target["statistics_accounted_jobs"] = {}
+        return stats
+
+    def _mutate_statistics(self, updater: Callable[[dict[str, Any], dict[str, float]], bool]) -> bool:
+        """Atomically mutate statistics against the canonical cross-process ledger."""
+        changed = False
+        with self.lock:
+            with self._state_file_guard():
+                disk = _json_read(self.state_file, {})
+                merged = self._merge_shared_states(disk, self.state)
+                stats = self._ensure_statistics_schema(merged)
+                accounted = merged.setdefault("statistics_accounted_jobs", {})
+                changed = bool(updater(stats, accounted))
+                if changed:
+                    _atomic_json_write(self.state_file, merged)
+                self.state = merged
+        return changed
+
+    @staticmethod
+    def _history_statistics_record(slot: dict[str, Any]) -> tuple[str, int, float, float] | None:
+        if not isinstance(slot, dict) or str(slot.get("status") or "").casefold() != "completed":
+            return None
+        nzo_id = str(slot.get("nzo_id") or slot.get("id") or "").strip()
+        if not nzo_id:
+            return None
+        downloaded = max(0, int(_num(slot.get("downloaded"), _num(slot.get("bytes"), 0))))
+        download_time = max(0.0, _num(slot.get("download_time"), 0))
+        completed_ts = max(0.0, _num(slot.get("completed"), 0))
+        return nzo_id, downloaded, download_time, completed_ts
+
+    def _account_history_statistics(self, slots: list[dict[str, Any]], *, source: str = "live") -> int:
+        records = [record for record in (self._history_statistics_record(slot) for slot in slots) if record is not None]
+        if not records:
+            return 0
+        added = 0
+        now = time.time()
+        def update(stats: dict[str, Any], accounted: dict[str, float]) -> bool:
+            nonlocal added
+            changed = False
+            for nzo_id, downloaded, download_time, completed_ts in records:
+                if nzo_id in accounted:
+                    continue
+                accounted[nzo_id] = completed_ts or now
+                stats["sab_completed_files"] = max(0, int(_num(stats.get("sab_completed_files"), 0))) + 1
+                if download_time > 0:
+                    stats["sab_transfer_seconds"] = max(0.0, _num(stats.get("sab_transfer_seconds"), 0)) + download_time
+                    stats["sab_timed_downloaded_bytes"] = max(0, int(_num(stats.get("sab_timed_downloaded_bytes"), 0))) + downloaded
+                added += 1
+                changed = True
+            if changed:
+                stats["statistics_last_reconciled_ts"] = max(_num(stats.get("statistics_last_reconciled_ts"), 0), now)
+            return changed
+        self._mutate_statistics(update)
+        if added:
+            self._event("info", "Accounted completed SAB downloads in durable statistics", source=source, jobs=added)
+        return added
+
+    def _observe_statistics_peak(self, speed_bps: int) -> None:
+        candidate = max(0, int(speed_bps or 0))
+        if candidate <= 0:
+            return
+        current = self._ensure_statistics_schema(self.state)
+        if candidate <= max(int(_num(current.get("durable_peak_speed_bps"), 0)), int(_num(current.get("legacy_baseline_peak_speed_bps"), 0))):
+            return
+        now = time.time()
+        def update(stats: dict[str, Any], _accounted: dict[str, float]) -> bool:
+            previous = max(0, int(_num(stats.get("durable_peak_speed_bps"), 0)))
+            if candidate <= previous:
+                return False
+            stats["durable_peak_speed_bps"] = candidate
+            stats["statistics_last_reconciled_ts"] = max(_num(stats.get("statistics_last_reconciled_ts"), 0), now)
+            return True
+        self._mutate_statistics(update)
+
+    def _refresh_sab_lifetime_total(self, *, force: bool = False) -> None:
+        now = time.time()
+        if not force and now - float(self._statistics_server_poll_ts or 0.0) < 5.0:
+            return
+        self._statistics_server_poll_ts = now
+        try:
+            payload = self._read_api_retry("server_stats", attempts=3, timeout=2.5)
+        except Exception as exc:
+            self._event("warning", "Could not refresh SAB lifetime download statistics", error=str(exc)[:300])
+            return
+        # mode=server_stats returns exact byte counters at the top level.
+        total = max(0, int(_num(payload.get("total"), 0))) if isinstance(payload, dict) else 0
+        if total <= 0:
+            return
+        def update(stats: dict[str, Any], _accounted: dict[str, float]) -> bool:
+            changed = False
+            if total > int(_num(stats.get("sab_total_downloaded_bytes"), 0)):
+                stats["sab_total_downloaded_bytes"] = total
+                changed = True
+            if total > int(_num(stats.get("sab_server_total_observed_bytes"), 0)):
+                stats["sab_server_total_observed_bytes"] = total
+                changed = True
+            if now > _num(stats.get("sab_server_total_observed_ts"), 0):
+                stats["sab_server_total_observed_ts"] = now
+                changed = True
+            if changed:
+                stats["statistics_last_reconciled_ts"] = max(_num(stats.get("statistics_last_reconciled_ts"), 0), now)
+            return changed
+        self._mutate_statistics(update)
+
+    def _statistics_backfill_worker(self) -> None:
+        """One-time bounded recovery of transfer time/completions from SAB History + Archive."""
+        complete = True
+        partial = False
+        slots_seen = 0
+        try:
+            for archive in (0, 1):
+                start = 0
+                while start < 5000 and not self.shutdown_event.is_set():
+                    payload = self._read_api_retry("history", attempts=3, timeout=4.0, start=start, limit=200, archive=archive)
+                    root, slots = self._history_slots(payload)
+                    if not slots:
+                        break
+                    slots_seen += len(slots)
+                    self._account_history_statistics(slots, source="archive" if archive else "history-backfill")
+                    start += len(slots)
+                    total_slots = max(0, int(_num(root.get("noofslots"), 0)))
+                    if len(slots) < 200 or (total_slots > 0 and start >= total_slots):
+                        break
+                    time.sleep(0.03)
+                if start >= 5000:
+                    partial = True
+            now = time.time()
+            def update(stats: dict[str, Any], _accounted: dict[str, float]) -> bool:
+                stats["history_backfill_complete"] = 0 if partial else 1
+                stats["history_backfill_partial"] = 1 if partial else 0
+                stats["history_backfill_slots_seen"] = max(int(_num(stats.get("history_backfill_slots_seen"), 0)), slots_seen)
+                stats["statistics_last_reconciled_ts"] = max(_num(stats.get("statistics_last_reconciled_ts"), 0), now)
+                return True
+            self._mutate_statistics(update)
+            self._event("info", "Finished durable statistics history backfill", slots_seen=slots_seen, partial=partial)
+        except Exception as exc:
+            complete = False
+            self._event("warning", "Durable statistics history backfill will retry", error=str(exc)[:300], slots_seen=slots_seen)
+        finally:
+            with self._statistics_backfill_lock:
+                self._statistics_backfill_started = False
+                if not complete:
+                    self._statistics_backfill_thread = None
+
+    def _maybe_start_statistics_backfill(self) -> None:
+        stats = self._ensure_statistics_schema(self.state)
+        if int(_num(stats.get("history_backfill_complete"), 0)) > 0 or int(_num(stats.get("history_backfill_partial"), 0)) > 0:
+            return
+        with self._statistics_backfill_lock:
+            if self._statistics_backfill_started:
+                return
+            self._statistics_backfill_started = True
+            thread = threading.Thread(target=self._statistics_backfill_worker, name="newzdeck-sab-statistics-backfill", daemon=True)
+            self._statistics_backfill_thread = thread
+            thread.start()
+
+    def _reconcile_statistics(self, history_root: dict[str, Any], history_slots: list[dict[str, Any]], speed_bps: int) -> None:
+        """Keep the public statistics ledger current without depending on visible History."""
+        self._account_history_statistics(history_slots, source="live-history")
+        self._observe_statistics_peak(speed_bps)
+        # History total_size is formatted (for example ``678.1 G``). Use it as an
+        # immediate fallback, then refresh SAB's exact server_stats byte counter.
+        history_total = _sab_size_to_bytes(history_root.get("total_size")) if isinstance(history_root, dict) else 0
+        if history_total > 0:
+            now = time.time()
+            def update(stats: dict[str, Any], _accounted: dict[str, float]) -> bool:
+                if history_total <= int(_num(stats.get("sab_total_downloaded_bytes"), 0)):
+                    return False
+                stats["sab_total_downloaded_bytes"] = history_total
+                stats["statistics_last_reconciled_ts"] = max(_num(stats.get("statistics_last_reconciled_ts"), 0), now)
+                return True
+            self._mutate_statistics(update)
+        self._refresh_sab_lifetime_total(force=False)
+        self._maybe_start_statistics_backfill()
 
     def _mark_removed_locked(self, nzo_id: str, reason: str = "user") -> None:
         removed = self.state.setdefault("removed_jobs", {})
@@ -3157,7 +3443,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.23",
+            "adapter_version": "3.6.24",
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -4654,22 +4940,48 @@ class SabDownloadManager:
         }
 
     def _statistics(self, history_root: dict[str, Any]) -> dict[str, Any]:
-        stats = self.state.get("statistics") if isinstance(self.state.get("statistics"), dict) else {}
-        legacy_stats = self.legacy_statistics
-        tracking = _num(stats.get("tracking_since_ts"), _num(legacy_stats.get("tracking_since_ts"), time.time()))
-        total = max(int(stats.get("total_downloaded_bytes", 0) or 0), int(legacy_stats.get("total_downloaded_bytes", 0) or 0))
-        completed = max(int(stats.get("completed_files", 0) or 0), int(legacy_stats.get("completed_files", 0) or 0))
-        transfer = max(_num(stats.get("transfer_seconds"), 0), _num(legacy_stats.get("transfer_seconds"), 0))
-        peak = max(int(stats.get("peak_speed_bps", 0) or 0), int(legacy_stats.get("peak_speed_bps", 0) or 0))
-        # SAB exposes aggregate downloaded bytes in some history builds. Treat it as additive only when larger.
-        for key in ("total_size", "total_downloaded"):
-            if history_root.get(key) is not None:
-                candidate = _mb_to_bytes(history_root.get(key))
-                if candidate > total:
-                    total = candidate
-        return {"tracking_since_ts": tracking, "total_downloaded_bytes": total, "completed_files": completed,
-                "transfer_seconds": transfer, "peak_speed_bps": peak, "recovered_blocks": int(legacy_stats.get("recovered_blocks", 0) or 0),
-                "average_speed_bps": int(total / transfer) if transfer > 0 else 0}
+        stats = self._ensure_statistics_schema(self.state)
+        tracking = _num(stats.get("tracking_since_ts"), time.time())
+        legacy_total = max(0, int(_num(stats.get("legacy_baseline_total_downloaded_bytes"), 0)))
+        legacy_files = max(0, int(_num(stats.get("legacy_baseline_completed_files"), 0)))
+        legacy_transfer = max(0.0, _num(stats.get("legacy_baseline_transfer_seconds"), 0))
+        legacy_peak = max(0, int(_num(stats.get("legacy_baseline_peak_speed_bps"), 0)))
+        sab_total = max(0, int(_num(stats.get("sab_total_downloaded_bytes"), 0)))
+        # Keep the formatted History aggregate as a non-persistent display fallback
+        # until the exact server_stats request has completed.
+        sab_total = max(sab_total, _sab_size_to_bytes(history_root.get("total_size")) if isinstance(history_root, dict) else 0)
+        sab_transfer = max(0.0, _num(stats.get("sab_transfer_seconds"), 0))
+        sab_timed_bytes = max(0, int(_num(stats.get("sab_timed_downloaded_bytes"), 0)))
+        total = legacy_total + sab_total
+        transfer = legacy_transfer + sab_transfer
+        timed_bytes = (legacy_total if legacy_transfer > 0 else 0) + sab_timed_bytes
+        average = int(timed_bytes / transfer) if transfer > 0 and timed_bytes > 0 else 0
+        peak = max(legacy_peak, max(0, int(_num(stats.get("durable_peak_speed_bps"), 0))))
+        accounted = self.state.get("statistics_accounted_jobs") if isinstance(self.state.get("statistics_accounted_jobs"), dict) else {}
+        coverage = (100.0 * timed_bytes / total) if total > 0 else 0.0
+        return {
+            "tracking_since_ts": tracking,
+            "total_downloaded_bytes": total,
+            "completed_files": legacy_files + max(0, int(_num(stats.get("sab_completed_files"), 0))),
+            "transfer_seconds": transfer,
+            "peak_speed_bps": peak,
+            "recovered_blocks": max(0, int(_num(stats.get("legacy_baseline_recovered_blocks"), 0))),
+            "average_speed_bps": average,
+            # Diagnostic provenance for Copy Diagnostics / future support work.
+            "statistics_source": "durable-sab-ledger",
+            "legacy_baseline_downloaded_bytes": legacy_total,
+            "sab_total_downloaded_bytes": sab_total,
+            "sab_server_total_observed_bytes": max(0, int(_num(stats.get("sab_server_total_observed_bytes"), 0))),
+            "sab_timed_downloaded_bytes": sab_timed_bytes,
+            "timed_downloaded_bytes": timed_bytes,
+            "average_coverage_percent": round(max(0.0, min(100.0, coverage)), 2),
+            "history_accounted_jobs": len(accounted),
+            "history_backfill_complete": bool(int(_num(stats.get("history_backfill_complete"), 0))),
+            "history_backfill_partial": bool(int(_num(stats.get("history_backfill_partial"), 0))),
+            "history_backfill_slots_seen": max(0, int(_num(stats.get("history_backfill_slots_seen"), 0))),
+            "last_reconciled_ts": max(0.0, _num(stats.get("statistics_last_reconciled_ts"), 0)),
+            "peak_speed_persistent": True,
+        }
 
     @staticmethod
     def _display_order_key(item: dict[str, Any]) -> tuple[Any, ...]:
@@ -4814,7 +5126,7 @@ class SabDownloadManager:
             if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True)
         )
         telemetry = {
-            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.23 • control channel refreshing",
+            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.24 • control channel refreshing",
             "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0,
             "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0,
             "sab_control_degraded": True, "sab_control_error": str(error or "")[:300],
@@ -4872,7 +5184,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.23 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.24 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -5440,14 +5752,14 @@ class SabDownloadManager:
                        "servers": list(provider_health.get("servers") or []),
                        "pools": [{"name": "SABnzbd", "pipeline_depth": 1, "pipeline_enabled": False}] if configured else [],
                        "yenc": {"available": True, "workers": 0, "engine": "SABnzbd"}}
+        self._reconcile_statistics(hroot, hslots, total_speed)
         statistics = self._statistics(hroot)
-        statistics["peak_speed_bps"] = max(int(statistics.get("peak_speed_bps", 0) or 0), total_speed)
         post_active = sum(1 for j in jobs if str(j.get("post_status") or "") in {"queued", "verifying", "repairing", "extracting", "importing"})
         result = {"paused": bool(self.state.get("paused", False)), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.23", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.24", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
@@ -5762,8 +6074,12 @@ class SabDownloadManager:
         while not self.shutdown_event.wait(delay):
             try:
                 queue_payload, history_payload = self._queue_and_history()
-                _, qslots = self._queue_slots(queue_payload)
+                qroot, qslots = self._queue_slots(queue_payload)
                 hroot, hslots = self._history_slots(history_payload)
+                # Statistics accounting belongs to the background completion path,
+                # not only the Downloads page. This keeps lifetime counters current
+                # even when the desktop UI is closed or the user never opens Downloads.
+                self._reconcile_statistics(hroot, hslots, _kb_to_bps(qroot.get("kbpersec")))
                 self._adopt_untracked_slots(qslots, hslots)
                 self._refresh_shared_state()
                 by_id = {str(x.get("nzo_id") or x.get("id") or ""): x for x in hslots}
