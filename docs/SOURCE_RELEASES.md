@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.25
+## Current release: v3.6.26
 
-**v3.6.25 is the current stable production release.**
+**v3.6.26 is the current stable production release.**
 
-The `v3.6.25` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.26` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.26 - Verified Remove & Bulk Failed Cleanup.** Removes the false reconnect gate from verified Remove, verifies individual jobs directly against targeted SAB Queue/History state with bounded retries, makes Remove all failed truly bulk at the SAB control plane, and preserves active-transfer safety plus all accepted v3.6.25 backlog/Smart Import safeguards.
 
 - **v3.6.25 - Automation Backlog & Smart Import Reliability.** Makes exhausted Smart Import retries truly terminal until explicit Retry Import, requires job-owned/fail-closed SAB output resolution, prevents TV franchise/edition cross-matches, throttles high-frequency import-state persistence, reduces redundant SAB control traffic, adds startup-recovery cooldown and stable stale-ownership reconciliation, exposes a read-only library integrity audit, and adds a one-click Remove all failed action to the Failed downloads view.
 

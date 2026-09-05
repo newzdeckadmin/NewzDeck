@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.25** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.26** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.25_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.26_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,21 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.25 highlights
+## v3.6.26 highlights
 
-v3.6.25 promotes the accepted Automation backlog and Smart Import reliability work built on v3.6.24, plus a bulk cleanup action for Failed downloads.
+v3.6.26 fixes verified Remove and Remove all failed under a busy private SAB control channel while preserving the accepted v3.6.25 Automation backlog and Smart Import reliability work.
 
-- **Terminal Smart Import retries:** imports that exhaust their retry budget stay failed until explicit **Retry Import**, preventing endless completion-loop churn.
-- **Job-owned output resolution:** Smart Import no longer guesses from unrelated recent SAB output folders. Ambiguous output fails safely instead of cross-importing another show's media.
-- **TV franchise/edition protection:** generic titles such as Love Island and Big Brother no longer consume releases belonging to different country editions, spin-offs, or franchises.
-- **Lower state-write pressure:** Smart Import progress remains responsive in memory while durable heartbeat/progress writes are throttled during large backlogs.
-- **Calmer SAB control traffic:** successful Queue reads are shared for short intervals, lifetime-stat polling is reduced, and failed SAB startup recovery is cooldown-limited.
-- **Stable stale-ownership reconciliation:** released ownership state is persisted so sibling runtimes cannot repeatedly resurrect and log the same stale record.
-- **Read-only library integrity audit:** diagnostics can identify duplicate media fingerprints across different targets and TV-edition mismatches without modifying the library.
-- **Remove all failed:** the Failed downloads view now exposes a single bulk action that removes every failed/attention download in one batch control request, while already-imported library files are left alone.
+- **Remove stays truthful under load:** a missed localhost ping no longer turns a healthy active SAB engine into a false “reconnecting” Remove failure.
+- **Job-specific verification:** individual Remove now proves the requested job against SAB Queue/History directly with bounded retries.
+- **Truly bulk failed cleanup:** Remove all failed performs one targeted multi-ID verification pass and one bulk History deletion instead of repeating the full control sequence per card.
+- **Fail closed for active work:** any job still proven live in SAB remains visible; NewzDeck never hides an active transfer just because a control read failed.
+- **v3.6.25 preserved:** terminal Smart Import retries, job-owned output resolution, franchise/edition protection, lower state-write pressure, SAB control stabilization, and read-only library integrity diagnostics remain intact.
 - **v3.6.24 preserved:** durable Download Statistics, including lifetime totals, weighted Average Speed and persistent Peak Speed, remain intact.
 
-See [the full v3.6.25 release notes](release/RELEASE_NOTES_v3.6.25.md).
+See [the full v3.6.26 release notes](release/RELEASE_NOTES_v3.6.26.md).
 
 ## Requirements
 
@@ -71,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.25_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.26_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

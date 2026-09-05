@@ -1280,24 +1280,19 @@ class SabDownloadManager:
         if not nzo_id:
             return False, "Missing SAB job id"
 
-        # A busy SAB localhost API can briefly miss one ping while downloads remain
-        # healthy. Give verified user control a small retry window before failing.
-        ready = False
-        for attempt in range(3):
-            if self._ping(timeout=0.9):
-                ready = True
-                break
-            if attempt < 2:
-                time.sleep(0.12 * (attempt + 1))
-        if not ready:
-            self.sync_event.set()
-            return False, "Built-in download engine is reconnecting; the download was not removed"
+        # Do not gate a verified Remove on the strict identity/auth ping. SAB's
+        # NNTP transfer plane can remain healthy while one short localhost probe is
+        # reset under load. Read the target Queue/History state directly and retry
+        # those idempotent reads; terminal History or proven Queue absence is the
+        # relevant safety evidence for removal.
 
         def read_slots(mode: str, attempts: int = 3) -> tuple[list[dict[str, Any]] | None, str]:
             last_error = ""
             for attempt in range(max(1, attempts)):
                 try:
-                    payload = self._api(mode, start=0, limit=500, timeout=2.2)
+                    payload = self._read_api_retry(
+                        mode, start=0, limit=10, nzo_ids=nzo_id, timeout=2.2, attempts=3
+                    )
                     if mode == "queue":
                         _root, slots = self._queue_slots(payload)
                     else:
@@ -5892,6 +5887,70 @@ class SabDownloadManager:
         if action == "remove":
             if not ids:
                 raise ValueError("No downloads were selected")
+
+            # v3.6.26: Failed-view bulk removal must actually be bulk at the SAB
+            # control plane. The first v3.6.25 UI sent one NewzDeck request but this
+            # backend still performed a full ping/Queue/History verification cycle
+            # for every card, creating an avoidable localhost request storm. Probe
+            # the requested IDs once. If a fresh Queue proves none is live, or SAB
+            # History proves every target terminal, remove History in one mutation
+            # and tombstone the whole set atomically. SAB officially accepts comma-
+            # separated NZO IDs for Queue/History reads and History deletion.
+            if len(ids) > 1:
+                csv_ids = ",".join(ids)
+                qslots = None
+                hslots = None
+                queue_error = ""
+                history_error = ""
+                try:
+                    qpayload = self._read_api_retry("queue", start=0, limit=max(10, len(ids)), nzo_ids=csv_ids, timeout=2.4, attempts=4)
+                    _qroot, qslots = self._queue_slots(qpayload)
+                except Exception as exc:
+                    queue_error = str(exc)
+                try:
+                    hpayload = self._read_api_retry("history", start=0, limit=max(10, len(ids)), nzo_ids=csv_ids, timeout=2.6, attempts=4)
+                    _hroot, hslots = self._history_slots(hpayload)
+                except Exception as exc:
+                    history_error = str(exc)
+
+                wanted = set(ids)
+                live_ids = self._slot_ids(list(qslots or [])) & wanted if qslots is not None else set()
+                terminal_history = {
+                    str(x.get("nzo_id") or x.get("id") or "")
+                    for x in (hslots or [])
+                    if str(x.get("status") or "").strip().casefold() in {"failed", "completed", "cancelled"}
+                } & wanted
+                bulk_safe = (qslots is not None and not live_ids) or (qslots is None and terminal_history == wanted)
+                if bulk_safe:
+                    history_present = self._slot_ids(list(hslots or [])) & wanted if hslots is not None else set()
+                    if history_present:
+                        try:
+                            result = self._api("history", name="delete", value=",".join(sorted(history_present)), archive=0, del_files=1, timeout=5)
+                            if not self._sab_mutation_accepted(result):
+                                self._event("warning", "Bulk SAB history cleanup was rejected after transfers were proven absent", ids=sorted(history_present)[:20])
+                        except Exception as exc:
+                            # Transfer safety is already proven. Local tombstones keep
+                            # delayed SAB History from resurrecting removed cards.
+                            self._event("warning", "Bulk SAB history cleanup failed after transfers were proven absent", error=str(exc), ids=sorted(history_present)[:20])
+                    with self.lock:
+                        for nzo in ids:
+                            self._tracked().pop(nzo, None)
+                            self._mark_removed_locked(nzo, reason="remove")
+                            self._job_last_view.pop(nzo, None)
+                            self._job_last_seen_ts.pop(nzo, None)
+                            self._active_latch_until.pop(nzo, None)
+                            self._job_active_confirmed_ts.pop(nzo, None)
+                            self._active_bridge_open.discard(nzo)
+                            self._job_missing_since.pop(nzo, None)
+                            self._job_queued_observations.pop(nzo, None)
+                        self._save_state()
+                    self._event("info", "Bulk removed failed/terminal SAB downloads", count=len(ids), queue_read_ok=qslots is not None, history_terminal=len(terminal_history))
+                    self._last_snapshot = None
+                    self._last_snapshot_ts = 0
+                    return self.snapshot()
+                if qslots is None and hslots is None:
+                    self.sync_event.set()
+                    raise ValueError("Remove could not verify SAB state because the local control channel briefly reset. Downloads are still running; try Remove again in a moment. " + (queue_error or history_error)[:240])
             succeeded: list[str] = []
             failures: list[str] = []
             for nzo in ids:
