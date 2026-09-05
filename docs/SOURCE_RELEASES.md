@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.26
+## Current release: v3.6.27
 
-**v3.6.26 is the current stable production release.**
+**v3.6.27 is the current stable production release.**
 
-The `v3.6.26` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.27` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.27 - Runtime Adapter Identity Repair.** Repairs the built-in SAB adapter runtime identity so it matches the UI/backend version, centralizes adapter version output in one constant, and hardens production publishing checks so stale runtime adapter identities cannot ship again.
 
 - **v3.6.26 - Verified Remove & Bulk Failed Cleanup.** Removes the false reconnect gate from verified Remove, verifies individual jobs directly against targeted SAB Queue/History state with bounded retries, makes Remove all failed truly bulk at the SAB control plane, and preserves active-transfer safety plus all accepted v3.6.25 backlog/Smart Import safeguards.
 

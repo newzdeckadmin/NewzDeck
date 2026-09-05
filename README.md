@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.26** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.27** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.26_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.27_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.26 highlights
+## v3.6.27 highlights
 
-v3.6.26 fixes verified Remove and Remove all failed under a busy private SAB control channel while preserving the accepted v3.6.25 Automation backlog and Smart Import reliability work.
+v3.6.27 repairs the built-in SAB adapter runtime identity so the UI/backend and active download engine report the same version, and hardens production validation so that identity cannot drift again.
 
-- **Remove stays truthful under load:** a missed localhost ping no longer turns a healthy active SAB engine into a false “reconnecting” Remove failure.
-- **Job-specific verification:** individual Remove now proves the requested job against SAB Queue/History directly with bounded retries.
-- **Truly bulk failed cleanup:** Remove all failed performs one targeted multi-ID verification pass and one bulk History deletion instead of repeating the full control sequence per card.
-- **Fail closed for active work:** any job still proven live in SAB remains visible; NewzDeck never hides an active transfer just because a control read failed.
-- **v3.6.25 preserved:** terminal Smart Import retries, job-owned output resolution, franchise/edition protection, lower state-write pressure, SAB control stabilization, and read-only library integrity diagnostics remain intact.
-- **v3.6.24 preserved:** durable Download Statistics, including lifetime totals, weighted Average Speed and persistent Peak Speed, remain intact.
+- **Runtime identity repaired:** the SAB adapter now reports the same production version as the UI/backend instead of an older hard-coded adapter version.
+- **Single source of truth:** SAB adapter version output is centralized in one `ADAPTER_VERSION` constant.
+- **Publisher guard added:** release packaging now validates the real SAB runtime identity and rejects stale adapter labels before publishing.
+- **v3.6.26 preserved:** verified individual Remove and truly bulk Remove all failed remain intact.
+- **v3.6.25/v3.6.24 preserved:** Automation backlog/Smart Import reliability and durable Download Statistics remain intact.
 
-See [the full v3.6.26 release notes](release/RELEASE_NOTES_v3.6.26.md).
+See [the full v3.6.27 release notes](release/RELEASE_NOTES_v3.6.27.md).
 
 ## Requirements
 
@@ -68,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.26_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.27_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

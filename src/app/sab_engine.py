@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
+ADAPTER_VERSION = "3.6.27"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -3457,7 +3458,7 @@ class SabDownloadManager:
         result = {
             "name": "SABnzbd",
             "version": SAB_VERSION,
-            "adapter_version": "3.6.25",
+            "adapter_version": ADAPTER_VERSION,
             "mode": "built-in",
             "ready": ready,
             "probe_ready": probe_ready,
@@ -5148,7 +5149,7 @@ class SabDownloadManager:
             if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True)
         )
         telemetry = {
-            "engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.25 • control channel refreshing",
+            "engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • control channel refreshing",
             "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0,
             "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0,
             "sab_control_degraded": True, "sab_control_error": str(error or "")[:300],
@@ -5206,7 +5207,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter 3.6.25 • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -5796,7 +5797,7 @@ class SabDownloadManager:
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
-                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter 3.6.25", "network_rate_bps": total_speed,
+                  "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter {ADAPTER_VERSION}", "network_rate_bps": total_speed,
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),

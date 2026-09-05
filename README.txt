@@ -1,10 +1,16 @@
-NewzDeck v3.6.26
+NewzDeck v3.6.27
 Verified Remove & Bulk Failed Cleanup
+
+
+Runtime adapter identity repair:
+- Built-in SAB adapter identity now matches the v3.6.27 UI/backend.
+- Adapter version output is centralized and production validation now blocks stale identities.
+- v3.6.26 verified Remove / Remove all failed behavior is preserved.
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.26
+WHAT'S NEW IN v3.6.27
 
 - Individual Remove no longer fails solely because a separate short SAB localhost
   ping resets while downloads remain healthy.

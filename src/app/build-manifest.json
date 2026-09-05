@@ -1,23 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.26",
-  "base_version": "3.6.25",
-  "release": "Verified Remove & Bulk Failed Cleanup",
-  "adapter_version": "3.6.26",
+  "version": "3.6.27",
+  "base_version": "3.6.26",
+  "release": "Runtime Adapter Identity Repair",
+  "adapter_version": "3.6.27",
   "changes": [
-    "Removes the strict pre-Remove SAB identity ping that could falsely report engine reconnecting while active downloads remained healthy.",
-    "Verifies individual Remove directly against the target SAB Queue/History ID using bounded idempotent retries.",
-    "Makes Remove all failed truly bulk at the SAB control plane with one targeted multi-ID Queue/History verification pass and one History deletion mutation.",
-    "Allows terminal History proof to complete cleanup through a transient Queue read reset while never hiding a job proven live in SAB Queue.",
-    "Keeps local removal tombstones authoritative if terminal SAB History cleanup itself resets after transfer absence has already been proven.",
-    "Preserves the v3.6.25 Automation backlog, fail-closed Smart Import, franchise/edition protection, state-write throttling, and library-integrity diagnostics."
+    "Repairs the production SAB adapter identity so the v3.6.27 UI/backend and active built-in download engine report the same runtime version.",
+    "Centralizes the SAB adapter version in one ADAPTER_VERSION constant instead of four independent hard-coded runtime labels.",
+    "Adds production publisher validation that the SAB runtime adapter identity matches the release version before source can be committed or triggered.",
+    "Rejects stale literal adapter-version labels from prior releases during production validation.",
+    "Preserves v3.6.26 verified Remove and truly bulk Failed cleanup plus all v3.6.25 Automation backlog and Smart Import reliability behavior."
   ],
   "regression_guards": [
+    "v3.6.26 verified Remove and bulk Failed cleanup behavior remains intact.",
     "v3.6.25 Automation backlog and Smart Import reliability behavior remains intact.",
     "v3.6.24 durable Download Statistics remain persistent and accurate.",
-    "v3.6.23 accent-insensitive title matching remains accepted.",
-    "v3.6.22 unresolved/obfuscated binary downloads and v3.6.21 Related Media behavior remain unchanged.",
-    "Active SAB Queue jobs are never locally hidden without fresh proof that removal is safe."
+    "v3.6.23 accent-insensitive Automation matching remains accepted.",
+    "v3.6.22 unresolved/obfuscated binary downloads and v3.6.21 Related Media behavior remain unchanged."
   ],
-  "name": "Verified Remove & Bulk Failed Cleanup"
+  "name": "Runtime Adapter Identity Repair"
 }
