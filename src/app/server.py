@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.24"
+APP_VERSION = "3.6.25"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11765,6 +11765,15 @@ def diagnostics_report() -> str:
             f"history_fresh={bool(tel.get('sab_history_fresh',True))}; "
             f"history_age_seconds={float(tel.get('sab_history_age_seconds',0) or 0):.3f}"
         )
+        lines.append(
+            "Backlog reliability: "
+            f"queue_fetches={int(tel.get('sab_queue_fetches',0) or 0)}; "
+            f"queue_reuses={int(tel.get('sab_queue_reuses',0) or 0)}; "
+            f"import_persist_writes={int(tel.get('import_progress_persist_writes',0) or 0)}; "
+            f"import_persist_skips={int(tel.get('import_progress_persist_skips',0) or 0)}; "
+            f"unsafe_output_rejections={int(tel.get('unsafe_output_fallback_rejections',0) or 0)}; "
+            f"launch_cooldowns={int(tel.get('sab_launch_cooldowns',0) or 0)}"
+        )
         stats=(d.get('downloads') or {}).get('statistics') or {}
         if stats:
             lines.append(
@@ -11789,6 +11798,16 @@ def diagnostics_report() -> str:
     else:
         lines.append(f"NNTP connections: {conn.get('active',0)} active, {conn.get('open',0)} warm, {conn.get('effective_capacity',conn.get('capacity',0))} target / {conn.get('capacity',0)} ceiling; pipeline={conn.get('pipeline_depth',1)} fallback={conn.get('pipeline_fallbacks',0)}; retries={conn.get('retries',0)} failed_segments={conn.get('failed_segments',0)}; yenc_workers={(conn.get('yenc') or {}).get('workers',0)}")
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")
+    try:
+        audit=MEDIA_AUTOMATION.library_integrity_audit()
+        lines.append(f"Library integrity audit: files={int(audit.get('file_records',0) or 0)}; duplicate_fingerprints={int(audit.get('duplicate_fingerprints',0) or 0)}; cross_title_duplicates={int(audit.get('cross_title_duplicate_fingerprints',0) or 0)}; edition_mismatches={int(audit.get('edition_mismatches',0) or 0)}; read_only=True")
+        for row in list(audit.get('cross_title_duplicates') or [])[:10]:
+            targets=' | '.join(f"{x.get('title')} S{int(x.get('season') or 0):02d}E{int(x.get('episode') or 0):02d} -> {x.get('path')}" if x.get('season') is not None else f"{x.get('title')} -> {x.get('path')}" for x in list(row.get('targets') or [])[:4])
+            lines.append(f"- Integrity duplicate {row.get('fingerprint')}: {targets}")
+        for row in list(audit.get('edition_mismatch_examples') or [])[:5]:
+            lines.append(f"- Integrity edition mismatch: {row.get('title')} S{int(row.get('season') or 0):02d}E{int(row.get('episode') or 0):02d}; expected={row.get('expected_country')}; observed={row.get('observed_country')}; path={row.get('path')}")
+    except Exception as exc:
+        lines.append(f"Library integrity audit: unavailable ({exc})")
     lines.append('Providers:')
     for p in d['providers']:
         lines.append(f"- {p['name']} ({p['host']}:{p['port']}): {p['status']}, latency={p.get('last_latency_ms',0)}ms, success={p.get('success_rate')}%, reconnects={p.get('reconnects',0)}, last_error={p.get('last_error','')}")
@@ -12321,6 +12340,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._json(200, DOWNLOAD_MANAGER.retry_automation_import(str(data.get("collection_id") or "")))
             if parsed.path == "/api/automation/library/scan":
                 return self._json(200, MEDIA_AUTOMATION.scan_library(str(data.get("id") or "")))
+            if parsed.path == "/api/automation/library/integrity-audit":
+                return self._json(200, MEDIA_AUTOMATION.library_integrity_audit())
             if parsed.path == "/api/automation/run-now":
                 return self._json(200, MEDIA_AUTOMATION.run_automatic_now())
             if parsed.path == "/api/automation/metadata/service-test":

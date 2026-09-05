@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.24
+## Current release: v3.6.25
 
-**v3.6.24 is the current stable production release.**
+**v3.6.25 is the current stable production release.**
 
-The `v3.6.24` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.25` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.25 - Automation Backlog & Smart Import Reliability.** Makes exhausted Smart Import retries truly terminal until explicit Retry Import, requires job-owned/fail-closed SAB output resolution, prevents TV franchise/edition cross-matches, throttles high-frequency import-state persistence, reduces redundant SAB control traffic, adds startup-recovery cooldown and stable stale-ownership reconciliation, exposes a read-only library integrity audit, and adds a one-click Remove all failed action to the Failed downloads view.
 
 - **v3.6.24 - Durable Download Statistics.** Replaces the incomplete session/legacy statistics bridge with restart-safe SAB lifetime accounting: persistent SAB byte totals are additive to the pre-SAB baseline, completed jobs are counted once across service/desktop runtimes, retained History/Archive timing is backfilled, Average Speed is weighted over timed bytes, Peak Speed is durable, and captured lifetime statistics survive History clearing.
 

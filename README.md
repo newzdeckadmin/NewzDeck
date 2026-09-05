@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.24** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.25** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.24_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.25_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,20 +34,21 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.24 highlights
+## v3.6.25 highlights
 
-v3.6.24 promotes the accepted durable Download Statistics fix built on v3.6.23.
+v3.6.25 promotes the accepted Automation backlog and Smart Import reliability work built on v3.6.24, plus a bulk cleanup action for Failed downloads.
 
-- **Durable lifetime totals:** Total Downloaded now combines the preserved pre-SAB NewzDeck baseline with SABnzbd's persistent lifetime byte counter instead of remaining frozen at an old legacy value.
-- **Restart-safe completion accounting:** completed SAB jobs are recorded exactly once in the shared cross-process ledger, preventing service/desktop handoff from double-counting or losing statistics.
-- **Real transfer time:** retained SAB History and Archive are backfilled for available `download_time` values, and new completions continue accumulating transfer time in the background.
-- **Weighted average speed:** Average Speed uses downloaded bytes whose transfer timing is actually known, with diagnostics exposing coverage when older timing was already deleted.
-- **Persistent peak speed:** the highest observed transfer rate is saved immediately and survives NewzDeck, service, and PC restarts.
-- **History-independent statistics:** clearing completed SAB History no longer reduces lifetime counters that NewzDeck has already captured.
-- **Expanded diagnostics:** Copy Diagnostics exposes legacy/SAB byte provenance, timed-byte coverage, accounted completions, backfill state, reconciliation time, and the durable peak.
-- **v3.6.23 preserved:** accent-insensitive Automation/Newznab matching, including `90 Day Fiancé` ↔ `90 Day Fiance`, remains intact.
+- **Terminal Smart Import retries:** imports that exhaust their retry budget stay failed until explicit **Retry Import**, preventing endless completion-loop churn.
+- **Job-owned output resolution:** Smart Import no longer guesses from unrelated recent SAB output folders. Ambiguous output fails safely instead of cross-importing another show's media.
+- **TV franchise/edition protection:** generic titles such as Love Island and Big Brother no longer consume releases belonging to different country editions, spin-offs, or franchises.
+- **Lower state-write pressure:** Smart Import progress remains responsive in memory while durable heartbeat/progress writes are throttled during large backlogs.
+- **Calmer SAB control traffic:** successful Queue reads are shared for short intervals, lifetime-stat polling is reduced, and failed SAB startup recovery is cooldown-limited.
+- **Stable stale-ownership reconciliation:** released ownership state is persisted so sibling runtimes cannot repeatedly resurrect and log the same stale record.
+- **Read-only library integrity audit:** diagnostics can identify duplicate media fingerprints across different targets and TV-edition mismatches without modifying the library.
+- **Remove all failed:** the Failed downloads view now exposes a single bulk action that removes every failed/attention download in one batch control request, while already-imported library files are left alone.
+- **v3.6.24 preserved:** durable Download Statistics, including lifetime totals, weighted Average Speed and persistent Peak Speed, remain intact.
 
-See [the full v3.6.24 release notes](release/RELEASE_NOTES_v3.6.24.md).
+See [the full v3.6.25 release notes](release/RELEASE_NOTES_v3.6.25.md).
 
 ## Requirements
 
@@ -70,7 +71,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.24_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.25_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -236,6 +236,91 @@ def _release_tv_country_tag(release_title: Any, title: Any) -> str:
         if tag: return tag
     return ''
 
+_TV_EDITION_MARKERS = {
+    'games','game','allstars','allstar','celebrity','vip','beyond','aftersun',
+    'winter','legends','reunion','spinoff','spinoffs','uncut','extra','extras',
+}
+_TV_EDITION_MARKER_PAIRS = {
+    'all stars','all star','the games','love games','after sun',
+}
+
+def _tv_item_country_tag(item: dict[str,Any] | None) -> str:
+    """Return the strongest persisted country/edition identity for a TV item."""
+    row=item if isinstance(item,dict) else {}
+    for raw in list(row.get('country_codes') or []):
+        tag=_tv_country_tag(raw)
+        if tag: return tag
+    library_title=str(row.get('library_title') or '').strip()
+    m=re.search(r'\(([A-Za-z]{2,3})\)\s*$',library_title)
+    if m:
+        tag=_tv_country_tag(m.group(1))
+        if tag: return tag
+    return ''
+
+def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
+    """Reject same-prefix TV franchise/edition releases belonging to another series.
+
+    A token match such as ``Love Island`` inside ``Love Island Australia`` or
+    ``Big Brother`` inside ``Big Brother Canada`` is not enough to establish series
+    identity. Preserve the accent-insensitive title matcher, then inspect every exact
+    occurrence of the canonical title. This matters for library scan strings where a
+    generic parent folder may repeat the title before the actual filename; a later
+    explicit conflicting edition must never be hidden by that first folder match.
+    """
+    row=item if isinstance(item,dict) else {}
+    title=str(row.get('title') or '').strip()
+    if not title:
+        return False
+    if not _slug_match(str(release_title or ''),title,row.get('year') if row.get('kind')=='movie' else None):
+        return False
+    if str(row.get('kind') or '')!='tv':
+        return True
+    release_tokens=_norm(release_title).split()
+    title_tokens=_norm(title).split()
+    if not release_tokens or not title_tokens:
+        return True
+    width=len(title_tokens)
+    starts=[i for i in range(0,max(0,len(release_tokens)-width+1)) if release_tokens[i:i+width]==title_tokens]
+    if not starts:
+        return True
+    expected=_tv_item_country_tag(row)
+    saw_positive=False
+    saw_neutral=False
+    for start in starts:
+        pos=start+width
+        if pos>=len(release_tokens):
+            saw_positive=True
+            continue
+        nxt=release_tokens[pos]
+        pair=' '.join(release_tokens[pos:pos+2])
+        # Sxx/Eyy/year/quality immediately after the title is ordinary release syntax.
+        if re.fullmatch(r's\d{1,2}(?:e\d{1,3})?',nxt) or re.fullmatch(r'\d{4}',nxt) or re.fullmatch(r'(?:2160|1080|720|576|480)p',nxt):
+            saw_positive=True
+            continue
+        pair_tag=_tv_country_tag(pair.upper())
+        release_tag=_tv_country_tag(nxt)
+        if pair_tag:
+            if expected and pair_tag!=expected:
+                return False
+            if not expected and bool(row.get('title_ambiguous')):
+                return False
+            saw_positive=True
+            continue
+        if release_tag:
+            if expected and release_tag!=expected:
+                return False
+            if not expected and bool(row.get('title_ambiguous')):
+                return False
+            saw_positive=True
+            continue
+        if nxt in _TV_EDITION_MARKERS or pair in _TV_EDITION_MARKER_PAIRS:
+            return False
+        # A parent directory can produce a neutral repeated-title occurrence, e.g.
+        # ``.../Love Island/Season 1/Love Island (UK) - S01E01...``. Keep looking;
+        # a later explicit UK/US/AU/etc. occurrence has stronger identity evidence.
+        saw_neutral=True
+    return bool(saw_positive or saw_neutral)
+
 def _episode_token(season: int | None, episode: int | None) -> str:
     try:
         return f'S{int(season):02d}E{int(episode):02d}'
@@ -689,7 +774,7 @@ class MediaAutomationEngine:
                 for candidate in self._library():
                     if not isinstance(candidate,dict) or str(candidate.get('kind') or '')!='tv':
                         continue
-                    if not _slug_match(title,str(candidate.get('title') or '')):
+                    if not _tv_release_identity_match(title,candidate):
                         continue
                     sr=next((x for x in candidate.get('seasons',[]) if int(x.get('season_number',0) or 0)==int(sn)),None)
                     ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==int(en)),None)
@@ -1310,7 +1395,7 @@ class MediaAutomationEngine:
         title=str(release.get('title') or '')
         if not title: return False
         if re.search(r'(?i)(?:^|[ ._\-])(sample|trailer|proof|extras?|password(?:ed)?|encrypted|repair[ ._\-]*only)(?:[ ._\-]|$)',title): return False
-        if not _slug_match(title,str(item.get('title') or ''),item.get('year') if item.get('kind')=='movie' else None): return False
+        if not _tv_release_identity_match(title,item): return False
         parsed=release.get('parsed') if isinstance(release.get('parsed'),dict) else parse_release(title)
         if not bool(release.get('accepted')): return False
         if item.get('kind')=='tv':
@@ -3394,7 +3479,7 @@ class MediaAutomationEngine:
         else: rejects.append(f"{info.get('quality') or 'Unknown quality'} is outside the quality profile")
         if item:
             wanted_title=str(item.get('title') or '')
-            if _slug_match(raw,wanted_title,item.get('year') if item.get('kind')=='movie' else None):
+            if _tv_release_identity_match(raw,item):
                 score+=20; components.append({'label':'Title match','score':20}); reasons.append('Title matches library item')
             else: rejects.append('Title/year does not safely match the library item')
             if item.get('kind')=='movie' and item.get('year'):
@@ -3480,6 +3565,60 @@ class MediaAutomationEngine:
                 for key in file_keys:
                     ep[key]=copy.deepcopy(src.get(key))
 
+    def library_integrity_audit(self) -> dict[str,Any]:
+        """Read-only audit for cross-target fingerprints and TV edition mismatches."""
+        with self.lock:
+            lib=copy.deepcopy(self._library())
+        by_fp:dict[str,list[dict[str,Any]]]={}
+        edition_mismatches=[]
+        file_records=0
+        for item in lib:
+            item_id=str(item.get('id') or '')
+            title=str(item.get('title') or '')
+            if item.get('kind')=='tv':
+                expected=_tv_item_country_tag(item)
+                for season in item.get('seasons') or []:
+                    sn=int(season.get('season_number') or 0)
+                    for ep in season.get('episodes') or []:
+                        if not ep.get('has_file') or not str(ep.get('file_path') or '').strip():
+                            continue
+                        file_records+=1
+                        path=str(ep.get('file_path') or '')
+                        fp=str(ep.get('file_fingerprint') or '').strip()
+                        rec={'item_id':item_id,'title':title,'season':sn,'episode':int(ep.get('episode_number') or 0),'path':path,'fingerprint':fp}
+                        if fp: by_fp.setdefault(fp,[]).append(rec)
+                        observed=_release_tv_country_tag(Path(path).name,title)
+                        if expected and observed and observed!=expected:
+                            edition_mismatches.append({**rec,'expected_country':expected,'observed_country':observed})
+            else:
+                mf=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else {}
+                if mf and str(mf.get('path') or '').strip():
+                    file_records+=1
+                    fp=str(mf.get('file_fingerprint') or '').strip()
+                    rec={'item_id':item_id,'title':title,'season':None,'episode':None,'path':str(mf.get('path') or ''),'fingerprint':fp}
+                    if fp: by_fp.setdefault(fp,[]).append(rec)
+        duplicate=[]; cross_title=[]
+        for fp,rows in by_fp.items():
+            targets={(str(r.get('item_id')),r.get('season'),r.get('episode')) for r in rows}
+            if len(targets)<=1: continue
+            distinct_paths={str(r.get('path') or '').casefold() for r in rows if str(r.get('path') or '').strip()}
+            distinct_titles={str(r.get('item_id') or '') for r in rows if str(r.get('item_id') or '')}
+            entry={'fingerprint':fp,'targets':rows[:12],'target_count':len(targets),'distinct_path_count':len(distinct_paths),'distinct_title_count':len(distinct_titles)}
+            duplicate.append(entry)
+            if len(distinct_titles)>1:
+                cross_title.append(entry)
+        duplicate.sort(key=lambda x:(-int(x.get('target_count') or 0),-int(x.get('distinct_path_count') or 0),str(x.get('fingerprint') or '')))
+        # Different physical paths sharing one fingerprint across different library
+        # items are the highest-risk corruption signal, so surface those examples
+        # before benign-ish duplicate references to the exact same physical path.
+        cross_title.sort(key=lambda x:(-int(x.get('distinct_path_count') or 0),-int(x.get('target_count') or 0),str(x.get('fingerprint') or '')))
+        return {
+            'ok':True,'read_only':True,'file_records':file_records,'fingerprints':len(by_fp),
+            'duplicate_fingerprints':len(duplicate),'cross_title_duplicate_fingerprints':len(cross_title),
+            'edition_mismatches':len(edition_mismatches),'duplicates':duplicate[:50],
+            'cross_title_duplicates':cross_title[:50],'edition_mismatch_examples':edition_mismatches[:50],
+        }
+
     def scan_library(self, ident=''):
         """Reconcile Automation against configured library folders without UI lock stalls.
 
@@ -3527,7 +3666,7 @@ class MediaAutomationEngine:
                         ep.update({'has_file':False,'file_path':'','file_quality':'','file_size':0,'file_fingerprint':'','quality_source':'','media_info':{},'cutoff_met':False})
                 candidates={}
                 for f in item_files:
-                    if not _slug_match(str(f.parent.parent)+' '+f.name,item.get('title',''),item.get('year')): continue
+                    if not _tv_release_identity_match(str(f.parent.parent)+' '+f.name,item): continue
                     m=re.search(r'\bS(\d{1,2})E(\d{1,3})\b',f.name,re.I)
                     if not m: continue
                     key=(int(m.group(1)),int(m.group(2)))
@@ -3911,7 +4050,7 @@ class MediaAutomationEngine:
             candidates=[]
             for f in root.rglob('*'):
                 if not f.is_file() or f.suffix.casefold() not in VIDEO_EXTS: continue
-                if not _slug_match(str(f.parent)+' '+f.name,str(item.get('title') or ''),item.get('year')): continue
+                if not _tv_release_identity_match(str(f.parent)+' '+f.name,item): continue
                 candidates.append(f)
                 if len(candidates)>=5000: break
         except OSError:
@@ -3970,6 +4109,9 @@ class MediaAutomationEngine:
                 profile=next((p for p in self._profiles() if str(p.get('id'))==str(item.get('quality_profile_id'))),self._profiles()[0])
             if not root: return {'ok':False,'needs_root':True,'reason':f"Add a {'TV' if item.get('kind')=='tv' else 'Movie'} root folder in Automation Setup"}
             if not root.exists() or not root.is_dir(): return {'ok':False,'needs_root':True,'reason':f'Configured Root Folder is unavailable: {root}'}
+            if item.get('kind')=='tv' and not _tv_release_identity_match(str(context.get('release_title') or ''),item):
+                self._event('import-inspection',f"Rejected cross-series Smart Import for {item.get('title')}",item_id=item.get('id'),release_title=str(context.get('release_title') or ''),reason='TV franchise/edition identity mismatch')
+                return {'ok':False,'needs_attention':True,'reason':'The completed release belongs to a different TV franchise/edition than this Automation item. The downloaded output was preserved for review.','inspection':[{'source':str(context.get('release_title') or ''),'identified':'Different TV franchise/edition','quality':str(context.get('release_quality') or ''),'action':'NEEDS_ATTENTION','destination':'','reason':'Release title country/edition does not match the Automation item'}]}
             files=[]
             for raw in candidates or []:
                 q=Path(raw)
@@ -4471,7 +4613,7 @@ class MediaAutomationEngine:
         candidates=[]
         for base in feed_rows:
             title=str(base.get('title') or '')
-            if not title or not _slug_match(title,str(item.get('title') or ''),item.get('year') if item.get('kind')=='movie' else None): continue
+            if not title or not _tv_release_identity_match(title,item): continue
             guid=str(base.get('guid') or base.get('download_url') or '').casefold()
             if (guid and guid in attempted) or (guid and guid in blocked_guid) or title.casefold() in blocked_title: continue
             published=float(base.get('published') or 0)
@@ -4505,7 +4647,7 @@ class MediaAutomationEngine:
                         # Newznab category/search implementations may return broad matches.
                         # Never let an unrelated show/movie enter the candidate table merely
                         # because it shares SxxEyy or a release-group substring.
-                        if not _slug_match(str(r.get('title') or ''),str(item.get('title') or ''),item.get('year') if item.get('kind')=='movie' else None):
+                        if not _tv_release_identity_match(str(r.get('title') or ''),item):
                             continue
                         ev=self._evaluate_release(r['title'],r['size'],profile,item=item,season=season,episode=episode,current_quality=current_quality)
                         r.update(ev); releases.append(r)

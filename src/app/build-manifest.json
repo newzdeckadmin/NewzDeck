@@ -1,24 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.24",
-  "base_version": "3.6.23",
-  "release": "Durable Download Statistics",
-  "adapter_version": "3.6.24",
+  "version": "3.6.25",
+  "base_version": "3.6.24",
+  "release": "Automation Backlog & Smart Import Reliability",
+  "adapter_version": "3.6.25",
   "changes": [
-    "Uses SABnzbd server_stats.total as the exact persistent SAB lifetime byte counter and adds it to the preserved pre-SAB NewzDeck baseline.",
-    "Persists completed SAB statistics exactly once per NZO id in the shared cross-process ledger so service/desktop handoff and History clearing cannot double-count or erase lifetime totals.",
-    "Backfills retained SAB History and Archive in bounded pages to recover available download_time and downloaded-byte data for cumulative Transfer Time and weighted Average Speed.",
-    "Persists the highest observed transfer speed immediately so Peak Speed survives runtime restarts.",
-    "Adds Download Statistics provenance and timing-coverage diagnostics while preserving v3.6.23 Automation title matching and all earlier accepted production behavior."
+    "Makes exhausted Smart Import retries terminal until explicit Retry Import, preventing infinite completion-loop churn.",
+    "Removes unsafe recent-output guessing: Smart Import now requires an explicit SAB path or exact job/release folder ownership proof before importing media.",
+    "Adds TV franchise/edition identity validation so generic Love Island/Big Brother items cannot consume Australia/US/Canada/Games/Beyond or other mismatched releases.",
+    "Throttles Smart Import heartbeat/progress persistence to at most once every five seconds while keeping in-memory progress responsive.",
+    "Shares sub-second successful SAB Queue reads between fast UI snapshots, polls lifetime download statistics every 30 seconds, and adds startup recovery cooldown after failed launches.",
+    "Persists stale ownership release state so cross-runtime ledger merging cannot resurrect and re-log the same stale record thousands of times.",
+    "Adds a read-only library integrity audit for duplicate fingerprints across targets and TV edition mismatches, surfaced in Copy Diagnostics and via API.",
+    "Adds Remove all failed to the Downloads Failed view, removing all failed/attention downloads through one batch control request instead of requiring individual Remove clicks."
   ],
   "regression_guards": [
-    "Total Downloaded must not remain frozen at the legacy pre-SAB value once server_stats is available.",
-    "A completed SAB history record must be accounted exactly once even when multiple NewzDeck runtimes observe it.",
-    "Peak Speed must survive a fresh process restart.",
-    "Clearing completed SAB History after accounting must not reduce durable lifetime statistics.",
-    "Average Speed must use bytes whose transfer duration is known rather than the larger lifetime byte total when old timing data is unavailable.",
-    "v3.6.23 90 Day Fiancé / 90 Day Fiance matching remains intact.",
-    "v3.6.22 unresolved/obfuscated binary behavior and v3.6.20 authoritative SAB Queue/History behavior remain unchanged."
+    "v3.6.24 durable Download Statistics remain persistent and accurate.",
+    "v3.6.23 accent-insensitive title matching such as 90 Day Fiancé / 90 Day Fiance remains accepted.",
+    "v3.6.22 unresolved/obfuscated binary downloads and root placement remain unchanged.",
+    "v3.6.21 Related Media/image browsing and v3.6.20 authoritative SAB Queue/History behavior remain intact.",
+    "Automation queue depth remains bounded; no destructive library repair is performed automatically."
   ],
-  "name": "Durable Download Statistics"
+  "name": "Automation Backlog & Smart Import Reliability"
 }
