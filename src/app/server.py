@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.27"
+APP_VERSION = "3.6.28"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11754,6 +11754,15 @@ def diagnostics_report() -> str:
         lines.append(f"Download engine: SABnzbd {engine.get('version','')} built-in; ready={engine.get('ready',False)}; live_connections={conn.get('active',0)}; allocated_connections={conn.get('capacity',0)}; provider_workers={conn.get('runtime_servers',0)}/{conn.get('expected_servers',0)} runtime, {conn.get('configured_servers',0)}/{conn.get('expected_servers',0)} configured; provider_summary={conn.get('provider_summary','')}; localhost_only={engine.get('localhost_only',True)}; last_error={engine.get('last_error','')}")
         tel=(d.get('downloads') or {}).get('telemetry') or {}
         lines.append(f"Active-card continuity: bridges={int(tel.get('active_card_continuity_bridges',0) or 0)}; last_bridge_ts={float(tel.get('active_card_continuity_last_ts',0) or 0):.3f}")
+        lines.append(
+            "Downloads visibility continuity: "
+            f"bridges={int(tel.get('visibility_continuity_bridges',0) or 0)}; "
+            f"queued_bridges={int(tel.get('queued_visibility_continuity_bridges',0) or 0)}; "
+            f"open={int(tel.get('visibility_continuity_open',0) or 0)}; "
+            f"longest_gap_ms={int(tel.get('visibility_continuity_longest_gap_ms',0) or 0)}; "
+            f"omission_events={int(tel.get('sab_job_omission_events',0) or 0)}; "
+            f"last_bridge_ts={float(tel.get('visibility_continuity_last_ts',0) or 0):.3f}"
+        )
         lines.append(
             "SAB Queue/History transport: "
             f"resets_absorbed={int(tel.get('sab_read_resets',0) or 0)}; "

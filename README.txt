@@ -1,30 +1,31 @@
-NewzDeck v3.6.27
-Verified Remove & Bulk Failed Cleanup
+NewzDeck v3.6.28
+Downloads Continuity & SAB Recovery Hardening
 
+Downloads visibility continuity:
+- Durably owned non-terminal downloads stay visible through transient SAB Queue/History omissions.
+- A missing slot is shown as refreshing rather than removing the card from Downloads.
+- Stale ownership can expire only after both Queue and History remain freshly absent for the existing retention window.
+- Explicit Remove/Cancel tombstones and terminal SAB state remain authoritative.
 
-Runtime adapter identity repair:
-- Built-in SAB adapter identity now matches the v3.6.27 UI/backend.
-- Adapter version output is centralized and production validation now blocks stale identities.
-- v3.6.26 verified Remove / Remove all failed behavior is preserved.
+SAB recovery hardening:
+- Shared live Queue/History observations are reused slightly longer to reduce localhost control pressure.
+- Temporary tray/user-session launch failures no longer create unnecessary new admin-vN generations.
+- SAB startup and HTTP User-Agent labels now follow the current NewzDeck adapter version.
+- Diagnostics exposes visibility bridges, queued bridges, open bridges, longest gaps, and SAB omission events.
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.27
+WHAT'S NEW IN v3.6.28
 
-- Individual Remove no longer fails solely because a separate short SAB localhost
-  ping resets while downloads remain healthy.
-- Remove verifies the requested job directly against targeted SAB Queue/History
-  state with bounded retries.
-- Remove all failed performs targeted multi-ID verification and bulk History
-  deletion instead of one full SAB control sequence per Failed card.
-- Active SAB Queue jobs remain protected: NewzDeck will not hide live transfers
-  without fresh safety proof.
-- The v3.6.25 Automation backlog/Smart Import safeguards, franchise/edition
-  protection, lower state-write pressure, and read-only integrity audit remain intact.
+- Fixes the intermittent Downloads-card disappear/reappear behavior observed while
+  the underlying SAB download continued normally.
+- Keeps live status conservative during observation gaps: an expired Active lease
+  becomes visible Queued/refreshing rather than falsely claiming active transfer.
+- Preserves v3.6.27 runtime adapter identity validation and v3.6.26 verified Remove /
+  Remove all failed behavior.
+- Preserves v3.6.25 Automation backlog/Smart Import safeguards, v3.6.24 durable
+  Download Statistics, and accepted earlier NewzDeck behavior.
 
-NewzDeck v3.6.24 durable Download Statistics, v3.6.23 accent-insensitive Automation
-matching, v3.6.22 All Posts binary resolution/recovery, v3.6.21 Related Media/image
-browsing, and v3.6.20 authoritative SAB/Downloads behavior remain preserved.
 Normal installed updates preserve settings, provider configuration, Automation data,
 history, queue state, and user data.

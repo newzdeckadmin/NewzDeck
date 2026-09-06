@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.27"
+ADAPTER_VERSION = "3.6.28"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -623,6 +623,7 @@ class SabDownloadManager:
         self._job_last_view: dict[str, dict[str, Any]] = {}
         self._active_latch_until: dict[str, float] = {}
         self._job_missing_since: dict[str, float] = {}
+        self._job_fresh_missing_since: dict[str, float] = {}
         # Consecutive queued observations are used only for presentation stability.
         # A previously-active package must be coherently observed as queued several
         # times before NewzDeck removes it from Active, unless another package has
@@ -640,6 +641,18 @@ class SabDownloadManager:
         self._active_bridge_open: set[str] = set()
         self._active_continuity_bridges = 0
         self._active_continuity_last_ts = 0.0
+        # v3.6.28: a tracked non-terminal package must not disappear from the
+        # Downloads response merely because one fresh-looking SAB Queue/History pair
+        # temporarily omits its slot. Keep the durable card visible until SAB proves a
+        # terminal state, the user explicitly removes it, or the existing ownership
+        # retention window expires under fresh Queue + History absence.
+        self._visibility_bridge_open: set[str] = set()
+        self._visibility_bridges = 0
+        self._queued_visibility_bridges = 0
+        self._visibility_last_ts = 0.0
+        self._visibility_longest_gap_ms = 0
+        self._sab_job_omission_events = 0
+        self._sab_job_omission_last_ts = 0.0
         # v3.6.20: SAB can briefly report the *whole queue* as Paused during
         # internal queue/file transitions even though NewzDeck never requested a
         # pause and the underlying transfer resumes moments later. The older Active
@@ -1855,7 +1868,7 @@ class SabDownloadManager:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "NewzDeck/3.6.20", "Connection": "close"},
+            headers={"User-Agent": f"NewzDeck/{ADAPTER_VERSION}", "Connection": "close"},
         )
         # SAB's own anonymized log showed one healthy process and successful NNTP
         # transfers while NewzDeck was receiving 10054 on localhost API calls. Keep
@@ -2170,7 +2183,7 @@ class SabDownloadManager:
         h = hashlib.sha256()
         total = 0
         self._download_progress = {"active": True, "bytes": 0, "total": 0, "started": time.time()}
-        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": "NewzDeck/3.6.20 (+embedded SAB engine provisioner)"})
+        req = urllib.request.Request(SAB_WINDOWS_X64_URL, headers={"User-Agent": f"NewzDeck/{ADAPTER_VERSION} (+embedded SAB engine provisioner)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response, temp.open("wb") as out:
                 try:
@@ -2411,7 +2424,7 @@ class SabDownloadManager:
             startup_log = self.root / "sab-startup.log"
             try:
                 with startup_log.open("ab") as log:
-                    stamp = f"\n--- NewzDeck 3.6.20 SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
+                    stamp = f"\n--- NewzDeck {ADAPTER_VERSION} SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
                     log.write(stamp.encode("utf-8", errors="replace"))
                     log.flush()
                     if os.name == "nt" and os.environ.get("NEWZDECK_SERVICE") == "1":
@@ -2455,6 +2468,25 @@ class SabDownloadManager:
             # a brand-new admin-vN + port.  This is deliberately a one-shot recovery:
             # if a clean generation cannot start either, the real error is surfaced
             # rather than creating endless admin generations every three seconds.
+            # A fresh SAB admin generation can repair a damaged SAB config, but it
+            # cannot repair an unavailable signed-in-user tray/session launcher. Older
+            # builds rotated admin-vN even for that environmental failure, creating
+            # dozens of unused generations. Fail in place for launcher/session errors.
+            environmental_markers = (
+                "tray helper is not running",
+                "background service has no signed-in user-session sab launcher",
+                "tray did not return a valid private sab process id",
+                "another newzdeck runtime still owns the private sab startup guard",
+            )
+            first_error_low = str(first_error or "").casefold()
+            if any(marker in first_error_low for marker in environmental_markers):
+                self._event(
+                    "warning",
+                    "Private SAB startup failed without rotating admin generation",
+                    error=first_error, config_file=str(self.config_file),
+                )
+                raise RuntimeError(f"Private SAB startup failed without clean-generation rotation ({first_error})")
+
             current_ident = self._load_engine_identity()
             previous_recovery = str(current_ident.get("generation_reason") or "").startswith("automatic startup recovery:")
             previous_recovery_ts = float(current_ident.get("generation_ts") or 0.0)
@@ -4380,7 +4412,7 @@ class SabDownloadManager:
             now = time.time()
             queue_fresh = True
             queue_error = ""
-            queue_reuse = bool(live and self._live_queue_payload is not None and now - self._live_queue_fetch_ts < 0.75)
+            queue_reuse = bool(live and self._live_queue_payload is not None and now - self._live_queue_fetch_ts < 1.0)
             try:
                 if queue_reuse:
                     queue_data = dict(self._live_queue_payload or {})
@@ -4420,7 +4452,7 @@ class SabDownloadManager:
             queue_handoff = bool(self._live_queue_ids - current_ids) if queue_fresh else False
             cached_history_root, _cached_history_slots = self._history_slots(self._live_history_payload or {})
             cached_pp_active = int(_num(cached_history_root.get("ppslots"), 0) or 0) > 0
-            history_interval = 0.5 if cached_pp_active else 1.0
+            history_interval = 0.75 if cached_pp_active else 1.5
             history_due = (
                 not live
                 or self._live_history_payload is None
@@ -4836,6 +4868,20 @@ class SabDownloadManager:
         self._job_active_confirmed_ts[nzo_id] = now
         self._active_bridge_open.discard(nzo_id)
 
+    def _mark_visibility_bridge(self, nzo_id: str, now: float, *, missing_since: float, prior_status: str) -> None:
+        """Record one durable-card bridge without counting every UI poll as a new event."""
+        if nzo_id not in self._visibility_bridge_open:
+            self._visibility_bridge_open.add(nzo_id)
+            self._visibility_bridges += 1
+            if str(prior_status or "").casefold() == "queued":
+                self._queued_visibility_bridges += 1
+        self._visibility_last_ts = now
+        gap_ms = max(0, int(round((now - float(missing_since or now)) * 1000.0)))
+        self._visibility_longest_gap_ms = max(self._visibility_longest_gap_ms, gap_ms)
+
+    def _close_visibility_bridge(self, nzo_id: str) -> None:
+        self._visibility_bridge_open.discard(nzo_id)
+
     def _status_for_queue(self, status: str) -> tuple[str, str]:
         raw = str(status or "Queued")
         low = raw.casefold()
@@ -5160,6 +5206,13 @@ class SabDownloadManager:
             "engine_pause_mismatch": False, "engine_idle_paused": False,
             "active_card_continuity_bridges": int(self._active_continuity_bridges),
             "active_card_continuity_last_ts": float(self._active_continuity_last_ts),
+            "visibility_continuity_bridges": int(self._visibility_bridges),
+            "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges),
+            "visibility_continuity_open": int(len(self._visibility_bridge_open)),
+            "visibility_continuity_last_ts": float(self._visibility_last_ts),
+            "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms),
+            "sab_job_omission_events": int(self._sab_job_omission_events),
+            "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts),
             "bandwidth": {"enabled": False, "active": False},
         }
         return {
@@ -5207,7 +5260,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -5425,6 +5478,8 @@ class SabDownloadManager:
                 if prior is not None:
                     job = dict(prior)
                     self._job_missing_since.pop(nzo_id, None)
+                    self._job_fresh_missing_since.pop(nzo_id, None)
+                    self._close_visibility_bridge(nzo_id)
                     jobs.append(job)
                     collections.append(self._collection_from_job(job, meta))
                     counts["completed"] += 1
@@ -5443,7 +5498,6 @@ class SabDownloadManager:
                 # proving that the queue is active. Never convert that observation gap
                 # into lost ownership. Bridge the selected foreground package from the
                 # last coherent view (or durable metadata) until SAB exposes its slot again.
-                last_seen = self._job_last_seen_ts.get(nzo_id, 0.0)
                 prior = self._job_last_view.get(nzo_id)
                 prior_status = str((prior or {}).get("status") or "")
                 aggregate_bridge = bool(aggregate_live_signal and nzo_id == aggregate_owner_id)
@@ -5452,6 +5506,8 @@ class SabDownloadManager:
                     foreground_id=foreground_id, slot_status="",
                 )
                 if aggregate_bridge or continuity_bridge:
+                    self._job_fresh_missing_since.pop(nzo_id, None)
+                    self._close_visibility_bridge(nzo_id)
                     job = dict(prior) if prior is not None else self._offline_job_from_meta(nzo_id, meta, now)
                     if str(job.get("status") or "").casefold() not in {"completed", "failed", "cancelled"}:
                         job["status"] = "downloading"
@@ -5483,23 +5539,26 @@ class SabDownloadManager:
                     counts[job["status"] if job["status"] in counts else "queued"] += 1
                     continue
 
-                # Short non-active omissions are also presentation noise. Keep the last
-                # real view briefly, but do not manufacture a removal tombstone if the
-                # slot stays absent. Tombstones are reserved for explicit user intent.
-                preserve_seconds = 8.0 if prior_status == "downloading" else 3.0
-                if prior is not None and now - last_seen <= preserve_seconds and prior_status not in {"completed", "failed", "cancelled"}:
-                    job = dict(prior)
-                    jobs.append(job)
-                    collections.append(self._collection_from_job(job, meta))
-                    counts[job["status"] if job["status"] in counts else "queued"] += 1
-                    continue
-
+                # v3.6.28 durable visibility invariant: once NewzDeck owns a
+                # non-terminal SAB job, one or many slot-omission observations may
+                # change how certain the live status is, but may not make the card
+                # disappear. Explicit user tombstones and terminal SAB history still
+                # win immediately. Stale ownership is released only after the existing
+                # retention window expires while *both* Queue and History are fresh.
                 context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
                 retain_seconds = 48 * 3600 if _is_smart_import_context(context) else 120.0
                 already_released = float(meta.get("ownership_released_ts", 0) or 0) > 0
+                fresh_absence = bool(queue_read_fresh and history_read_fresh)
+                if fresh_absence:
+                    fresh_missing_since = self._job_fresh_missing_since.setdefault(nzo_id, now)
+                else:
+                    self._job_fresh_missing_since.pop(nzo_id, None)
+                    fresh_missing_since = 0.0
                 if already_released:
+                    self._close_visibility_bridge(nzo_id)
+                    self._job_fresh_missing_since.pop(nzo_id, None)
                     continue
-                if not aggregate_live_signal and now - missing_since > retain_seconds:
+                if fresh_absence and not aggregate_live_signal and fresh_missing_since > 0 and now - fresh_missing_since > retain_seconds:
                     with self.lock:
                         live_meta=self._tracked().get(nzo_id)
                         if isinstance(live_meta,dict):
@@ -5508,15 +5567,47 @@ class SabDownloadManager:
                             self._touch_job_locked(live_meta)
                         self._job_last_view.pop(nzo_id, None)
                         self._job_last_seen_ts.pop(nzo_id, None)
+                        self._job_fresh_missing_since.pop(nzo_id, None)
                         self._active_latch_until.pop(nzo_id, None)
                         self._job_active_confirmed_ts.pop(nzo_id, None)
                         self._active_bridge_open.discard(nzo_id)
+                        self._close_visibility_bridge(nzo_id)
                         self._job_queued_observations.pop(nzo_id, None)
                         self._save_state()
                     self._event("warning", "Released stale SAB ownership record without removal tombstone",
                                 nzo_id=nzo_id, automation=bool(context), missing_seconds=int(now - missing_since))
+                    continue
+
+                bridge_job = dict(prior) if prior is not None else self._offline_job_from_meta(nzo_id, meta, now)
+                bridge_status = str(bridge_job.get("status") or "queued").casefold()
+                if bridge_status not in {"completed", "failed", "cancelled"}:
+                    if nzo_id not in self._visibility_bridge_open:
+                        self._sab_job_omission_events += 1
+                        self._sab_job_omission_last_ts = now
+                    # If the longer Active lease has expired, keep the package
+                    # visible but do not pretend its transfer status is still proven.
+                    if bridge_status == "downloading":
+                        bridge_job["status"] = "queued"
+                        bridge_status = "queued"
+                    bridge_job["speed_bps"] = 0
+                    bridge_job["eta_seconds"] = 0
+                    bridge_job["connections_used"] = 0
+                    if bridge_status == "cancelling":
+                        bridge_job["status_detail"] = "Stopping • awaiting SAB confirmation"
+                    elif bridge_status == "retry_wait":
+                        bridge_job["status_detail"] = "Waiting • refreshing SAB status"
+                    else:
+                        bridge_job["status_detail"] = "Queued • refreshing SAB status"
+                    self._mark_visibility_bridge(
+                        nzo_id, now, missing_since=missing_since, prior_status=bridge_status
+                    )
+                    jobs.append(bridge_job)
+                    collections.append(self._collection_from_job(bridge_job, meta))
+                    counts[bridge_job["status"] if bridge_job["status"] in counts else "queued"] += 1
                 continue
             self._job_missing_since.pop(nzo_id, None)
+            self._job_fresh_missing_since.pop(nzo_id, None)
+            self._close_visibility_bridge(nzo_id)
             if meta.get("ownership_released_ts"):
                 with self.lock:
                     live_meta=self._tracked().get(nzo_id)
@@ -5626,6 +5717,7 @@ class SabDownloadManager:
                 self._active_latch_until.pop(nzo_id, None)
                 self._job_active_confirmed_ts.pop(nzo_id, None)
                 self._active_bridge_open.discard(nzo_id)
+                self._close_visibility_bridge(nzo_id)
                 self._job_queued_observations.pop(nzo_id, None)
             self._job_last_seen_ts[nzo_id] = now
             self._job_last_view[nzo_id] = dict(job)
@@ -5804,6 +5896,13 @@ class SabDownloadManager:
                                 "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0,
                                 "active_card_continuity_bridges": int(self._active_continuity_bridges),
                                 "active_card_continuity_last_ts": float(self._active_continuity_last_ts),
+                                "visibility_continuity_bridges": int(self._visibility_bridges),
+                                "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges),
+                                "visibility_continuity_open": int(len(self._visibility_bridge_open)),
+                                "visibility_continuity_last_ts": float(self._visibility_last_ts),
+                                "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms),
+                                "sab_job_omission_events": int(self._sab_job_omission_events),
+                                "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts),
                                 "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges),
                                 "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts),
                                 "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open),
@@ -5942,7 +6041,9 @@ class SabDownloadManager:
                             self._active_latch_until.pop(nzo, None)
                             self._job_active_confirmed_ts.pop(nzo, None)
                             self._active_bridge_open.discard(nzo)
+                            self._close_visibility_bridge(nzo)
                             self._job_missing_since.pop(nzo, None)
+                            self._job_fresh_missing_since.pop(nzo, None)
                             self._job_queued_observations.pop(nzo, None)
                         self._save_state()
                     self._event("info", "Bulk removed failed/terminal SAB downloads", count=len(ids), queue_read_ok=qslots is not None, history_terminal=len(terminal_history))
@@ -5970,7 +6071,9 @@ class SabDownloadManager:
                         self._active_latch_until.pop(nzo, None)
                         self._job_active_confirmed_ts.pop(nzo, None)
                         self._active_bridge_open.discard(nzo)
+                        self._close_visibility_bridge(nzo)
                         self._job_missing_since.pop(nzo, None)
+                        self._job_fresh_missing_since.pop(nzo, None)
                         self._job_queued_observations.pop(nzo, None)
                     self._save_state()
             self._last_snapshot = None
@@ -6003,7 +6106,9 @@ class SabDownloadManager:
                         self._active_latch_until.pop(nzo, None)
                         self._job_active_confirmed_ts.pop(nzo, None)
                         self._active_bridge_open.discard(nzo)
+                        self._close_visibility_bridge(nzo)
                         self._job_missing_since.pop(nzo, None)
+                        self._job_fresh_missing_since.pop(nzo, None)
                         self._job_queued_observations.pop(nzo, None)
                     self._save_state()
             self._last_snapshot = None
