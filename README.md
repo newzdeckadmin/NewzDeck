@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.35** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.36** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.35_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.36_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.35 highlights
+## v3.6.36 highlights
 
-v3.6.35 adds real live progress to the Manual Media Import workflow introduced in v3.6.34. Import & Organize now stays visible while Smart Import works and reports the actual transaction state instead of leaving the user waiting without feedback.
+v3.6.36 is a focused hotfix for Automation actions accidentally disconnected by the v3.6.35 Manual Import progress UI edit.
 
-- **Real transaction progress:** the progress bar is driven by Smart Import callbacks, including byte-based advancement for cross-volume copies rather than a simulated timer.
-- **Current phase and file:** the modal reports what NewzDeck is doing and which media file is being handled.
-- **Authoritative completion:** 100% is reserved until the media transaction, library quality/cutoff update, and Wanted reconciliation are all complete.
-- **Safe modal behavior:** import controls and close actions are locked during the live job; changing the source/target before starting invalidates the old Preview.
-- **Preview safety preserved:** start-time plan rebuilding still rejects unresolved NEEDS_ATTENTION media before transaction work begins.
-- **Accepted behavior preserved:** v3.6.34 Manual Import semantics, v3.6.32 Automation integrity/no-downgrade protections, v3.6.33 TV-edition compatibility, and the accepted SAB/download-control path remain intact apart from required v3.6.35 identity markers.
+- **Manual release search restored:** Wanted Search releases, TV episode Search, and season-pack Search are wired again.
+- **Automation item actions restored:** Save, Refresh metadata, Open folder, Remove, and Scan library are restored from the accepted v3.6.34 behavior.
+- **Backend search path unchanged:** Newznab querying, scoring, blacklist logic, and Grab behavior remain on the existing production implementation.
+- **Progress feature preserved:** v3.6.35 Manual Import live transaction progress remains intact.
+- **New regression blocker:** production publishing now requires the shared Automation action helpers and Search bindings before a source commit can be created.
 
-See [the full v3.6.35 release notes](release/RELEASE_NOTES_v3.6.35.md).
+See [the full v3.6.36 release notes](release/RELEASE_NOTES_v3.6.36.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.35_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.36_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

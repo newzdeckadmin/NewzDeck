@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.35
+## Current release: v3.6.36
 
-**v3.6.35 is the current stable production release.**
+**v3.6.36 is the current stable production release.**
 
-The `v3.6.35` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.36` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.36 - Automation Action Wiring Recovery.** Restores the shared browser-side Automation action helpers accidentally removed in v3.6.35, including Wanted/episode/season-pack manual release search plus Save, Refresh metadata, Open folder, Remove, and Scan library; preserves v3.6.35 Manual Import live progress and adds release-blocking UI wiring regression checks.
 
 - **v3.6.35 - Manual Import Live Progress.** Adds real Smart Import transaction progress to v3.6.34 Manual Media Import, including phase/current-file status, byte-based cross-volume copy advancement, modal job locking, and 100% only after authoritative library/Wanted reconciliation, while preserving the existing import safety and no-downgrade path.
 

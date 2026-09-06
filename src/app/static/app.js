@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.35';
+const UI_VERSION = '3.6.36';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -2995,6 +2995,40 @@ async function finishManualImportJob(job){setManualImportBusy(false);manualImpor
 async function pollManualImportProgress(jobId){if(!jobId||manualImportState.jobId!==jobId)return;try{const job=await api(`/api/automation/manual-import/progress?job_id=${encodeURIComponent(jobId)}`,null,{timeoutMs:5000,timeoutMessage:'NewzDeck is still importing media, but the progress check timed out.'});if(manualImportState.jobId!==jobId)return;renderManualImportProgress(job);if(job.status==='completed'||job.status==='failed'){await finishManualImportJob(job);return}}catch(e){if(manualImportState.jobId!==jobId)return;$('manualImportProgressDetail').textContent=`Progress refresh delayed • ${e.message}`}manualImportState.pollTimer=setTimeout(()=>pollManualImportProgress(jobId),350)}
 async function commitManualMediaImport(){if(!manualImportState.preview?.ok||manualImportState.importing)return;const payload=manualImportPayload(),b=$('manualImportCommit');b.disabled=true;b.textContent='Starting Import…';setManualImportBusy(true);renderManualImportProgress({status:'queued',progress:0,message:'Manual Import • validating the final import plan'});try{const job=await api('/api/automation/manual-import/start',payload,{timeoutMs:30000,timeoutMessage:'NewzDeck could not start Manual Import in time.'});manualImportState.jobId=String(job.job_id||'');if(!manualImportState.jobId)throw new Error('NewzDeck did not return a Manual Import job ID.');renderManualImportProgress(job);b.textContent='Importing…';void pollManualImportProgress(manualImportState.jobId)}catch(e){setManualImportBusy(false);manualImportState.jobId='';renderManualImportProgress({status:'failed',progress:0,message:e.message});b.disabled=false;b.textContent='Import & Organize';toast(e.message,'error')}}
 
+async function refreshAutomationItem(id){try{toast('Refreshing metadata…');await api('/api/automation/media/refresh',{id});await loadAutomation({quiet:true});await openAutomationItem(id);toast('Metadata refreshed.','success')}catch(e){toast(e.message,'error')}}
+async function openAutomationFolder(id){try{await api('/api/automation/media/open-folder',{id})}catch(e){toast(e.message,'error')}}
+async function saveAutomationItem(item){
+  const mode=$('autoItemMonitorMode')?.value||automationMonitoringMode(item);
+  const b=$('autoItemSave'),old=b?.textContent||'Save';
+  if(b){b.disabled=true;b.textContent='Saving…'}
+  try{
+    const payload={id:item.id,monitored:mode!=='none',monitor_mode:mode,quality_profile_id:$('autoItemProfile').value,root_folder:$('autoItemRoot').value};
+    if(item.kind==='tv'){
+      const entered=$('autoItemLibraryTitle')?.value.trim()||'',prior=String(item.library_title||'').trim();
+      if(entered!==prior)payload.library_title=entered;
+    }
+    const result=await api('/api/automation/media/update',payload);
+    const saved=result?.item;
+    if(saved&&state.automation?.library){
+      const index=state.automation.library.findIndex(x=>String(x?.id||'')===String(saved.id||''));
+      if(index>=0)state.automation.library[index]=saved;
+      if(String(item?.id||'')===String(saved.id||''))Object.assign(item,saved);
+    }
+    toast(`Monitoring & library naming saved • ${automationMonitoringChoices(item.kind).find(x=>x.value===mode)?.label||'Updated'}.`,'success');
+    // The persisted media update is authoritative. Full Automation summary
+    // recalculation (Wanted, Calendar, health, counts) can be relatively expensive
+    // after changing All/Future monitoring because many episode targets change at
+    // once. Refresh it asynchronously so the Save acknowledgement is immediate.
+    void loadAutomation({quiet:true,background:true});
+  }catch(e){
+    toast(e.message,'error');
+  }finally{
+    if(b){b.disabled=false;b.textContent=old}
+  }
+}
+async function deleteAutomationItem(item){if(!confirm(`Remove ${item.title} from NewzDeck monitoring? Your media files will not be deleted.`))return;try{await api('/api/automation/media/delete',{id:item.id});$('automationItemModal').classList.add('hidden');await loadAutomation();toast('Removed from monitoring.')}catch(e){toast(e.message,'error')}}
+async function scanAutomationLibrary(id=''){const b=$('automationScanBtn');if(b){b.disabled=true;b.textContent='Scanning…'}try{const d=await api('/api/automation/library/scan',{id});await loadAutomation();if(id)await openAutomationItem(id);const offline=(d.offline_roots||[]).length,changes=(d.changes||[]).length;toast(`Scan complete: ${d.matched} media file${d.matched===1?'':'s'} matched${changes?` • ${changes} change${changes===1?'':'s'}`:''}${offline?` • ${offline} root${offline===1?'':'s'} offline`:''}.`,offline?'warning':'success')}catch(e){toast(e.message,'error')}finally{if(b){b.disabled=false;b.textContent='↻ Scan library'}}}
+function wireReleaseSearchButtons(){document.querySelectorAll('[data-release-search]').forEach(b=>b.onclick=()=>openReleaseSearch(b.dataset.releaseSearch,b.dataset.season===''?null:Number(b.dataset.season),b.dataset.episode===''?null:Number(b.dataset.episode)));document.querySelectorAll('[data-season-pack-search]').forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();openReleaseSearch(b.dataset.seasonPackSearch,Number(b.dataset.season),null)})}
 async function openReleaseSearch(itemId,season=null,episode=null){
   const item=autoItem(itemId);if(!item)return;
   const seasonPack=item.kind==='tv'&&season!=null&&episode==null;

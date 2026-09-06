@@ -1,20 +1,20 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.35",
-  "base_version": "3.6.34",
-  "release": "Manual Import Live Progress",
-  "adapter_version": "3.6.35",
+  "version": "3.6.36",
+  "base_version": "3.6.35",
+  "release": "Automation Action Wiring Recovery",
+  "adapter_version": "3.6.36",
   "changes": [
-    "Adds a real live progress bar to the v3.6.34 TV Manual Media Import flow while Import & Organize is running.",
-    "Reports current import phase/file plus byte-based progress for cross-volume copies using the existing Smart Import transaction progress callback rather than a simulated timer.",
-    "Keeps the Import Media modal open and temporarily locks its controls during an active import, then reports files organized and Wanted targets satisfied at completion.",
-    "Reserves completion for authoritative library and Wanted reconciliation so 100% is shown only after the imported media is fully accounted for."
+    "Restores the Automation manual-release-search button wiring accidentally removed from app.js in v3.6.35, including Wanted episode searches and TV episode/season-pack searches.",
+    "Restores the adjacent Automation item helper functions for Refresh metadata, Open folder, Save, Remove, and Scan library that were lost by the same v3.6.35 UI edit.",
+    "Preserves the v3.6.35 real Manual Media Import progress implementation unchanged apart from release identity markers.",
+    "Adds production publish guards that require all restored Automation action helpers and Search button wiring before the source commit can be created."
   ],
   "regression_guards": [
-    "v3.6.34 Manual Media Import mapping, preview, transactional organization, and immediate Wanted reconciliation remain the implementation baseline.",
-    "Import start rebuilds/revalidates the plan and refuses unresolved NEEDS_ATTENTION media before transaction work begins; live progress does not weaken Preview safety.",
-    "Existing library files remain protected by the v3.6.32 no-downgrade/final physical-target revalidation path; equal, worse, duplicate, or indeterminate media cannot overwrite the better existing copy.",
-    "v3.6.33 TV-edition search aliases and the accepted v3.6.28-v3.6.31 SAB/download-control stack remain unchanged except for required v3.6.35 release identity markers."
+    "The /api/automation/releases/search backend route and release scoring/indexer logic are not redesigned; the hotfix restores the missing browser-side action wiring.",
+    "v3.6.35 Manual Import asynchronous progress/start/poll flow remains intact.",
+    "v3.6.34 Manual Import mapping, transactional organization, and immediate Wanted reconciliation remain intact.",
+    "v3.6.32 no-downgrade/target-integrity protections, v3.6.33 TV-edition compatibility, and the accepted v3.6.28-v3.6.31 SAB/download-control stack remain unchanged except for required v3.6.36 release identity markers."
   ],
-  "name": "Manual Import Live Progress"
+  "name": "Automation Action Wiring Recovery"
 }
