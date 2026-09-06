@@ -1,24 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.28",
-  "base_version": "3.6.27",
-  "release": "Downloads Continuity & SAB Recovery Hardening",
-  "adapter_version": "3.6.28",
+  "version": "3.6.29",
+  "base_version": "3.6.28",
+  "release": "Persistent SAB Control Transport",
+  "adapter_version": "3.6.29",
   "changes": [
-    "Keeps every durably owned non-terminal download visible through transient SAB Queue/History slot omissions instead of dropping the card after a three-second presentation window.",
-    "Requires fresh Queue and History absence through the existing ownership-retention window before stale non-terminal ownership can be released, while explicit Remove/Cancel tombstones and terminal History remain authoritative.",
-    "Adds Downloads visibility-continuity telemetry for bridged cards, queued bridges, open bridges, longest observed gap, and SAB omission events.",
-    "Reduces localhost Queue/History read pressure with longer shared live snapshots while preserving the 250 ms browser refresh cadence.",
-    "Prevents temporary tray/user-session launch failures from allocating unnecessary new SAB admin-vN generations, and makes SAB startup/User-Agent labels follow the current adapter version.",
-    "Preserves v3.6.27 runtime adapter identity validation plus v3.6.26 verified Remove and bulk Failed cleanup behavior."
+    "Replaces per-request localhost SAB HTTP teardown with one serialized persistent HTTP/1.1 control connection while preserving the existing single-filed request lock.",
+    "Reopens the private SAB control connection automatically after genuine transport faults, listener replacement, port changes, long idle intervals, or server-requested connection closure.",
+    "Adds SAB HTTP transport diagnostics for total requests, opened/reused connections, reuse percentage, reconnects, transport resets, server closes, idle reopens, and resets grouped by SAB API mode.",
+    "Preserves v3.6.28 durable Downloads visibility continuity as an independent safety layer instead of weakening or replacing it.",
+    "Preserves v3.6.28 clean-generation recovery rules, v3.6.27 adapter identity validation, v3.6.26 verified Remove/bulk Failed cleanup, and v3.6.25 Smart Import safeguards."
   ],
   "regression_guards": [
-    "Explicit Remove/Cancel tombstones and verified terminal SAB state remain authoritative and cannot be overridden by visibility continuity.",
-    "Stale non-terminal ownership remains bounded by the existing fresh Queue/History retention window; continuity does not create permanent ghost downloads.",
-    "v3.6.27 adapter identity validation remains intact.",
-    "v3.6.26 verified Remove and bulk Failed cleanup behavior remains intact.",
-    "v3.6.25 Automation backlog/Smart Import reliability and v3.6.24 durable Download Statistics remain intact.",
+    "All NewzDeck-to-SAB API traffic remains serialized through the existing re-entrant transport lock; persistent connection reuse never introduces overlapping control requests.",
+    "HTTP 401/403 and SAB JSON API-key errors remain authentication failures and continue through the existing authoritative identity-reconciliation path rather than being counted as transport resets.",
+    "Any transport exception invalidates the persistent client connection before existing bounded retry/reconciliation logic runs.",
+    "v3.6.28 visibility continuity and fresh Queue+History absence rules remain unchanged.",
     "Discover/TMDB, Metadata Server v0.3.3 integration, installer/updater behavior, provider settings, and user data preservation are otherwise unchanged."
   ],
-  "name": "Downloads Continuity & SAB Recovery Hardening"
+  "name": "Persistent SAB Control Transport"
 }

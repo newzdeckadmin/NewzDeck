@@ -1,31 +1,29 @@
-NewzDeck v3.6.28
-Downloads Continuity & SAB Recovery Hardening
-
-Downloads visibility continuity:
-- Durably owned non-terminal downloads stay visible through transient SAB Queue/History omissions.
-- A missing slot is shown as refreshing rather than removing the card from Downloads.
-- Stale ownership can expire only after both Queue and History remain freshly absent for the existing retention window.
-- Explicit Remove/Cancel tombstones and terminal SAB state remain authoritative.
-
-SAB recovery hardening:
-- Shared live Queue/History observations are reused slightly longer to reduce localhost control pressure.
-- Temporary tray/user-session launch failures no longer create unnecessary new admin-vN generations.
-- SAB startup and HTTP User-Agent labels now follow the current NewzDeck adapter version.
-- Diagnostics exposes visibility bridges, queued bridges, open bridges, longest gaps, and SAB omission events.
+NewzDeck v3.6.29
+Persistent SAB Control Transport
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.28
+WHAT'S NEW IN v3.6.29
 
-- Fixes the intermittent Downloads-card disappear/reappear behavior observed while
-  the underlying SAB download continued normally.
-- Keeps live status conservative during observation gaps: an expired Active lease
-  becomes visible Queued/refreshing rather than falsely claiming active transfer.
-- Preserves v3.6.27 runtime adapter identity validation and v3.6.26 verified Remove /
-  Remove all failed behavior.
-- Preserves v3.6.25 Automation backlog/Smart Import safeguards, v3.6.24 durable
-  Download Statistics, and accepted earlier NewzDeck behavior.
+- Replaces explicit per-request localhost SAB HTTP connection teardown with a
+  serialized persistent HTTP/1.1 control connection.
+- Queue, History, statistics, completion monitoring and normal SAB API traffic can
+  reuse the same private localhost socket while all requests remain single-filed.
+- Genuine transport failures invalidate the connection before the existing bounded
+  retry/reconciliation logic runs, so a bad socket is never reused.
+- Long-idle connections, SAB listener/port changes, and server-requested closes are
+  reopened cleanly without being confused with a failed download.
+- Diagnostics now exposes SAB HTTP requests, connections opened/reused, reuse
+  percentage, reconnects, transport resets, server closes, idle reopens, and
+  transport-reset counts grouped by SAB API mode.
+- The v3.6.28 Downloads visibility-continuity bridge remains unchanged as a separate
+  safeguard against any Queue/History omission that still occurs.
+
+NewzDeck v3.6.28 durable Downloads continuity, v3.6.27 runtime adapter identity
+validation, v3.6.26 verified Remove / Remove all failed, v3.6.25 Automation
+backlog/Smart Import safeguards, v3.6.24 durable Download Statistics and accepted
+earlier behavior remain preserved.
 
 Normal installed updates preserve settings, provider configuration, Automation data,
 history, queue state, and user data.

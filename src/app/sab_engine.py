@@ -3,6 +3,8 @@ from __future__ import annotations
 import configparser
 import contextlib
 import hashlib
+import http.client
+import io
 import json
 import os
 import re
@@ -22,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.28"
+ADAPTER_VERSION = "3.6.29"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -594,6 +596,31 @@ class SabDownloadManager:
         # NewzDeck saw WinError 10054 from overlapping localhost control requests.
         # Serialize control-plane traffic and make Queue/History freshness explicit.
         self._sab_transport_lock = threading.RLock()
+        # v3.6.29: keep one serialized HTTP/1.1 connection open to the private
+        # localhost SAB API instead of explicitly closing a TCP socket after every
+        # Queue/History/control request. v3.6.28 proved the Downloads continuity
+        # bridge works, but production diagnostics still observed heavy WinError
+        # 10054 churn while SAB itself remained healthy. Persistent transport keeps
+        # the proven single-filed request model while removing connection teardown
+        # from the normal control path.
+        self._sab_http_connection: http.client.HTTPConnection | None = None
+        self._sab_http_port = 0
+        self._sab_http_opened_ts = 0.0
+        self._sab_http_last_request_ts = 0.0
+        self._sab_http_requests = 0
+        self._sab_http_connections_opened = 0
+        self._sab_http_connections_reused = 0
+        self._sab_http_reconnects = 0
+        self._sab_http_transport_resets = 0
+        self._sab_http_server_closes = 0
+        self._sab_http_idle_reopens = 0
+        self._sab_http_last_reset_ts = 0.0
+        self._sab_http_last_reset_mode = ""
+        self._sab_http_resets_by_mode: dict[str, int] = {}
+        # Reopen proactively after a long quiet interval. This is not a failure:
+        # Cheroot may legitimately retire an idle keep-alive socket. Busy Downloads
+        # sessions should reuse the same connection continuously.
+        self._sab_http_idle_reopen_seconds = 25.0
         self._queue_history_lock = threading.RLock()
         self._last_good_queue_payload: dict[str, Any] | None = None
         self._last_good_queue_ts = 0.0
@@ -1863,20 +1890,132 @@ class SabDownloadManager:
                 query[k] = v
         return f"http://127.0.0.1:{int(api_port)}/api?" + urllib.parse.urlencode(query, doseq=True)
 
+    def _close_sab_http_connection_locked(self) -> None:
+        conn = self._sab_http_connection
+        self._sab_http_connection = None
+        self._sab_http_port = 0
+        self._sab_http_opened_ts = 0.0
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _close_sab_http_connection(self) -> None:
+        with self._sab_transport_lock:
+            self._close_sab_http_connection_locked()
+
+    def _sab_http_connection_locked(self, api_port: int, timeout: float) -> tuple[http.client.HTTPConnection, bool]:
+        """Return the serialized persistent localhost SAB HTTP connection.
+
+        The caller must hold ``_sab_transport_lock``. ``reused`` is true only when
+        this request is actually using a connection retained from a prior request.
+        """
+        now = time.time()
+        timeout = max(0.35, float(timeout))
+        conn = self._sab_http_connection
+        reused = bool(conn is not None and self._sab_http_port == int(api_port))
+        if reused and self._sab_http_last_request_ts > 0 and now - self._sab_http_last_request_ts > self._sab_http_idle_reopen_seconds:
+            self._sab_http_idle_reopens += 1
+            self._close_sab_http_connection_locked()
+            conn = None
+            reused = False
+        if conn is None or self._sab_http_port != int(api_port):
+            if conn is not None:
+                self._close_sab_http_connection_locked()
+            conn = http.client.HTTPConnection('127.0.0.1', int(api_port), timeout=timeout)
+            self._sab_http_connection = conn
+            self._sab_http_port = int(api_port)
+            self._sab_http_opened_ts = now
+            self._sab_http_connections_opened += 1
+            if self._sab_http_connections_opened > 1:
+                self._sab_http_reconnects += 1
+            reused = False
+        else:
+            self._sab_http_connections_reused += 1
+        conn.timeout = timeout
+        if conn.sock is not None:
+            try:
+                conn.sock.settimeout(timeout)
+            except OSError:
+                pass
+        return conn, reused
+
+    def _sab_http_transport_telemetry(self) -> dict[str, Any]:
+        now = time.time()
+        requests = int(self._sab_http_requests)
+        reused = int(self._sab_http_connections_reused)
+        with self._sab_transport_lock:
+            active = bool(self._sab_http_connection is not None and self._sab_http_connection.sock is not None)
+            opened_ts = float(self._sab_http_opened_ts or 0.0)
+            last_request_ts = float(self._sab_http_last_request_ts or 0.0)
+            by_mode = dict(sorted(self._sab_http_resets_by_mode.items()))
+        return {
+            'sab_http_requests': requests,
+            'sab_http_connections_opened': int(self._sab_http_connections_opened),
+            'sab_http_connections_reused': reused,
+            'sab_http_reuse_pct': round((reused * 100.0 / requests), 2) if requests > 0 else 0.0,
+            'sab_http_reconnects': int(self._sab_http_reconnects),
+            'sab_http_transport_resets': int(self._sab_http_transport_resets),
+            'sab_http_server_closes': int(self._sab_http_server_closes),
+            'sab_http_idle_reopens': int(self._sab_http_idle_reopens),
+            'sab_http_last_reset_ts': float(self._sab_http_last_reset_ts or 0.0),
+            'sab_http_last_reset_mode': str(self._sab_http_last_reset_mode or ''),
+            'sab_http_resets_by_mode': by_mode,
+            'sab_http_persistent_active': active,
+            'sab_http_connection_age_seconds': max(0.0, now - opened_ts) if active and opened_ts > 0 else 0.0,
+            'sab_http_idle_seconds': max(0.0, now - last_request_ts) if last_request_ts > 0 else 0.0,
+        }
+
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
                  include_key: bool = True, **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": f"NewzDeck/{ADAPTER_VERSION}", "Connection": "close"},
-        )
-        # SAB's own anonymized log showed one healthy process and successful NNTP
-        # transfers while NewzDeck was receiving 10054 on localhost API calls. Keep
-        # NewzDeck's control traffic single-filed so snapshot/completion/provider
-        # threads cannot concurrently churn CherryPy/Cheroot connections.
+        target = urllib.parse.urlsplit(url)
+        request_target = target.path + (("?" + target.query) if target.query else "")
+        headers = {
+            "User-Agent": f"NewzDeck/{ADAPTER_VERSION}",
+            "Accept": "application/json",
+            "Connection": "keep-alive",
+        }
+        # Preserve v3.6.20+'s single-filed control plane, but reuse the underlying
+        # HTTP/1.1 connection. Fully reading each response before the lock is
+        # released makes the socket safe for the next serialized request.
         with self._sab_transport_lock:
-            with urllib.request.urlopen(req, timeout=max(0.35, float(timeout))) as response:
-                data = self._decode_api_payload(response.read())
+            self._sab_http_requests += 1
+            try:
+                conn, _reused = self._sab_http_connection_locked(api_port, timeout)
+                conn.request("GET", request_target, headers=headers)
+                response = conn.getresponse()
+                raw = response.read()
+                status = int(response.status or 0)
+                reason = str(response.reason or "")
+                response_headers = response.headers
+                will_close = bool(response.will_close)
+                self._sab_http_last_request_ts = time.time()
+                if will_close:
+                    self._sab_http_server_closes += 1
+                    self._close_sab_http_connection_locked()
+                if status >= 400:
+                    raise urllib.error.HTTPError(
+                        url, status, reason, response_headers, io.BytesIO(raw)
+                    )
+                data = self._decode_api_payload(raw)
+            except urllib.error.HTTPError:
+                # HTTP auth/semantic failures are not transport resets. Keep the
+                # existing _api() reconciliation behavior intact.
+                raise
+            except Exception as exc:
+                transient = self._is_transient_control_error(exc) or isinstance(
+                    exc, (http.client.HTTPException, OSError)
+                )
+                if transient:
+                    self._sab_http_transport_resets += 1
+                    self._sab_http_last_reset_ts = time.time()
+                    self._sab_http_last_reset_mode = str(mode or "unknown")[:64]
+                    key = self._sab_http_last_reset_mode or "unknown"
+                    self._sab_http_resets_by_mode[key] = int(self._sab_http_resets_by_mode.get(key, 0)) + 1
+                self._close_sab_http_connection_locked()
+                raise
         if isinstance(data, dict) and data.get("error"):
             raise RuntimeError(str(data.get("error")))
         return data
@@ -5203,6 +5342,7 @@ class SabDownloadManager:
             "sab_read_stale_uses": int(self._sab_read_stale_uses),
             "sab_control_degraded_snapshots": int(self._sab_control_degraded_snapshots),
             "sab_stale_snapshot_suppressed": int(self._sab_stale_snapshot_suppressed),
+            **self._sab_http_transport_telemetry(),
             "engine_pause_mismatch": False, "engine_idle_paused": False,
             "active_card_continuity_bridges": int(self._active_continuity_bridges),
             "active_card_continuity_last_ts": float(self._active_continuity_last_ts),
@@ -5260,7 +5400,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), **self._sab_http_transport_telemetry(), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -5915,6 +6055,7 @@ class SabDownloadManager:
                                 "sab_read_stale_uses": int(self._sab_read_stale_uses),
                                 "sab_control_degraded_snapshots": int(self._sab_control_degraded_snapshots),
                                 "sab_stale_snapshot_suppressed": int(self._sab_stale_snapshot_suppressed),
+                                **self._sab_http_transport_telemetry(),
                                 "engine_queue_paused_raw": bool(queue_paused),
                                 "engine_has_transfer_work": bool(has_engine_transfer_work),
                                 "engine_idle_paused": bool(
@@ -6835,3 +6976,6 @@ class SabDownloadManager:
                 self._api("shutdown", timeout=2.0)
             except Exception:
                 pass
+        # The persistent control socket belongs to this NewzDeck process only.
+        # Closing it never stops SAB when the background service is the owner.
+        self._close_sab_http_connection()

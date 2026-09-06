@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.28** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.29** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.28_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.29_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.28 highlights
+## v3.6.29 highlights
 
-v3.6.28 hardens Downloads visibility across transient SAB Queue/History omissions and tightens private-SAB recovery after the control-channel resets observed in production.
+v3.6.29 moves the built-in SAB control plane from per-request localhost TCP teardown to one serialized persistent HTTP/1.1 connection, directly targeting the WinError 10054 churn measured after v3.6.28 proved the Downloads visibility bridge was working.
 
-- **Downloads no longer blink out during SAB observation gaps:** a durably owned non-terminal job remains visible while NewzDeck refreshes SAB state instead of disappearing after a short presentation timeout.
-- **Fresh absence is required before ownership expires:** stale ownership can be released only after both Queue and History continuously provide fresh absence for the existing retention window; explicit Remove/Cancel and terminal SAB state remain authoritative.
-- **Better diagnostics:** visibility bridges, queued bridges, open bridges, longest gaps, and SAB omission events are now exposed in Diagnostics.
-- **Lower control-plane pressure:** shared live Queue/History observations are reused slightly longer without slowing the browser's 250 ms Downloads refresh cadence.
-- **Cleaner SAB recovery:** temporary tray/user-session launcher failures no longer allocate unnecessary `admin-vN` generations, and SAB startup/User-Agent labels now follow the current adapter version.
-- **Prior safeguards preserved:** v3.6.27 runtime identity validation, v3.6.26 verified Remove/bulk Failed cleanup, v3.6.25 Smart Import safeguards, and v3.6.24 durable Download Statistics remain intact.
+- **Persistent localhost control:** Queue, History, statistics, completion monitoring and other SAB API calls can reuse one private connection instead of explicitly closing the socket after every request.
+- **Safe reconnect:** a genuine transport fault, listener replacement, port change, long idle period, or server-requested close invalidates the connection and the existing bounded retry/reconciliation logic opens a fresh one.
+- **No new request concurrency:** all control calls remain serialized through the existing SAB transport lock.
+- **Per-mode diagnostics:** Diagnostics now reports requests, opened/reused connections, reuse percentage, reconnects, transport resets, server closes, idle reopens, and reset counts grouped by SAB API mode.
+- **v3.6.28 continuity preserved:** durable Downloads visibility remains the independent safety net for any Queue/History omission that still occurs.
 
-See [the full v3.6.28 release notes](release/RELEASE_NOTES_v3.6.28.md).
+See [the full v3.6.29 release notes](release/RELEASE_NOTES_v3.6.29.md).
 
 ## Requirements
 
@@ -68,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.28_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.29_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

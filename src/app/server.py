@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.28"
+APP_VERSION = "3.6.29"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11773,6 +11773,24 @@ def diagnostics_report() -> str:
             f"queue_age_seconds={float(tel.get('sab_queue_age_seconds',0) or 0):.3f}; "
             f"history_fresh={bool(tel.get('sab_history_fresh',True))}; "
             f"history_age_seconds={float(tel.get('sab_history_age_seconds',0) or 0):.3f}"
+        )
+        reset_modes = tel.get('sab_http_resets_by_mode') if isinstance(tel.get('sab_http_resets_by_mode'), dict) else {}
+        reset_modes_text = ','.join(f"{k}:{int(v or 0)}" for k, v in sorted(reset_modes.items())) or 'none'
+        lines.append(
+            "SAB HTTP transport: "
+            f"requests={int(tel.get('sab_http_requests',0) or 0)}; "
+            f"opened={int(tel.get('sab_http_connections_opened',0) or 0)}; "
+            f"reused={int(tel.get('sab_http_connections_reused',0) or 0)}; "
+            f"reuse_pct={float(tel.get('sab_http_reuse_pct',0) or 0):.2f}; "
+            f"reconnects={int(tel.get('sab_http_reconnects',0) or 0)}; "
+            f"transport_resets={int(tel.get('sab_http_transport_resets',0) or 0)}; "
+            f"server_closes={int(tel.get('sab_http_server_closes',0) or 0)}; "
+            f"idle_reopens={int(tel.get('sab_http_idle_reopens',0) or 0)}; "
+            f"persistent_active={bool(tel.get('sab_http_persistent_active',False))}; "
+            f"connection_age_seconds={float(tel.get('sab_http_connection_age_seconds',0) or 0):.1f}; "
+            f"last_reset_ts={float(tel.get('sab_http_last_reset_ts',0) or 0):.3f}; "
+            f"last_reset_mode={str(tel.get('sab_http_last_reset_mode','') or '')}; "
+            f"resets_by_mode={reset_modes_text}"
         )
         lines.append(
             "Backlog reliability: "
