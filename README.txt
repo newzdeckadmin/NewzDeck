@@ -13,8 +13,8 @@ WHAT'S NEW IN v3.6.33
   queries, then merges and deduplicates returned releases.
 - Makes local release identity validation understand the same exact country-suffix
   equivalence while continuing to reject conflicting editions and fuzzy/bare aliases.
-- Short country codes must be explicit uppercase suffixes, so ordinary titles such
-  as This Is Us are not reinterpreted as a country edition.
+- Short country codes must be explicit uppercase suffixes, so ordinary mixed-case
+  title words are not reinterpreted as country-edition markers.
 - Preserves v3.6.32 Automation target-integrity/no-downgrade protections and the
   accepted v3.6.28-v3.6.31 SAB/download-control stack except for required v3.6.33
   identity markers.

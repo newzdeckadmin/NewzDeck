@@ -43,7 +43,7 @@ The Python backend, Automation engine, SAB adapter, and browser interface are al
 
 - **v3.6.24 - Durable Download Statistics.** Replaces the incomplete session/legacy statistics bridge with restart-safe SAB lifetime accounting: persistent SAB byte totals are additive to the pre-SAB baseline, completed jobs are counted once across service/desktop runtimes, retained History/Archive timing is backfilled, Average Speed is weighted over timed bytes, Peak Speed is durable, and captured lifetime statistics survive History clearing.
 
-- **v3.6.23 - Accent-Insensitive Automation Search.** Folds Latin accents/diacritics and common non-decomposing Latin characters for Newznab queries and safe local title identity checks while preserving canonical TMDB/library names; this fixes titles such as 90 Day Fiancé when releases are posted as 90 Day Fiance without weakening token-based false-positive protection.
+- **v3.6.23 - Accent-Insensitive Automation Search.** Folds Latin accents/diacritics and common non-decomposing Latin characters for Newznab queries and safe local title identity checks while preserving canonical TMDB/library names; this improves compatibility when release names omit diacritics without weakening token-based false-positive protection.
 
 - **v3.6.22 - All Posts Binary Resolution & Recovery.** Makes complete reconstructed multipart binaries actionable before friendly-name resolution, automatically drains bounded filename work, distinguishes opaque/missing/unavailable/retryable outcomes, backs off on transient provider failures, keeps long package reconstruction polling alive, flattens direct loose-binary downloads into the configured Download Folder, and adds conservative PAR2/archival obfuscated-name recovery.
 

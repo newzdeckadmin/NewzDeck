@@ -36,7 +36,7 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 
 ## v3.6.33 highlights
 
-v3.6.33 fixes a TV-edition naming compatibility gap found in production Automation searches: indexers can use a short country code while the canonical TMDB title uses a longer country name (or vice versa). The production case was **Love Island USA** versus releases named `Love.Island.US...`, but the fix now covers the same safe pattern for several common country editions.
+v3.6.33 fixes a TV-edition naming compatibility gap found in production Automation searches: indexers can use a short country code while the canonical TMDB title uses a longer country name (or vice versa). The fix is generalized across several common country-edition suffix families without relying on title-specific exceptions.
 
 - **Safe country-edition search aliases:** confirmed TV editions can search equivalent suffixes for `USA`/`US`, `Australia`/`AU`/`AUS`, `United Kingdom`/`UK`/`GB`, `Canada`/`CA`/`CAN`, and `New Zealand`/`NZ`/`NZL`.
 - **Alias-aware release validation:** equivalent suffixes are accepted only when persisted country metadata confirms the same edition; conflicting country editions and fuzzy/bare franchise aliases remain rejected.
