@@ -1,22 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.33",
-  "base_version": "3.6.32",
-  "release": "TV Edition Search Alias Compatibility",
-  "adapter_version": "3.6.33",
+  "version": "3.6.34",
+  "base_version": "3.6.33",
+  "release": "Manual Media Import & Wanted Reconciliation",
+  "adapter_version": "3.6.34",
   "changes": [
-    "Adds safe confirmed TV country-suffix aliases for USA/US, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN, and New Zealand/NZ/NZL.",
-    "Searches canonical and equivalent country-edition title forms through bounded Newznab compatibility queries and merges/deduplicates returned releases.",
-    "Makes local TV release identity validation accept the same exact country-suffix equivalence while rejecting conflicting editions and fuzzy/bare franchise aliases.",
-    "Expands the per-indexer search wall-clock allowance only enough to cover the canonical specialized request plus at most three bounded canonical/alias generic fallbacks."
+    "Adds TV Manual Media Import from an external folder for an entire season or a single episode from the Automation item view.",
+    "Adds a non-destructive Preview Import step that maps source files to episode metadata, canonical destination names, incoming/existing quality decisions, and quality-cutoff outcomes before commit.",
+    "Routes committed manual imports through the existing transactional Smart Import rename/move and final no-downgrade revalidation path instead of creating a parallel organizer.",
+    "Immediately reconciles Automation library quality state and Wanted targets after successful external imports so satisfied missing/upgrade targets disappear without another download, restart, or library scan."
   ],
   "regression_guards": [
-    "Ordinary titles retain the prior canonical specialized-search fast path; aliases require persisted TV country identity to agree with an explicit canonical country suffix, and short codes must be uppercase.",
-    "Country-suffix aliases are bounded to USA/US, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN, and New Zealand/NZ/NZL; fuzzy/bare franchise aliases are not added.",
-    "Conflicting country editions remain rejected by the existing identity gate.",
-    "Base retry timing, Wanted policy, queue depth, release-feed behavior, and Continuous Automation scheduler semantics are unchanged.",
-    "v3.6.32 Automation target-integrity and no-downgrade protections remain intact.",
-    "v3.6.31 historical SAB probe quieting, v3.6.30 runtime-auth/no-op synchronization, v3.6.29 persistent HTTP/1.1 transport, and v3.6.28 Downloads visibility continuity are unchanged except for the required v3.6.33 adapter identity marker."
+    "Manual Media Import is explicitly user-selected and currently limited to TV items; season imports map only episodes present in current Automation metadata and single-episode imports remain exact-target bounded.",
+    "Preview never moves or deletes media and never writes the Automation library record; commit always rebuilds and revalidates the plan from current state.",
+    "Existing library files are replaced only when the incoming media is provably better under the selected quality profile; equal, worse, duplicate, or indeterminate-quality media keeps the existing file.",
+    "Import commit re-builds the plan and revalidates the physical destination immediately before transaction commit so Preview cannot bypass live no-downgrade protection.",
+    "v3.6.33 TV edition search aliases, v3.6.32 Automation target-integrity/no-downgrade protections, and the accepted v3.6.28-v3.6.31 SAB/download-control stack remain intact except for required v3.6.34 identity markers."
   ],
-  "name": "TV Edition Search Alias Compatibility"
+  "name": "Manual Media Import & Wanted Reconciliation"
 }

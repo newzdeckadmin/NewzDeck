@@ -459,7 +459,7 @@ def parse_release(title: str) -> dict[str, Any]:
         'is_multi_episode':is_multi_episode, 'is_season_pack':is_season_pack,
     }
 
-SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
+SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab", "manual_library_import"}
 
 def _is_smart_import_context(context: dict[str, Any] | None) -> bool:
     return isinstance(context, dict) and str(context.get("source") or "") in SMART_IMPORT_SOURCES
@@ -490,7 +490,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.33'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.34'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -3998,7 +3998,8 @@ class MediaAutomationEngine:
                     action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
                 else:
                     action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
-                    self._note_target_integrity('downgrades_blocked')
+                    if not bool(context.get('preview')):
+                        self._note_target_integrity('downgrades_blocked')
             entries.append({'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing is not None and existing.exists() else '', 'episode':None,'season':None,'episode_title':''})
             inspections.append({'source':str(source),'identified':f'{title} ({year})' if year else title,'quality':quality,'action':action,'destination':str(dest),'reason':reason})
             for f in candidates:
@@ -4007,6 +4008,7 @@ class MediaAutomationEngine:
             season_ctx=int(context.get('season') or 0) if context.get('season') is not None else None
             target_ep=int(context.get('episode') or 0) if context.get('episode') is not None else None
             season_pack=bool(context.get('season_pack'))
+            manual_library_import=str(context.get('source') or '')=='manual_library_import'
 
             # NZBGeek and other indexers deliberately obfuscate payload filenames.
             # For an exact single-episode Automation target, release identity comes
@@ -4050,7 +4052,7 @@ class MediaAutomationEngine:
                 if sn is None or en is None:
                     inspections.append({'source':str(source),'identified':'Unknown episode','quality':str(parsed.get('quality') or ''),'action':'NEEDS_ATTENTION','destination':'','reason':why})
                     continue
-                if season_ctx and sn!=season_ctx:
+                if season_ctx is not None and sn!=season_ctx:
                     inspections.append({'source':str(source),'identified':f'S{sn:02d}E{en:02d}','quality':str(parsed.get('quality') or ''),'action':'IGNORE','destination':'','reason':f'Outside requested Season {season_ctx}'})
                     continue
                 sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None)
@@ -4059,7 +4061,7 @@ class MediaAutomationEngine:
                     inspections.append({'source':str(source),'identified':f'S{sn:02d}E{en:02d}','quality':str(parsed.get('quality') or ''),'action':'IGNORE','destination':'','reason':'Episode is not present in Automation metadata'})
                     continue
                 exact_target=bool(not season_pack and target_ep is not None and season_ctx is not None and sn==season_ctx and en==target_ep)
-                if ep.get('monitored') is False and not exact_target:
+                if ep.get('monitored') is False and not exact_target and not manual_library_import:
                     inspections.append({'source':str(source),'identified':f'S{sn:02d}E{en:02d}','quality':str(parsed.get('quality') or ''),'action':'IGNORE','destination':'','reason':'Episode is unmonitored'})
                     continue
                 q=str(parsed.get('quality') or 'Unknown'); quality=q if q!='Unknown' else release_quality
@@ -4083,7 +4085,8 @@ class MediaAutomationEngine:
                             action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
                         else:
                             action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
-                            self._note_target_integrity('downgrades_blocked')
+                            if not bool(context.get('preview')):
+                                self._note_target_integrity('downgrades_blocked')
                 key=(sn,en)
                 prev=seen.get(key)
                 candidate={'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing.exists() else '', 'episode':en,'season':sn,'episode_title':ep_title,'episode_ref':ep}
@@ -4336,7 +4339,8 @@ class MediaAutomationEngine:
         if not _is_smart_import_context(context): return {'ok':False,'skipped':True,'reason':'Not a Smart Import media grab'}
         cfg=self._config()
         if not bool(cfg.get('plex_organize_enabled',True)): return {'ok':False,'skipped':True,'reason':'Smart Import organization is disabled'}
-        one_time=str(context.get('source') or '')=='manual_media_grab'
+        source_kind=str(context.get('source') or '')
+        one_time=source_kind=='manual_media_grab'
         with self.lock:
             lib=self._library()
             item=next((x for x in lib if str(x.get('id'))==str(context.get('item_id') or '')),None) if not one_time else None
@@ -4354,7 +4358,7 @@ class MediaAutomationEngine:
                 profile=next((p for p in self._profiles() if str(p.get('id'))==str(item.get('quality_profile_id'))),self._profiles()[0])
             if not root: return {'ok':False,'needs_root':True,'reason':f"Add a {'TV' if item.get('kind')=='tv' else 'Movie'} root folder in Automation Setup"}
             if not root.exists() or not root.is_dir(): return {'ok':False,'needs_root':True,'reason':f'Configured Root Folder is unavailable: {root}'}
-            if item.get('kind')=='tv' and not _tv_release_identity_match(str(context.get('release_title') or ''),item):
+            if item.get('kind')=='tv' and source_kind!='manual_library_import' and not _tv_release_identity_match(str(context.get('release_title') or ''),item):
                 self._event('import-inspection',f"Rejected cross-series Smart Import for {item.get('title')}",item_id=item.get('id'),release_title=str(context.get('release_title') or ''),reason='TV franchise/edition identity mismatch')
                 return {'ok':False,'needs_attention':True,'reason':'The completed release belongs to a different TV franchise/edition than this Automation item. The downloaded output was preserved for review.','inspection':[{'source':str(context.get('release_title') or ''),'identified':'Different TV franchise/edition','quality':str(context.get('release_quality') or ''),'action':'NEEDS_ATTENTION','destination':'','reason':'Release title country/edition does not match the Automation item'}]}
             files=[]
@@ -4484,6 +4488,106 @@ class MediaAutomationEngine:
             target_label=str(item.get('title') or 'Movie')
         all_final=imported+kept_existing_files
         return {'ok':True,'destination':primary,'destinations':[x['destination'] for x in all_final],'files':imported,'kept_files':kept_existing_files,'quality':str((all_final[0].get('quality') if all_final else context.get('release_quality')) or 'Unknown'),'kind':item.get('kind'),'item_id':'' if one_time else item.get('id'),'one_time':one_time,'target_label':target_label,'release_title':str(context.get('release_title') or ''),'release_size':int(context.get('release_size') or 0),'verified':True,'imported_count':len(imported),'season_pack':bool(context.get('season_pack')),'inspection':inspections,'needs_attention_count':len(attention),'cleanup_safe':len(attention)==0,'kept_existing':sum(1 for e in entries if e.get('action') in {'DUPLICATE','KEEP_EXISTING'})}
+
+    def _manual_library_import_request(self, item_id:str, source_folder:str, season:Any=None, episode:Any=None, *, preview:bool=False) -> dict[str,Any]:
+        """Resolve one explicit TV library import without changing persistent state."""
+        source=Path(str(source_folder or '').strip().strip('"')).expanduser()
+        if not str(source_folder or '').strip():
+            raise ValueError('Choose a source folder containing the TV media to import.')
+        if not source.exists() or not source.is_dir():
+            raise ValueError(f'Source folder does not exist or is not accessible: {source}')
+        try:
+            sn=int(season)
+        except (TypeError,ValueError):
+            raise ValueError('Choose a season to import.')
+        try:
+            en=int(episode) if episode not in (None,'') else None
+        except (TypeError,ValueError):
+            raise ValueError('Choose a valid episode number.')
+        if sn < 0 or (en is not None and en <= 0):
+            raise ValueError('Choose a valid season and episode.')
+
+        with self.lock:
+            lib=self._library()
+            item=next((x for x in lib if str(x.get('id') or '')==str(item_id or '')),None)
+            if not item:
+                raise ValueError('Automation library item was not found.')
+            if str(item.get('kind') or '')!='tv':
+                raise ValueError('Manual Media Import currently supports TV shows only.')
+            sr=next((x for x in item.get('seasons') or [] if int(x.get('season_number') or 0)==sn),None)
+            if sr is None:
+                raise ValueError(f'Season {sn} is not present in the current TV metadata.')
+            if en is not None:
+                ep=next((x for x in (sr.get('episodes') or []) if int(x.get('episode_number') or 0)==en),None)
+                if ep is None:
+                    raise ValueError(f'S{sn:02d}E{en:02d} is not present in the current TV metadata.')
+            profiles=self._profiles()
+            profile=next((p for p in profiles if str(p.get('id'))==str(item.get('quality_profile_id'))),profiles[0])
+            root=self._resolve_root(item)
+            if not root:
+                raise ValueError('Add a TV Root Folder in Automation Setup before importing media.')
+            if not root.exists() or not root.is_dir():
+                raise ValueError(f'Configured Root Folder is unavailable: {root}')
+            files=[]
+            try:
+                files=[x for x in source.rglob('*') if x.is_file() and x.suffix.casefold() in VIDEO_EXTS]
+            except OSError as exc:
+                raise ValueError(f'NewzDeck could not read the selected source folder: {exc}') from exc
+            if not files:
+                raise ValueError('No supported video files were found in the selected source folder.')
+            context={
+                'source':'manual_library_import','manual_import':True,'preview':bool(preview),
+                'item_id':str(item.get('id') or ''),'kind':'tv','title':str(item.get('title') or ''),
+                'season':sn,'episode':en,'season_pack':en is None,
+                'release_title':str(item.get('title') or ''),'release_quality':'Unknown',
+                'planned_root_folder':str(root),
+            }
+            plan=self._build_import_plan(item,context,files,root,profile)
+            return {'item':item,'profile':profile,'root':root,'source':source,'files':files,'context':context,'plan':plan}
+
+    def manual_library_import_preview(self, item_id:str, source_folder:str, season:Any=None, episode:Any=None) -> dict[str,Any]:
+        """Return an explainable dry-run of an external TV episode/season import."""
+        req=self._manual_library_import_request(item_id,source_folder,season,episode,preview=True)
+        item=req['item']; profile=req['profile']; plan=req['plan']; entries=list(plan.get('entries') or [])
+        inspections=[]
+        entry_by_source={str(e.get('source') or ''):e for e in entries}
+        for row in plan.get('inspections') or []:
+            out=dict(row); entry=entry_by_source.get(str(row.get('source') or ''))
+            result_quality=''
+            if entry:
+                if str(entry.get('action') or '') in {'KEEP_EXISTING','DUPLICATE'}:
+                    result_quality=str(entry.get('old_quality') or entry.get('quality') or 'Unknown')
+                else:
+                    result_quality=str(entry.get('quality') or 'Unknown')
+            out['current_quality']=str((entry or {}).get('old_quality') or '')
+            out['result_quality']=result_quality
+            out['cutoff']=str(profile.get('cutoff') or '')
+            out['cutoff_met']=bool(result_quality and self._quality_cutoff_met(result_quality,profile))
+            inspections.append(out)
+        counts={name:sum(1 for x in inspections if str(x.get('action') or '')==name) for name in ('IMPORT','UPGRADE','KEEP_EXISTING','DUPLICATE','IGNORE','NEEDS_ATTENTION')}
+        actionable=counts['IMPORT']+counts['UPGRADE']
+        if plan.get('error'):
+            return {'ok':False,'needs_attention':True,'reason':str(plan.get('error')),'item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':req['context'].get('season'),'episode':req['context'].get('episode'),'source_folder':str(req['source']),'files_found':len(req['files']),'inspection':inspections,'counts':counts,'cutoff':str(profile.get('cutoff') or '')}
+        if not entries:
+            return {'ok':False,'needs_attention':True,'reason':'No source files could be mapped safely to the selected TV target. Review the preview and filenames.','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':req['context'].get('season'),'episode':req['context'].get('episode'),'source_folder':str(req['source']),'files_found':len(req['files']),'inspection':inspections,'counts':counts,'cutoff':str(profile.get('cutoff') or '')}
+        return {'ok':True,'can_import':bool(actionable or counts['KEEP_EXISTING'] or counts['DUPLICATE']),'item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':req['context'].get('season'),'episode':req['context'].get('episode'),'season_pack':bool(req['context'].get('season_pack')),'source_folder':str(req['source']),'root_folder':str(req['root']),'files_found':len(req['files']),'inspection':inspections,'counts':counts,'cutoff':str(profile.get('cutoff') or ''),'needs_attention_count':counts['NEEDS_ATTENTION']}
+
+    def manual_library_import(self, item_id:str, source_folder:str, season:Any=None, episode:Any=None) -> dict[str,Any]:
+        """Commit an explicit external TV import through the normal Smart Import transaction."""
+        before=self.wanted()
+        before_keys={str(x.get('target_key') or '') for x in list(before.get('missing') or [])+list(before.get('upgrades') or []) if str(x.get('item_id') or '')==str(item_id or '')}
+        req=self._manual_library_import_request(item_id,source_folder,season,episode,preview=False)
+        context=dict(req['context']); context.pop('preview',None)
+        result=self.import_completed_download(context,[str(req['source'])],staging_dir=None)
+        after=self.wanted()
+        after_keys={str(x.get('target_key') or '') for x in list(after.get('missing') or [])+list(after.get('upgrades') or []) if str(x.get('item_id') or '')==str(item_id or '')}
+        satisfied=sorted(x for x in before_keys-after_keys if x)
+        result['wanted_satisfied_count']=len(satisfied)
+        result['wanted_satisfied_targets']=satisfied
+        result['wanted_remaining_count']=len(after_keys)
+        if result.get('ok'):
+            self._event('manual-import',f"Manual Media Import completed for {req['item'].get('title')}",item_id=str(item_id or ''),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),source_folder=str(req['source']),imported_count=int(result.get('imported_count') or 0),kept_existing=int(result.get('kept_existing') or 0),wanted_satisfied=len(satisfied),wanted_remaining=len(after_keys))
+        return result
 
     def _aired(self,d:str):
         if not d: return False

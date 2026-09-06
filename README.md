@@ -9,20 +9,20 @@
 </p>
 
 <p align="center">
-  <a href="https://www.newzdeck.com/">Website</a> ·
-  <a href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download</a> ·
+  <a href="https://www.newzdeck.com/">Website</a> Â·
+  <a href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download</a> Â·
   <a href="https://github.com/newzdeckadmin/NewzDeck/issues">Report an issue</a>
 </p>
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.33** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.34** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.33_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.34_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
-NewzDeck is free and open source. **Usenet access is not included** — you need your own Usenet provider account. Automation and interactive NZB search can also use your own Newznab-compatible indexer.
+NewzDeck is free and open source. **Usenet access is not included** â€” you need your own Usenet provider account. Automation and interactive NZB search can also use your own Newznab-compatible indexer.
 
 ## What NewzDeck does
 
@@ -31,21 +31,20 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **See downloads live** with near-real-time transfer state, stable Active cards, and live Verify, Repair, Unpack, and Smart Import progress.
 - **Discover movies and TV** with TMDB-powered posters, backdrops, metadata, cast/crew, trending titles, new releases, recommendations, filtering, and responsive title details.
 - **Automate TV and movies** with monitored libraries, quality profiles, Wanted items, calendar, history, root folders, and Newznab-compatible indexers.
-- **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
+- **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.33 highlights
+## v3.6.34 highlights
 
-v3.6.33 fixes a TV-edition naming compatibility gap found in production Automation searches: indexers can use a short country code while the canonical TMDB title uses a longer country name (or vice versa). The fix is generalized across several common country-edition suffix families without relying on title-specific exceptions.
+v3.6.34 adds Manual Media Import for externally obtained TV media. A TV Automation item can import an entire season or a single episode from a selected folder, preview the exact mapping and quality decision first, then commit through NewzDeck's existing transactional Smart Import path.
 
-- **Safe country-edition search aliases:** confirmed TV editions can search equivalent suffixes for `USA`/`US`, `Australia`/`AU`/`AUS`, `United Kingdom`/`UK`/`GB`, `Canada`/`CA`/`CAN`, and `New Zealand`/`NZ`/`NZL`.
-- **Alias-aware release validation:** equivalent suffixes are accepted only when persisted country metadata confirms the same edition; conflicting country editions and fuzzy/bare franchise aliases remain rejected.
-- **Merged/deduplicated indexer results:** canonical and alias searches are combined without duplicating the same GUID/result.
-- **Bounded compatibility budget:** the indexer worker wall-clock allowance covers the canonical specialized query plus at most three bounded generic canonical/alias fallbacks.
-- **Accepted safety stack preserved:** v3.6.32 Automation target-integrity/downgrade protection and the accepted v3.6.28-v3.6.31 SAB/download-control path are unchanged apart from required version identity markers.
+- **Season or episode import:** choose an external folder from a TV item and target an entire season or one exact episode.
+- **Preview before commit:** see episode identification, incoming/current quality, planned rename/move destination, import action, and whether the profile cutoff will be satisfied before any media is changed.
+- **Existing safety path reused:** commit rebuilds the plan and uses the v3.6.32 final no-downgrade revalidation plus transactional copy/move verification instead of bypassing Smart Import protections.
+- **Immediate Wanted reconciliation:** successful external imports update authoritative episode quality/cutoff state and immediately remove satisfied missing/upgrade targets from Wanted.
+- **Accepted behavior preserved:** v3.6.33 TV-edition search aliases, v3.6.32 Automation integrity protections, and the accepted v3.6.28-v3.6.31 SAB/download-control path remain unchanged apart from required v3.6.34 identity markers.
 
-See [the full v3.6.33 release notes](release/RELEASE_NOTES_v3.6.33.md).
-
+See [the full v3.6.34 release notes](release/RELEASE_NOTES_v3.6.34.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.33_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.34_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

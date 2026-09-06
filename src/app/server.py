@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.33"
+APP_VERSION = "3.6.34"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -12392,6 +12392,12 @@ class AppHandler(SimpleHTTPRequestHandler):
                 elif sys.platform=='win32':
                     os.startfile(location)
                 return self._json(200, {'ok':True,'path':location})
+            if parsed.path == "/api/automation/manual-import/choose-source":
+                return self.automation_choose_import_source_api(data)
+            if parsed.path == "/api/automation/manual-import/preview":
+                return self._json(200, MEDIA_AUTOMATION.manual_library_import_preview(str(data.get("item_id") or ""), str(data.get("source_folder") or ""), data.get("season"), data.get("episode")))
+            if parsed.path == "/api/automation/manual-import/commit":
+                return self._json(200, MEDIA_AUTOMATION.manual_library_import(str(data.get("item_id") or ""), str(data.get("source_folder") or ""), data.get("season"), data.get("episode")))
             if parsed.path == "/api/automation/import/retry":
                 return self._json(200, DOWNLOAD_MANAGER.retry_automation_import(str(data.get("collection_id") or "")))
             if parsed.path == "/api/automation/library/scan":
@@ -13220,6 +13226,19 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._json(200, {'ok': True, 'cancelled': True, 'folder': '', 'added': False})
         saved = self._add_automation_root(kind, path)
         return self._json(200, {'ok': True, 'cancelled': False, **saved})
+
+    def automation_choose_import_source_api(self, data: dict[str, Any]):
+        initial_path = str(data.get('initial') or '').strip()
+        title = str(data.get('title') or 'Choose folder containing TV media to import').strip()
+        result = _native_folder_picker(initial_path, title)
+        path = str(result.get('folder') or '').strip()
+        cancelled = bool(result.get('cancelled')) or not bool(path)
+        if cancelled:
+            return self._json(200, {'ok': True, 'cancelled': True, 'folder': ''})
+        folder = Path(path)
+        if not folder.exists() or not folder.is_dir():
+            raise ValueError(f'Folder does not exist or is not accessible: {path}')
+        return self._json(200, {'ok': True, 'cancelled': False, 'folder': os.path.normpath(str(folder))})
 
     def config_backup_api(self):
         backup = {'format':'NewzDeckConfigBackup', 'version':APP_VERSION, 'created':datetime.now().isoformat(timespec='seconds'), 'settings':json_read(SETTINGS_FILE, {}), 'providers':json_read(PROVIDERS_FILE, []), 'saved_searches':json_read(SAVED_SEARCHES_FILE, []), 'media_automation': {'library': MEDIA_AUTOMATION._library(), 'config': MEDIA_AUTOMATION._config(), 'indexers': MEDIA_AUTOMATION._indexers(), 'profiles': MEDIA_AUTOMATION._profiles()}}

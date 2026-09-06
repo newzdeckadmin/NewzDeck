@@ -1,4 +1,4 @@
-// NewzDeck desktop launcher v3.5.33 — Source-Complete Runtime & Handoff
+// NewzDeck desktop launcher v3.5.33 â€” Source-Complete Runtime & Handoff
 //
 // v3.6.5 preserves the source-complete runtime/handoff path and adds Windows taskbar
 // identity for the browser-hosted application window. The legacy opaque Bootstrap/Core
@@ -360,7 +360,7 @@ func logLine(start time.Time, format string, args ...any) {
 	defer f.Close()
 	msg := fmt.Sprintf(format, args...)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	_, _ = fmt.Fprintf(f, "%s [startup-v3.6.33 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
+	_, _ = fmt.Fprintf(f, "%s [startup-v3.6.34 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
 }
 
 func acquireStartupMutex() (uintptr, bool) {
