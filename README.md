@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.36** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.37** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.36_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.37_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.36 highlights
+## v3.6.37 highlights
 
-v3.6.36 is a focused hotfix for Automation actions accidentally disconnected by the v3.6.35 Manual Import progress UI edit.
+v3.6.37 adds clear operation feedback to user actions that previously could appear idle while their existing backend work was running.
 
-- **Manual release search restored:** Wanted Search releases, TV episode Search, and season-pack Search are wired again.
-- **Automation item actions restored:** Save, Refresh metadata, Open folder, Remove, and Scan library are restored from the accepted v3.6.34 behavior.
-- **Backend search path unchanged:** Newznab querying, scoring, blacklist logic, and Grab behavior remain on the existing production implementation.
-- **Progress feature preserved:** v3.6.35 Manual Import live transaction progress remains intact.
-- **New regression blocker:** production publishing now requires the shared Automation action helpers and Search bindings before a source commit can be created.
+- **Automation Scan files feedback:** the actual item-level button now shows Scanning files plus an inline activity status during library reconciliation.
+- **Audited busy states:** adds consistent activity feedback to selected Automation, Settings, Diagnostics, and provider actions that can take noticeable time.
+- **No fake percentages:** endpoints without real progress expose an indeterminate spinner/working state; Manual Import keeps its real percentage progress.
+- **Existing loading surfaces preserved:** Browse/Discover skeletons, release-search loading, Update Center, full-group search, and Downloads live state are not redesigned.
+- **Visible version repaired:** sidebar/About static identity now matches the release and is validated during publishing.
 
-See [the full v3.6.36 release notes](release/RELEASE_NOTES_v3.6.36.md).
+See [the full v3.6.37 release notes](release/RELEASE_NOTES_v3.6.37.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.36_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.37_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

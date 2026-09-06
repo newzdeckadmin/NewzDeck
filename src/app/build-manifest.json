@@ -1,20 +1,20 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.36",
-  "base_version": "3.6.35",
-  "release": "Automation Action Wiring Recovery",
-  "adapter_version": "3.6.36",
+  "version": "3.6.37",
+  "base_version": "3.6.36",
+  "release": "Operation Progress & Activity Feedback",
+  "adapter_version": "3.6.37",
+  "name": "Operation Progress & Activity Feedback",
   "changes": [
-    "Restores the Automation manual-release-search button wiring accidentally removed from app.js in v3.6.35, including Wanted episode searches and TV episode/season-pack searches.",
-    "Restores the adjacent Automation item helper functions for Refresh metadata, Open folder, Save, Remove, and Scan library that were lost by the same v3.6.35 UI edit.",
-    "Preserves the v3.6.35 real Manual Media Import progress implementation unchanged apart from release identity markers.",
-    "Adds production publish guards that require all restored Automation action helpers and Search button wiring before the source commit can be created."
+    "Makes Automation item Scan files show activity on the actual clicked item button instead of only changing the unrelated global Scan library control, with an inline scanning status while reconciliation runs.",
+    "Adds consistent busy feedback to other potentially noticeable user actions: item metadata refresh/remove, Automation configuration saves and media adds, Settings save/restore/cache cleanup, Diagnostics refresh/clear, and provider save/delete.",
+    "Uses indeterminate spinner/activity states only where the backend does not expose trustworthy percentage progress; existing real Manual Import percentage progress remains unchanged.",
+    "Repairs the stale static sidebar/About display that still showed v3.6.35 in the published v3.6.36 shell and adds release validation for visible version identity."
   ],
   "regression_guards": [
-    "The /api/automation/releases/search backend route and release scoring/indexer logic are not redesigned; the hotfix restores the missing browser-side action wiring.",
-    "v3.6.35 Manual Import asynchronous progress/start/poll flow remains intact.",
-    "v3.6.34 Manual Import mapping, transactional organization, and immediate Wanted reconciliation remain intact.",
-    "v3.6.32 no-downgrade/target-integrity protections, v3.6.33 TV-edition compatibility, and the accepted v3.6.28-v3.6.31 SAB/download-control stack remain unchanged except for required v3.6.36 release identity markers."
-  ],
-  "name": "Automation Action Wiring Recovery"
+    "No download-engine, Newznab search/scoring, Smart Import transaction, Automation scheduler, or metadata API semantics are changed; this release is limited to browser-side activity feedback plus required version identity markers.",
+    "Existing browse/article skeleton loading, Discover loading surfaces, release-search modal loading, Update Center activity, and v3.6.35 Manual Import real progress remain on their accepted paths and are not replaced.",
+    "v3.6.36 restored Automation action wiring remains required, including wireReleaseSearchButtons and the accepted item Save/Refresh/Open/Remove/Scan helpers.",
+    "v3.6.32 target integrity/no-downgrade protection, v3.6.33 TV-edition compatibility, and v3.6.28-v3.6.31 SAB/download-control behavior remain unchanged except for required v3.6.37 identity markers."
+  ]
 }
