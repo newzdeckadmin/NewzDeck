@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.31"
+ADAPTER_VERSION = "3.6.32"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2

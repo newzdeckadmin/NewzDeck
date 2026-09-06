@@ -1,26 +1,27 @@
-NewzDeck v3.6.31
-Historical SAB Probe Quieting
+NewzDeck v3.6.32
+Automation Target Integrity & Downgrade Protection
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.31
+WHAT'S NEW IN v3.6.32
 
-- Skips known-dead historical SAB localhost ports before any HTTP version probe by
-  checking whether the port is actually occupied.
-- Occupied historical ports still require the existing full SAB version fingerprint
-  plus historical NewzDeck API-key authentication before quarantine actions are
-  allowed.
-- Adds Historical SAB sweep diagnostics for sweeps, ports considered, closed-port
-  skips, occupied probes, authenticated stale engines, and last sweep time.
-- Preserves v3.6.30 runtime-auth/no-op synchronization, v3.6.29 persistent HTTP/1.1
-  transport, and v3.6.28 Downloads visibility continuity unchanged.
-
-NewzDeck v3.6.30 identity-probe stabilization, v3.6.29 persistent SAB control
-transport, v3.6.28 durable Downloads continuity, v3.6.27 runtime adapter identity
-validation, v3.6.26 verified Remove / Remove all failed, v3.6.25 Automation
-backlog/Smart Import safeguards, v3.6.24 durable Download Statistics and accepted
-earlier behavior remain preserved.
+- Revalidates unattended Automation targets against the current library and physical
+  media immediately before NZB retrieval/submission, suppressing stale missing,
+  season-pack, and unsafe upgrade grabs.
+- Makes Smart Import fail closed for existing media: only a provably better incoming
+  file may replace the library file; equal, worse, or indeterminate quality keeps
+  the existing file.
+- Recovers existing quality from live state, fingerprint history, filename metadata,
+  or conservative media probing instead of treating blank quality as permission to
+  overwrite.
+- Prevents a long-running library scan from overwriting newer Smart Import state by
+  detecting per-target scan merge conflicts at commit time.
+- Adds Automation target-integrity diagnostics for stale grabs suppressed, scan merge
+  conflicts, downgrades blocked, recovered existing quality, and last event time.
+- Preserves v3.6.31 historical SAB probe quieting, v3.6.30 runtime-auth/no-op
+  synchronization, v3.6.29 persistent HTTP/1.1 control transport, and v3.6.28
+  Downloads visibility continuity unchanged except for the v3.6.32 adapter identity.
 
 Normal installed updates preserve settings, provider configuration, Automation data,
 history, queue state, and user data.

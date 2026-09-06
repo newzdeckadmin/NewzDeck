@@ -418,7 +418,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.20'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.32'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -482,10 +482,43 @@ class MediaAutomationEngine:
         self._small_json_cache_lock = threading.RLock()
         self._small_json_cache: dict[str, tuple[int, Any]] = {}
 
+        # v3.6.32: Automation integrity telemetry is intentionally process-local.
+        # It measures protections exercised by the current authoritative runtime
+        # without adding another persistent state file or changing user settings.
+        self._target_integrity_lock = threading.RLock()
+        self._stale_auto_grabs_suppressed = 0
+        self._scan_merge_conflicts = 0
+        self._downgrades_blocked = 0
+        self._existing_quality_recovered = 0
+        self._target_integrity_last_ts = 0.0
+
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+
+    def _note_target_integrity(self, field:str, amount:int=1) -> None:
+        attr={
+            'stale_auto_grabs_suppressed':'_stale_auto_grabs_suppressed',
+            'scan_merge_conflicts':'_scan_merge_conflicts',
+            'downgrades_blocked':'_downgrades_blocked',
+            'existing_quality_recovered':'_existing_quality_recovered',
+        }.get(str(field or ''))
+        if not attr:
+            return
+        with self._target_integrity_lock:
+            setattr(self,attr,int(getattr(self,attr,0) or 0)+max(0,int(amount or 0)))
+            self._target_integrity_last_ts=time.time()
+
+    def target_integrity_telemetry(self) -> dict[str,Any]:
+        with self._target_integrity_lock:
+            return {
+                'stale_auto_grabs_suppressed':int(self._stale_auto_grabs_suppressed),
+                'scan_merge_conflicts':int(self._scan_merge_conflicts),
+                'downgrades_blocked':int(self._downgrades_blocked),
+                'existing_quality_recovered':int(self._existing_quality_recovered),
+                'last_event_ts':float(self._target_integrity_last_ts or 0),
+            }
 
     def _read_small_cached(self, path: Path, default):
         try:
@@ -1620,6 +1653,10 @@ class MediaAutomationEngine:
                     continue
                 rel=dict(candidates[0]); rel.update({'automatic':True,'target_key':key,'auto_type':row.get('auto_type') or 'missing','season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'pack_known_episode_numbers':list(row.get('pack_known_episode_numbers') or [])})
                 grabbed=self.grab_release(rel)
+                if bool(grabbed.get('suppressed')):
+                    skipped+=1
+                    rec.update({'status':'satisfied','message':str(grabbed.get('reason') or 'Target changed before queueing; Wanted will re-evaluate it'),'updated_ts':time.time(),'next_search_ts':0})
+                    continue
                 if bool(grabbed.get('already_queued')):
                     skipped+=1
                     if bool(grabbed.get('reservation_only')):
@@ -1716,7 +1753,7 @@ class MediaAutomationEngine:
             result=self.scan_library()
             self._patch_auto_runtime(
                 last_library_scan_ts=time.time(),
-                last_library_scan_result={'matched':result.get('matched',0),'files_scanned':result.get('files_scanned',0),'changes':len(result.get('changes') or []),'offline_roots':len(result.get('offline_roots') or [])},
+                last_library_scan_result={'matched':result.get('matched',0),'files_scanned':result.get('files_scanned',0),'changes':len(result.get('changes') or []),'offline_roots':len(result.get('offline_roots') or []),'merge_conflicts':int(result.get('merge_conflicts',0) or 0)},
             )
         finally: self.reconcile_lock.release()
 
@@ -3469,6 +3506,50 @@ class MediaAutomationEngine:
             if profile_key(v)==q: return i
         return 999
 
+    @staticmethod
+    def _quality_resolution_value(quality:Any) -> int:
+        m=re.search(r'(?i)\b(2160|1080|720|576|480)p\b',str(quality or ''))
+        return int(m.group(1)) if m else 0
+
+    def _quality_strictly_better(self, incoming:Any, existing:Any, profile:dict[str,Any]) -> bool:
+        """Return True only when an incoming file is provably better.
+
+        A missing/Unknown source label must never turn an existing file into a
+        downgrade candidate. Exact profile ranks win when both sides are known;
+        otherwise only a strictly higher physical resolution is sufficient proof.
+        """
+        incoming_rank=self._quality_rank(str(incoming or ''),profile)
+        existing_rank=self._quality_rank(str(existing or ''),profile)
+        if incoming_rank<999 and existing_rank<999:
+            return incoming_rank<existing_rank
+        incoming_res=self._quality_resolution_value(incoming)
+        existing_res=self._quality_resolution_value(existing)
+        return bool(incoming_res and existing_res and incoming_res>existing_res)
+
+    def _recover_existing_quality(self, path:Path, previous:dict[str,Any]|None=None) -> tuple[str,str,str]:
+        """Recover the best trustworthy quality for a physical library file."""
+        p=Path(path); prev=dict(previous or {})
+        try: current_size=int(p.stat().st_size)
+        except OSError: current_size=0
+        current_fp=self._media_fingerprint(p)
+        prev_path=str(prev.get('file_path') or prev.get('path') or '')
+        prev_size=int(prev.get('file_size') or prev.get('size') or 0)
+        prev_fp=str(prev.get('file_fingerprint') or '')
+        prev_q=str(prev.get('file_quality') or prev.get('quality') or '')
+        prev_matches=bool(
+            prev_q and prev_q!='Unknown' and prev_path and Path(prev_path)==p and
+            ((prev_fp and current_fp and prev_fp==current_fp) or
+             (prev_size and current_size and prev_size==current_size))
+        )
+        safe_prev=prev if prev_matches else {}
+        cache=self._media_quality_cache()
+        quality,source,fp,changed=self._quality_for_media(p,cache,safe_prev)
+        if changed:
+            _write(self.media_quality_cache_file,cache)
+        if (not prev_matches or prev_q in {'','Unknown'}) and str(quality or '') not in {'','Unknown'}:
+            self._note_target_integrity('existing_quality_recovered')
+        return str(quality or 'Unknown'),str(source or ''),str(fp or current_fp or '')
+
     def _evaluate_release(self, title:str, size:int, profile:dict[str,Any], *, item:dict[str,Any]|None=None, season=None, episode=None, current_quality:str='Unknown') -> dict[str,Any]:
         """Explain and score a release using one shared decision model."""
         info=parse_release(title); reasons=[]; components=[]; rejects=[]; score=0
@@ -3540,30 +3621,60 @@ class MediaAutomationEngine:
         ev=self._evaluate_release(title,size,profile)
         return ev['score'],ev['parsed'],list(ev['reasons'])+list(ev['rejections']),ev['accepted']
 
-    def _merge_scan_state(self, current:dict[str,Any], scanned:dict[str,Any]):
-        """Merge only filesystem-derived scan fields into the live library record.
+    @staticmethod
+    def _scan_file_state(record:dict[str,Any]|None, *, movie:bool=False) -> tuple:
+        rec=record if isinstance(record,dict) else {}
+        if movie:
+            return (
+                bool(rec),str(rec.get('path') or ''),str(rec.get('quality') or ''),
+                int(rec.get('size') or 0),str(rec.get('file_fingerprint') or '')
+            )
+        return (
+            bool(rec.get('has_file')),str(rec.get('file_path') or ''),
+            str(rec.get('file_quality') or ''),int(rec.get('file_size') or 0),
+            str(rec.get('file_fingerprint') or '')
+        )
 
-        User-editable monitoring/profile/root choices may change while a long scan is
-        running, so never replace the whole item snapshot after scanning.
+    def _merge_scan_state(self, current:dict[str,Any], scanned:dict[str,Any], baseline:dict[str,Any]|None=None) -> list[tuple[int|None,int|None]]:
+        """Merge filesystem scan state without overwriting a newer Smart Import.
+
+        The scan runs outside the Automation lock and can take tens of seconds.
+        Compare each live file record with the record captured when the scan began;
+        if another operation changed it, the live state wins and the stale scan
+        result is deferred until the next reconciliation pass.
         """
+        conflicts:list[tuple[int|None,int|None]]=[]
         for key in ('library_root_status','last_scan_at'):
             if key in scanned: current[key]=copy.deepcopy(scanned.get(key))
         if 'library_scan_error' in scanned: current['library_scan_error']=str(scanned.get('library_scan_error') or '')
         else: current.pop('library_scan_error',None)
+
+        base=baseline if isinstance(baseline,dict) else {}
         if str(current.get('kind') or '')!='tv':
-            current['movie_file']=copy.deepcopy(scanned.get('movie_file'))
-            return
+            if base and self._scan_file_state(current.get('movie_file'),movie=True)!=self._scan_file_state(base.get('movie_file'),movie=True):
+                conflicts.append((None,None))
+            else:
+                current['movie_file']=copy.deepcopy(scanned.get('movie_file'))
+            return conflicts
+
         scan_seasons={int(x.get('season_number') or 0):x for x in scanned.get('seasons') or [] if int(x.get('season_number') or 0)>0}
+        base_seasons={int(x.get('season_number') or 0):x for x in base.get('seasons') or [] if int(x.get('season_number') or 0)>0}
         file_keys=('has_file','file_path','file_quality','file_size','file_fingerprint','quality_source','media_info','cutoff_met')
         for season in current.get('seasons') or []:
             sn=int(season.get('season_number') or 0); src_season=scan_seasons.get(sn)
             if not src_season: continue
             src_eps={int(x.get('episode_number') or 0):x for x in src_season.get('episodes') or [] if int(x.get('episode_number') or 0)>0}
+            base_eps={int(x.get('episode_number') or 0):x for x in (base_seasons.get(sn) or {}).get('episodes') or [] if int(x.get('episode_number') or 0)>0}
             for ep in season.get('episodes') or []:
-                src=src_eps.get(int(ep.get('episode_number') or 0))
+                en=int(ep.get('episode_number') or 0); src=src_eps.get(en)
                 if not src: continue
+                baseline_ep=base_eps.get(en)
+                if baseline_ep is not None and self._scan_file_state(ep)!=self._scan_file_state(baseline_ep):
+                    conflicts.append((sn,en))
+                    continue
                 for key in file_keys:
                     ep[key]=copy.deepcopy(src.get(key))
+        return conflicts
 
     def library_integrity_audit(self) -> dict[str,Any]:
         """Read-only audit for cross-target fingerprints and TV edition mismatches."""
@@ -3630,6 +3741,7 @@ class MediaAutomationEngine:
             lib=copy.deepcopy(self._library())
             profiles_list=copy.deepcopy(self._profiles())
         targets=[x for x in lib if not ident or str(x.get('id'))==str(ident)]
+        scan_baseline={str(x.get('id') or ''):copy.deepcopy(x) for x in targets if str(x.get('id') or '')}
         profiles={str(p.get('id')):p for p in profiles_list}; files_by_root={}; scanned_paths=set()
         qcache=self._media_quality_cache(); qcache_changed=False; matched=0; changes=[]; offline=[]
 
@@ -3711,20 +3823,32 @@ class MediaAutomationEngine:
             item['last_scan_at']=_now()
 
         scanned={str(x.get('id') or ''):x for x in targets if str(x.get('id') or '')}
+        conflict_keys=set()
         with self.lock:
             fresh=self._library()
             for current in fresh:
-                source=scanned.get(str(current.get('id') or ''))
-                if source: self._merge_scan_state(current,source)
+                item_id=str(current.get('id') or '')
+                source=scanned.get(item_id)
+                if not source: continue
+                for sn,en in self._merge_scan_state(current,source,scan_baseline.get(item_id)):
+                    conflict_keys.add((item_id,sn,en))
             self._save_library(fresh)
+        if conflict_keys:
+            self._note_target_integrity('scan_merge_conflicts',len(conflict_keys))
+            self._event('scan-merge-conflict',f'Skipped {len(conflict_keys)} stale library-scan merge(s) because newer file state won',conflicts=len(conflict_keys))
+            changes=[
+                change for change in changes
+                if str(change.get('type') or '') in {'root_offline','root_online'}
+                or (str(change.get('item_id') or ''),change.get('season'),change.get('episode')) not in conflict_keys
+            ]
         if qcache_changed: _write(self.media_quality_cache_file,qcache)
         for change in changes[:80]:
             typ=change.get('type'); label=change.get('title') or 'Media'
             if change.get('season') is not None: label+=f" {_episode_token(change.get('season'),change.get('episode'))}"
             messages={'root_offline':f'Root Folder offline for {label}','root_online':f'Root Folder restored for {label}','file_missing':f'Library file is missing for {label}','file_found':f'Library file found for {label}','quality_changed':f'Library quality changed for {label}'}
             self._event(str(typ),messages.get(str(typ),f'Library changed for {label}'),**change)
-        self._event('scan',f'Library scan matched {matched} media file(s)',matched=matched,files=len(scanned_paths),changes=len(changes),offline_roots=len(offline))
-        return {'ok':True,'matched':matched,'files_scanned':len(scanned_paths),'items_scanned':len(targets),'changes':changes,'offline_roots':offline,'library':fresh}
+        self._event('scan',f'Library scan matched {matched} media file(s)',matched=matched,files=len(scanned_paths),changes=len(changes),offline_roots=len(offline),merge_conflicts=len(conflict_keys))
+        return {'ok':True,'matched':matched,'files_scanned':len(scanned_paths),'items_scanned':len(targets),'changes':changes,'offline_roots':offline,'merge_conflicts':len(conflict_keys),'library':fresh}
 
     def _resolve_root(self, item: dict[str,Any], required_bytes:int=0) -> Path | None:
         configured=str(item.get('root_folder') or '').strip()
@@ -3794,10 +3918,15 @@ class MediaAutomationEngine:
             existing=Path(str(old.get('path') or dest)) if (old.get('path') or dest.exists()) else None
             action='IMPORT'; reason='No existing movie file'
             if existing is not None and existing.exists():
+                old_quality,_,_=self._recover_existing_quality(existing,old)
                 sfp=self._media_fingerprint(source); efp=self._media_fingerprint(existing)
-                if sfp and efp and sfp==efp: action='DUPLICATE'; reason='Existing library file has the same fingerprint'
-                elif old_quality and old_quality!='Unknown' and self._quality_rank(quality,profile)>=self._quality_rank(old_quality,profile): action='KEEP_EXISTING'; reason=f'Existing {old_quality} is equal or better than {quality}'
-                else: action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
+                if sfp and efp and sfp==efp:
+                    action='DUPLICATE'; reason='Existing library file has the same fingerprint'
+                elif self._quality_strictly_better(quality,old_quality,profile):
+                    action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
+                else:
+                    action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
+                    self._note_target_integrity('downgrades_blocked')
             entries.append({'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing is not None and existing.exists() else '', 'episode':None,'season':None,'episode_title':''})
             inspections.append({'source':str(source),'identified':f'{title} ({year})' if year else title,'quality':quality,'action':action,'destination':str(dest),'reason':reason})
             for f in candidates:
@@ -3874,10 +4003,15 @@ class MediaAutomationEngine:
                 action='IMPORT'; reason='Explicitly targeted episode download' if exact_target and ep.get('monitored') is False else 'Episode is missing'
                 if existing.exists() or ep.get('has_file'):
                     if existing.exists():
+                        old_quality,_,_=self._recover_existing_quality(existing,ep)
                         sfp=self._media_fingerprint(source); efp=self._media_fingerprint(existing)
-                        if sfp and efp and sfp==efp: action='DUPLICATE'; reason='Existing episode has the same fingerprint'
-                        elif old_quality and old_quality!='Unknown' and self._quality_rank(quality,profile)>=self._quality_rank(old_quality,profile): action='KEEP_EXISTING'; reason=f'Existing {old_quality} is equal or better than {quality}'
-                        else: action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
+                        if sfp and efp and sfp==efp:
+                            action='DUPLICATE'; reason='Existing episode has the same fingerprint'
+                        elif self._quality_strictly_better(quality,old_quality,profile):
+                            action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
+                        else:
+                            action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
+                            self._note_target_integrity('downgrades_blocked')
                 key=(sn,en)
                 prev=seen.get(key)
                 candidate={'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing.exists() else '', 'episode':en,'season':sn,'episode_title':ep_title,'episode_ref':ep}
@@ -3890,6 +4024,45 @@ class MediaAutomationEngine:
             for e in entries:
                 inspections.append({'source':str(e['source']),'identified':f"{title} S{int(e['season']):02d}E{int(e['episode']):02d} — {e['episode_title']}",'quality':e['quality'],'action':e['action'],'destination':str(e['dest']),'reason':e['reason']})
         return {'entries':entries,'inspections':inspections,'error':''}
+
+    def _enforce_no_downgrade(self, entries:list[dict[str,Any]], inspections:list[dict[str,Any]], profile:dict[str,Any]) -> None:
+        """Revalidate physical destinations immediately before Smart Import commit."""
+        for entry in entries:
+            original=str(entry.get('action') or '')
+            if original not in {'IMPORT','UPGRADE'}:
+                continue
+            dest=Path(entry.get('dest'))
+            existing_raw=str(entry.get('existing_path') or '').strip()
+            existing=Path(existing_raw) if existing_raw else (dest if dest.exists() else None)
+            if existing is None or not existing.exists():
+                continue
+            source=Path(entry.get('source'))
+            sfp=self._media_fingerprint(source); efp=self._media_fingerprint(existing)
+            if sfp and efp and sfp==efp:
+                entry['action']='DUPLICATE'
+                entry['reason']='Existing library file has the same fingerprint'
+                entry['existing_path']=str(existing)
+            else:
+                previous={
+                    'file_path':str(existing),
+                    'file_quality':str(entry.get('old_quality') or ''),
+                    'file_size':int(existing.stat().st_size) if existing.exists() else 0,
+                }
+                existing_quality,_,_=self._recover_existing_quality(existing,previous)
+                entry['old_quality']=existing_quality
+                entry['existing_path']=str(existing)
+                incoming=str(entry.get('quality') or 'Unknown')
+                if self._quality_strictly_better(incoming,existing_quality,profile):
+                    entry['action']='UPGRADE'
+                    entry['reason']=f'{existing_quality or "Existing file"} → {incoming}'
+                else:
+                    entry['action']='KEEP_EXISTING'
+                    entry['reason']=f'Existing {existing_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {incoming}'
+                    self._note_target_integrity('downgrades_blocked')
+            for inspection in inspections:
+                if str(inspection.get('source') or '')==str(source) and str(inspection.get('action') or '') not in {'IGNORE','NEEDS_ATTENTION'}:
+                    inspection['action']=entry['action']
+                    inspection['reason']=entry['reason']
 
     def _commit_import_plan(self, entries:list[dict[str,Any]], root:Path, progress_callback:Callable[[float,str],None]|None=None) -> list[dict[str,Any]]:
         """Stage + verify every actionable file, then commit with rollback backups."""
@@ -4144,6 +4317,7 @@ class MediaAutomationEngine:
             if progress_callback:
                 try: progress_callback(0,'Smart Import • inspecting completed media')
                 except Exception: pass
+            self._enforce_no_downgrade(entries,inspections,profile)
             committed=self._commit_import_plan(entries,root,progress_callback=progress_callback)
 
             # A duplicate/equal-or-better library match is a successful Automation
@@ -4723,6 +4897,99 @@ class MediaAutomationEngine:
         ep=next((x for x in (sr or {}).get('episodes') or [] if int(x.get('episode_number') or 0)==en),None)
         return str((ep or {}).get('file_quality') or 'Unknown')
 
+    def _automatic_target_existing_state(self, item:dict[str,Any], context:dict[str,Any], profile:dict[str,Any]) -> tuple[Path|None,str]:
+        """Return the physical file/quality for the current automatic target."""
+        if item.get('kind')=='movie':
+            rec=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else {}
+            raw=str(rec.get('path') or '')
+            path=Path(raw) if raw else None
+            if path is not None and path.exists():
+                quality,_,_=self._recover_existing_quality(path,rec)
+                return path,quality
+            return None,'Unknown'
+
+        try: sn=int(context.get('season')) if context.get('season') is not None else None
+        except Exception: sn=None
+        try: en=int(context.get('episode')) if context.get('episode') is not None else None
+        except Exception: en=None
+        if sn is None:
+            return None,'Unknown'
+        season=next((x for x in item.get('seasons') or [] if int(x.get('season_number') or 0)==sn),None)
+        if bool(context.get('season_pack')):
+            for raw_en in context.get('pack_episode_numbers') or []:
+                try: member=int(raw_en)
+                except Exception: continue
+                ep=next((x for x in (season or {}).get('episodes') or [] if int(x.get('episode_number') or 0)==member),None)
+                raw=str((ep or {}).get('file_path') or '')
+                path=Path(raw) if raw else None
+                if path is not None and path.exists():
+                    quality,_,_=self._recover_existing_quality(path,ep)
+                    return path,quality
+            return None,'Unknown'
+        if en is None:
+            return None,'Unknown'
+        ep=next((x for x in (season or {}).get('episodes') or [] if int(x.get('episode_number') or 0)==en),None)
+        raw=str((ep or {}).get('file_path') or '')
+        path=Path(raw) if raw else None
+        if path is not None and path.exists():
+            quality,_,_=self._recover_existing_quality(path,ep)
+            return path,quality
+
+        # A stale library record can temporarily lose file_path even though the
+        # target is physically present. Probe only the established season folder,
+        # never the whole root, so this last-second guard stays inexpensive.
+        root=self._resolve_root(item)
+        if root and root.exists():
+            series=self._existing_tv_series_folder(item,root)
+            if series is None:
+                desired=_safe_component(self._tv_library_title(item),str(item.get('title') or 'TV Show'))
+                candidate=root/desired
+                if candidate.exists() and candidate.is_dir():
+                    series=candidate
+            if series is not None:
+                cfg=self._config()
+                values={'title':str(item.get('title') or ''),'library_title':self._tv_library_title(item),'year':item.get('year') or '','season':sn,'episode':en,'episode_token':_episode_token(sn,en),'episode_title':str((ep or {}).get('name') or '')}
+                season_name=self._template(str(cfg.get('tv_season_template') or 'Season {season}'),values,f'Season {sn}')
+                season_dir=series/season_name
+                if season_dir.exists() and season_dir.is_dir():
+                    token=_episode_token(sn,en).casefold()
+                    try:
+                        candidates=[f for f in season_dir.iterdir() if f.is_file() and f.suffix.casefold() in VIDEO_EXTS and token in f.name.casefold()]
+                    except OSError:
+                        candidates=[]
+                    if candidates:
+                        ranked=[]
+                        for f in candidates:
+                            quality,_,_=self._recover_existing_quality(f,ep)
+                            rank=self._quality_rank(quality,profile)
+                            res=self._quality_resolution_value(quality)
+                            ranked.append((rank if rank<999 else 1000-res/10000.0,-int(f.stat().st_size),f,quality))
+                        _,_,path,quality=min(ranked,key=lambda x:(x[0],x[1]))
+                        return path,quality
+        return None,'Unknown'
+
+    def _automatic_grab_revalidation(self, context:dict[str,Any], incoming_quality:str) -> dict[str,Any]:
+        if not bool(context.get('automatic')) or str(context.get('source') or '')!='automation_grab':
+            return {'ok':True}
+        item_id=str(context.get('item_id') or '')
+        item=next((x for x in self._library() if str(x.get('id') or '')==item_id),None)
+        if not item:
+            return {'ok':False,'reason':'Automation target no longer exists in the library.'}
+        profiles=self._profiles()
+        profile=next((p for p in profiles if str(p.get('id'))==str(item.get('quality_profile_id') or context.get('quality_profile_id') or '')),profiles[0])
+        existing,existing_quality=self._automatic_target_existing_state(item,context,profile)
+        auto_type=str(context.get('auto_type') or 'missing')
+        if auto_type in {'missing','season_pack'}:
+            if existing is not None and existing.exists():
+                return {'ok':False,'reason':f'Automatic grab suppressed because the target is already present in the library ({existing_quality}).','existing_quality':existing_quality,'path':str(existing)}
+            return {'ok':True}
+        if auto_type=='upgrade':
+            if existing is None or not existing.exists():
+                return {'ok':False,'reason':'Automatic upgrade suppressed because the previous library file is no longer present; Wanted will rebuild the target as missing.'}
+            if not self._quality_strictly_better(incoming_quality,existing_quality,profile):
+                return {'ok':False,'reason':f'Automatic upgrade suppressed because {incoming_quality} is not strictly better than current {existing_quality}.','existing_quality':existing_quality,'path':str(existing)}
+        return {'ok':True}
+
     def _fetch_release_nzb(self,data):
         """Fetch a Newznab NZB through several safe, same-indexer authentication forms.
 
@@ -4978,6 +5245,13 @@ class MediaAutomationEngine:
             }
 
         target_key=str(context.get('target_key') or '')
+        if bool(context.get('automatic')) and str(context.get('source') or '')=='automation_grab':
+            guard=self._automatic_grab_revalidation(context,str(parsed.get('quality') or 'Unknown'))
+            if not bool(guard.get('ok',True)):
+                self._note_target_integrity('stale_auto_grabs_suppressed')
+                reason=str(guard.get('reason') or 'Automatic grab suppressed after authoritative target revalidation.')
+                self._event('auto-grab-suppressed',reason,item_id=item_id,target_key=target_key,release=title,incoming_quality=str(parsed.get('quality') or 'Unknown'),existing_quality=str(guard.get('existing_quality') or ''))
+                return {'ok':True,'suppressed':True,'already_queued':False,'collection_id':'','collection_name':title,'reason':reason}
         if target_key:
             try:
                 snap=self.download_manager.snapshot()

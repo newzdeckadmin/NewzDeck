@@ -1,21 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.31",
-  "base_version": "3.6.30",
-  "release": "Historical SAB Probe Quieting",
-  "adapter_version": "3.6.31",
+  "version": "3.6.32",
+  "base_version": "3.6.31",
+  "release": "Automation Target Integrity & Downgrade Protection",
+  "adapter_version": "3.6.32",
   "changes": [
-    "Preflights historical NewzDeck SAB localhost ports with a cheap TCP listener check before sending any HTTP identity request, so known-dead/free historical ports are skipped without generating mode=version transport resets.",
-    "Retains full SAB version plus historical API-key authentication when a historical port is actually occupied, preserving stale-engine quarantine safety while eliminating pointless probes against closed ports.",
-    "Adds Historical SAB sweep diagnostics for sweeps, ports considered, closed-port skips, occupied probes, authenticated stale engines, and last sweep time.",
-    "Preserves the accepted v3.6.30 runtime-auth/no-op synchronization behavior, v3.6.29 persistent serialized HTTP/1.1 transport, and v3.6.28 Downloads visibility continuity unchanged."
+    "Revalidates every unattended Automation target against the live library and physical media immediately before NZB retrieval/submission, suppressing stale missing/upgrade grabs after the target has already changed.",
+    "Recovers trustworthy existing-media quality from the live record, fingerprint cache, filename, or conservative media probe and treats unknown existing quality as protected rather than as permission to overwrite.",
+    "Enforces a fail-closed no-downgrade gate immediately before Smart Import commit: an incoming file may replace an existing library file only when it is provably strictly better; otherwise the existing file is kept.",
+    "Adds optimistic concurrency to long library scans so scan results captured before a Smart Import cannot overwrite newer per-episode or movie file state at commit time.",
+    "Adds Automation target-integrity diagnostics for stale grabs suppressed, scan merge conflicts, downgrades blocked, recovered existing quality, and last integrity event time."
   ],
   "regression_guards": [
-    "The authoritative current SAB port is never subject to the historical-port preflight skip path.",
-    "Any occupied historical port still requires a real key-free SAB version fingerprint followed by authentication with a historical NewzDeck-owned API key before pause or shutdown is allowed.",
-    "Unknown processes on historical ports are never adopted, paused, shut down, or otherwise mutated.",
-    "v3.6.30 runtime authentication, v3.6.29 persistent transport serialization/reconnect behavior, and v3.6.28 visibility continuity/fresh Queue+History absence rules remain unchanged.",
-    "Discover/TMDB, Metadata Server v0.3.3 integration, Smart Import, provider settings, installer/updater behavior, and user data preservation are otherwise unchanged."
+    "Manual Interactive Search and one-time Discover media grabs remain user-controlled; the stale-target suppression gate applies only to unattended automatic Automation grabs.",
+    "A genuinely missing target may still use an allowed fallback quality such as 720p when that profile permits it; the new guard blocks only stale or unsafe replacement of existing media.",
+    "Legitimate quality upgrades remain allowed only when the incoming quality is provably better than the current physical library file.",
+    "Long library scans still reconcile unchanged targets normally while any target changed after scan start keeps the newer live state.",
+    "v3.6.31 historical SAB probe quieting, v3.6.30 runtime-auth/no-op synchronization, v3.6.29 persistent HTTP/1.1 control transport, and v3.6.28 Downloads visibility continuity are unchanged except for the required v3.6.32 adapter identity marker."
   ],
-  "name": "SAB Identity Probe Stabilization"
+  "name": "Automation Target Integrity & Downgrade Protection"
 }

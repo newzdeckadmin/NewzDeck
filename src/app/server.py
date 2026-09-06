@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.31"
+APP_VERSION = "3.6.32"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11743,6 +11743,7 @@ def diagnostics_snapshot() -> dict[str, Any]:
         'searches': searches, 'events': base.get('events',[])[:80], 'desktop_mode': DESKTOP_MODE, 'ffmpeg': bool(_ffmpeg_path()),
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
+        'automation_target_integrity': MEDIA_AUTOMATION.target_integrity_telemetry() if 'MEDIA_AUTOMATION' in globals() else {'stale_auto_grabs_suppressed':0,'scan_merge_conflicts':0,'downgrades_blocked':0,'existing_quality_recovered':0,'last_event_ts':0},
     }
 
 def diagnostics_report() -> str:
@@ -11843,6 +11844,15 @@ def diagnostics_report() -> str:
             lines.append(f"Provider connection test: ok={probe.get('ok',False)}; message={probe.get('summary','')}")
     else:
         lines.append(f"NNTP connections: {conn.get('active',0)} active, {conn.get('open',0)} warm, {conn.get('effective_capacity',conn.get('capacity',0))} target / {conn.get('capacity',0)} ceiling; pipeline={conn.get('pipeline_depth',1)} fallback={conn.get('pipeline_fallbacks',0)}; retries={conn.get('retries',0)} failed_segments={conn.get('failed_segments',0)}; yenc_workers={(conn.get('yenc') or {}).get('workers',0)}")
+    integrity=d.get('automation_target_integrity') or {}
+    lines.append(
+        "Automation target integrity: "
+        f"stale_grabs_suppressed={int(integrity.get('stale_auto_grabs_suppressed',0) or 0)}; "
+        f"scan_merge_conflicts={int(integrity.get('scan_merge_conflicts',0) or 0)}; "
+        f"downgrades_blocked={int(integrity.get('downgrades_blocked',0) or 0)}; "
+        f"existing_quality_recovered={int(integrity.get('existing_quality_recovered',0) or 0)}; "
+        f"last_event_ts={float(integrity.get('last_event_ts',0) or 0):.3f}"
+    )
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")
     try:
         audit=MEDIA_AUTOMATION.library_integrity_audit()

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.31** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.32** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.31_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.32_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.31 highlights
+## v3.6.32 highlights
 
-v3.6.31 is a narrow cleanup after v3.6.30 production telemetry showed the real Downloads path was clean—zero Queue/History resets and zero degraded/stale snapshots—while 76 failed `mode=version` requests remained. Source audit traced those failures to the once-per-minute historical SAB quarantine sweep probing known-dead localhost ports.
+v3.6.32 hardens Continuous Automation after a production audit found stale `missing` targets could survive long enough to trigger redundant downloads and, when combined with a stale library-scan merge and unknown existing quality, could replace better media with a lower-quality fallback.
 
-- **Skip dead historical ports before HTTP:** NewzDeck now checks whether a historical localhost port is actually occupied before sending a SAB identity request. Closed/free ports are skipped immediately.
-- **Stale-engine safety preserved:** if a historical port is occupied, NewzDeck still requires the existing full SAB version fingerprint plus historical API-key authentication before it may pause or shut down that process.
-- **Authoritative transport stays untouched:** the current SAB instance, Queue/History reads, persistent HTTP/1.1 transport, runtime-auth path, Smart Import, and Downloads visibility continuity are unchanged.
-- **New sweep telemetry:** Diagnostics reports historical sweeps, ports considered, closed-port skips, occupied probes, authenticated stale engines, and the last sweep timestamp.
+- **Last-second automatic target validation:** unattended grabs re-check the live library and physical target before fetching an NZB or submitting anything to SAB.
+- **Absolute downgrade protection:** Smart Import only replaces existing media when the incoming file is provably better. Equal, worse, or indeterminate quality keeps the existing library file.
+- **Scan/import race protection:** long library scans compare their start-state with the live state at commit time and skip stale per-target merges after a newer Smart Import.
+- **New integrity telemetry:** Diagnostics reports stale automatic grabs suppressed, scan merge conflicts, downgrades blocked, existing quality recovered, and the last protection timestamp.
+- **Accepted SAB behavior preserved:** v3.6.31 historical-port quieting and the v3.6.29-v3.6.30 persistent/current-SAB control path are unchanged apart from the required version identity marker.
 
-See [the full v3.6.31 release notes](release/RELEASE_NOTES_v3.6.31.md).
+See [the full v3.6.32 release notes](release/RELEASE_NOTES_v3.6.32.md).
 
 ## Requirements
 
@@ -66,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.31_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.32_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
