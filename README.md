@@ -9,20 +9,20 @@
 </p>
 
 <p align="center">
-  <a href="https://www.newzdeck.com/">Website</a> Â·
-  <a href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download</a> Â·
+  <a href="https://www.newzdeck.com/">Website</a> Ã‚Â·
+  <a href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download</a> Ã‚Â·
   <a href="https://github.com/newzdeckadmin/NewzDeck/issues">Report an issue</a>
 </p>
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.34** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.35** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.34_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.35_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
-NewzDeck is free and open source. **Usenet access is not included** â€” you need your own Usenet provider account. Automation and interactive NZB search can also use your own Newznab-compatible indexer.
+NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬â€ you need your own Usenet provider account. Automation and interactive NZB search can also use your own Newznab-compatible indexer.
 
 ## What NewzDeck does
 
@@ -34,17 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** â€” you
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.34 highlights
+## v3.6.35 highlights
 
-v3.6.34 adds Manual Media Import for externally obtained TV media. A TV Automation item can import an entire season or a single episode from a selected folder, preview the exact mapping and quality decision first, then commit through NewzDeck's existing transactional Smart Import path.
+v3.6.35 adds real live progress to the Manual Media Import workflow introduced in v3.6.34. Import & Organize now stays visible while Smart Import works and reports the actual transaction state instead of leaving the user waiting without feedback.
 
-- **Season or episode import:** choose an external folder from a TV item and target an entire season or one exact episode.
-- **Preview before commit:** see episode identification, incoming/current quality, planned rename/move destination, import action, and whether the profile cutoff will be satisfied before any media is changed.
-- **Existing safety path reused:** commit rebuilds the plan and uses the v3.6.32 final no-downgrade revalidation plus transactional copy/move verification instead of bypassing Smart Import protections.
-- **Immediate Wanted reconciliation:** successful external imports update authoritative episode quality/cutoff state and immediately remove satisfied missing/upgrade targets from Wanted.
-- **Accepted behavior preserved:** v3.6.33 TV-edition search aliases, v3.6.32 Automation integrity protections, and the accepted v3.6.28-v3.6.31 SAB/download-control path remain unchanged apart from required v3.6.34 identity markers.
+- **Real transaction progress:** the progress bar is driven by Smart Import callbacks, including byte-based advancement for cross-volume copies rather than a simulated timer.
+- **Current phase and file:** the modal reports what NewzDeck is doing and which media file is being handled.
+- **Authoritative completion:** 100% is reserved until the media transaction, library quality/cutoff update, and Wanted reconciliation are all complete.
+- **Safe modal behavior:** import controls and close actions are locked during the live job; changing the source/target before starting invalidates the old Preview.
+- **Preview safety preserved:** start-time plan rebuilding still rejects unresolved NEEDS_ATTENTION media before transaction work begins.
+- **Accepted behavior preserved:** v3.6.34 Manual Import semantics, v3.6.32 Automation integrity/no-downgrade protections, v3.6.33 TV-edition compatibility, and the accepted SAB/download-control path remain intact apart from required v3.6.35 identity markers.
 
-See [the full v3.6.34 release notes](release/RELEASE_NOTES_v3.6.34.md).
+See [the full v3.6.35 release notes](release/RELEASE_NOTES_v3.6.35.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.34_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.35_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

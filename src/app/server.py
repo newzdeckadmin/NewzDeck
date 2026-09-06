@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.34"
+APP_VERSION = "3.6.35"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -12172,6 +12172,12 @@ class AppHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     pass
                 return self._json(503, {"error": "Automation sidebar counts are not ready", "detail": _user_safe_error_message(exc), "version": APP_VERSION})
+        if parsed.path == "/api/automation/manual-import/progress":
+            try:
+                query=urllib.parse.parse_qs(parsed.query or "")
+                return self._json(200, MEDIA_AUTOMATION.manual_library_import_progress(str((query.get("job_id") or [""])[0] or "")))
+            except Exception as exc:
+                return self._json(404, {"error": _user_safe_error_message(exc), "version": APP_VERSION})
         if parsed.path == "/api/automation/summary":
             try:
                 return self._json(200, MEDIA_AUTOMATION.summary())
@@ -12396,6 +12402,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.automation_choose_import_source_api(data)
             if parsed.path == "/api/automation/manual-import/preview":
                 return self._json(200, MEDIA_AUTOMATION.manual_library_import_preview(str(data.get("item_id") or ""), str(data.get("source_folder") or ""), data.get("season"), data.get("episode")))
+            if parsed.path == "/api/automation/manual-import/start":
+                return self._json(200, MEDIA_AUTOMATION.start_manual_library_import(str(data.get("item_id") or ""), str(data.get("source_folder") or ""), data.get("season"), data.get("episode")))
             if parsed.path == "/api/automation/manual-import/commit":
                 return self._json(200, MEDIA_AUTOMATION.manual_library_import(str(data.get("item_id") or ""), str(data.get("source_folder") or ""), data.get("season"), data.get("episode")))
             if parsed.path == "/api/automation/import/retry":

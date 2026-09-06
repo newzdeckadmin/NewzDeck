@@ -490,7 +490,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.34'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.35'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -515,6 +515,8 @@ class MediaAutomationEngine:
         self.auto_thread = None
         self.auto_progress_lock = threading.RLock()
         self.auto_progress: dict[str,Any] = {}
+        self.manual_import_jobs_lock = threading.RLock()
+        self.manual_import_jobs: dict[str,dict[str,Any]] = {}
         self.reconcile_lock = threading.Lock()
         self.reconcile_thread = None
         self.metadata_refresh_run_lock = threading.Lock()
@@ -4572,22 +4574,108 @@ class MediaAutomationEngine:
             return {'ok':False,'needs_attention':True,'reason':'No source files could be mapped safely to the selected TV target. Review the preview and filenames.','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':req['context'].get('season'),'episode':req['context'].get('episode'),'source_folder':str(req['source']),'files_found':len(req['files']),'inspection':inspections,'counts':counts,'cutoff':str(profile.get('cutoff') or '')}
         return {'ok':True,'can_import':bool(actionable or counts['KEEP_EXISTING'] or counts['DUPLICATE']),'item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':req['context'].get('season'),'episode':req['context'].get('episode'),'season_pack':bool(req['context'].get('season_pack')),'source_folder':str(req['source']),'root_folder':str(req['root']),'files_found':len(req['files']),'inspection':inspections,'counts':counts,'cutoff':str(profile.get('cutoff') or ''),'needs_attention_count':counts['NEEDS_ATTENTION']}
 
-    def manual_library_import(self, item_id:str, source_folder:str, season:Any=None, episode:Any=None) -> dict[str,Any]:
+    def manual_library_import(self, item_id:str, source_folder:str, season:Any=None, episode:Any=None, *, progress_callback:Callable[[float,str],None]|None=None) -> dict[str,Any]:
         """Commit an explicit external TV import through the normal Smart Import transaction."""
+        def emit(percent:float,message:str):
+            if not progress_callback: return
+            try: progress_callback(max(0.0,min(100.0,float(percent))),str(message or ''))
+            except Exception: pass
+        emit(1,'Manual Import • checking current Wanted state')
         before=self.wanted()
         before_keys={str(x.get('target_key') or '') for x in list(before.get('missing') or [])+list(before.get('upgrades') or []) if str(x.get('item_id') or '')==str(item_id or '')}
+        emit(4,'Manual Import • revalidating source files and library targets')
         req=self._manual_library_import_request(item_id,source_folder,season,episode,preview=False)
         context=dict(req['context']); context.pop('preview',None)
-        result=self.import_completed_download(context,[str(req['source'])],staging_dir=None)
+        def smart_progress(percent:float,message:str=''):
+            # Reserve the final few percent for authoritative library/Wanted
+            # reconciliation so the UI never reports 100% before state is durable.
+            value=max(0.0,min(100.0,float(percent or 0)))
+            emit(7.0 + value*0.87,message or 'Smart Import • organizing media')
+        result=self.import_completed_download(context,[str(req['source'])],staging_dir=None,progress_callback=smart_progress)
+        if not result.get('ok'):
+            return result
+        emit(95,'Manual Import • refreshing authoritative library state')
         after=self.wanted()
+        emit(98,'Manual Import • reconciling Wanted targets')
         after_keys={str(x.get('target_key') or '') for x in list(after.get('missing') or [])+list(after.get('upgrades') or []) if str(x.get('item_id') or '')==str(item_id or '')}
         satisfied=sorted(x for x in before_keys-after_keys if x)
         result['wanted_satisfied_count']=len(satisfied)
         result['wanted_satisfied_targets']=satisfied
         result['wanted_remaining_count']=len(after_keys)
-        if result.get('ok'):
-            self._event('manual-import',f"Manual Media Import completed for {req['item'].get('title')}",item_id=str(item_id or ''),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),source_folder=str(req['source']),imported_count=int(result.get('imported_count') or 0),kept_existing=int(result.get('kept_existing') or 0),wanted_satisfied=len(satisfied),wanted_remaining=len(after_keys))
+        self._event('manual-import',f"Manual Media Import completed for {req['item'].get('title')}",item_id=str(item_id or ''),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),source_folder=str(req['source']),imported_count=int(result.get('imported_count') or 0),kept_existing=int(result.get('kept_existing') or 0),wanted_satisfied=len(satisfied),wanted_remaining=len(after_keys))
+        emit(100,'Manual Import • complete')
         return result
+
+    def _manual_import_job_public(self, job:dict[str,Any]) -> dict[str,Any]:
+        out={k:copy.deepcopy(v) for k,v in job.items() if k not in {'thread'}}
+        return out
+
+    def _prune_manual_import_jobs(self) -> None:
+        cutoff=time.time()-3600.0
+        stale=[]
+        for job_id,job in self.manual_import_jobs.items():
+            if str(job.get('status') or '') in {'completed','failed'} and float(job.get('updated_ts') or 0)<cutoff:
+                stale.append(job_id)
+        for job_id in stale:
+            self.manual_import_jobs.pop(job_id,None)
+
+    def _update_manual_import_job(self, job_id:str, **updates:Any) -> None:
+        with self.manual_import_jobs_lock:
+            job=self.manual_import_jobs.get(str(job_id or ''))
+            if not job: return
+            job.update(updates); job['updated_ts']=time.time()
+
+    def start_manual_library_import(self, item_id:str, source_folder:str, season:Any=None, episode:Any=None) -> dict[str,Any]:
+        """Start one explicit TV import and expose real Smart Import progress."""
+        item_id=str(item_id or '').strip()
+        if not item_id: raise ValueError('Automation library item was not found.')
+        # Re-run the non-destructive planner before creating a background job so
+        # invalid/missing folders and unresolved mappings fail immediately.
+        preview=self.manual_library_import_preview(item_id,source_folder,season,episode)
+        if not preview.get('ok') or not preview.get('can_import'):
+            raise ValueError(str(preview.get('reason') or 'Manual Media Import could not build a safe import plan.'))
+        if int(preview.get('needs_attention_count') or 0)>0:
+            raise ValueError('Manual Media Import needs review before commit because one or more source files could not be mapped safely.')
+        with self.manual_import_jobs_lock:
+            self._prune_manual_import_jobs()
+            for existing in self.manual_import_jobs.values():
+                if str(existing.get('item_id') or '')==item_id and str(existing.get('status') or '') in {'queued','running'}:
+                    raise ValueError('A Manual Media Import is already in progress for this TV show.')
+            job_id=secrets.token_hex(12)
+            now=time.time()
+            job={
+                'job_id':job_id,'item_id':item_id,'status':'queued','progress':0,
+                'message':'Manual Import • queued','error':'','result':None,
+                'started_ts':now,'updated_ts':now,
+            }
+            self.manual_import_jobs[job_id]=job
+
+        def worker():
+            self._update_manual_import_job(job_id,status='running',progress=1,message='Manual Import • starting')
+            def progress(percent:float,message:str=''):
+                value=max(0,min(100,int(round(float(percent or 0)))))
+                self._update_manual_import_job(job_id,status='running',progress=value,message=str(message or 'Manual Import • organizing media'))
+            try:
+                result=self.manual_library_import(item_id,source_folder,season,episode,progress_callback=progress)
+                if result.get('ok'):
+                    self._update_manual_import_job(job_id,status='completed',progress=100,message='Manual Import • complete',result=result,error='')
+                else:
+                    self._update_manual_import_job(job_id,status='failed',message='Manual Import • needs attention',result=result,error=str(result.get('reason') or 'Manual Media Import could not be completed.'))
+            except Exception as exc:
+                self._update_manual_import_job(job_id,status='failed',message='Manual Import • failed',error=str(exc),result=None)
+        thread=threading.Thread(target=worker,name=f'NewzDeckManualImport-{job_id[:8]}',daemon=True)
+        with self.manual_import_jobs_lock:
+            if job_id in self.manual_import_jobs: self.manual_import_jobs[job_id]['thread']=thread
+        thread.start()
+        with self.manual_import_jobs_lock:
+            return self._manual_import_job_public(self.manual_import_jobs[job_id])
+
+    def manual_library_import_progress(self, job_id:str) -> dict[str,Any]:
+        with self.manual_import_jobs_lock:
+            self._prune_manual_import_jobs()
+            job=self.manual_import_jobs.get(str(job_id or '').strip())
+            if not job: raise ValueError('Manual Import progress is no longer available.')
+            return self._manual_import_job_public(job)
 
     def _aired(self,d:str):
         if not d: return False
