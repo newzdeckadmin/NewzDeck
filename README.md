@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.30** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.31** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.30_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.31_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.30 highlights
+## v3.6.31 highlights
 
-v3.6.30 is a surgical follow-up to the accepted v3.6.29 persistent transport. Production diagnostics showed 22,652 SAB control requests with 97%+ socket reuse and only one Queue/History retry over about 2.5 hours, while 293 of 294 remaining low-level transport resets were isolated to the periodic key-free `mode=version` fingerprint.
+v3.6.31 is a narrow cleanup after v3.6.30 production telemetry showed the real Downloads path was clean—zero Queue/History resets and zero degraded/stale snapshots—while 76 failed `mode=version` requests remained. Source audit traced those failures to the once-per-minute historical SAB quarantine sweep probing known-dead localhost ports.
 
-- **Routine health without redundant version probes:** normal runtime liveness now validates the authoritative current-generation API key through SAB's `auth` endpoint instead of repeatedly fingerprinting `mode=version`.
-- **Strong identity proof preserved where it matters:** startup, authoritative reconciliation, stale-engine/port recovery and explicit restart paths still perform a real SAB version fingerprint.
-- **No-op configuration passes stay local:** the provider/configuration signature is checked before any synchronization heartbeat, so unchanged settings no longer generate unnecessary SAB identity traffic.
-- **New identity telemetry:** Diagnostics reports version probes/failures, runtime-auth probes/failures and synchronization no-op skips.
-- **Accepted safety layers unchanged:** v3.6.29 persistent HTTP transport and v3.6.28 Downloads visibility continuity remain intact.
+- **Skip dead historical ports before HTTP:** NewzDeck now checks whether a historical localhost port is actually occupied before sending a SAB identity request. Closed/free ports are skipped immediately.
+- **Stale-engine safety preserved:** if a historical port is occupied, NewzDeck still requires the existing full SAB version fingerprint plus historical API-key authentication before it may pause or shut down that process.
+- **Authoritative transport stays untouched:** the current SAB instance, Queue/History reads, persistent HTTP/1.1 transport, runtime-auth path, Smart Import, and Downloads visibility continuity are unchanged.
+- **New sweep telemetry:** Diagnostics reports historical sweeps, ports considered, closed-port skips, occupied probes, authenticated stale engines, and the last sweep timestamp.
 
-See [the full v3.6.30 release notes](release/RELEASE_NOTES_v3.6.30.md).
+See [the full v3.6.31 release notes](release/RELEASE_NOTES_v3.6.31.md).
 
 ## Requirements
 
@@ -67,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.30_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.31_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

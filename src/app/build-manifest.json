@@ -1,21 +1,20 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.30",
-  "base_version": "3.6.29",
-  "release": "SAB Identity Probe Stabilization",
-  "adapter_version": "3.6.30",
+  "version": "3.6.31",
+  "base_version": "3.6.30",
+  "release": "Historical SAB Probe Quieting",
+  "adapter_version": "3.6.31",
   "changes": [
-    "Removes redundant routine SAB mode=version fingerprints from the healthy runtime path after v3.6.29 production telemetry isolated virtually every residual control reset to that probe.",
-    "Uses the authoritative current-generation API key through SAB mode=auth for routine runtime liveness while preserving full version+credential proof at startup, reconciliation, restart, and recovery boundaries.",
-    "Checks the local provider/configuration signature before any synchronization heartbeat so unchanged configuration no longer performs unnecessary SAB identity work on every engine-loop pass.",
-    "Adds SAB identity-probe diagnostics for full version probes/failures, routine runtime-auth probes/failures, and configuration no-op skips.",
-    "Preserves the accepted v3.6.29 persistent serialized HTTP/1.1 transport and v3.6.28 Downloads visibility continuity without altering their retry, ownership, or safety behavior."
+    "Preflights historical NewzDeck SAB localhost ports with a cheap TCP listener check before sending any HTTP identity request, so known-dead/free historical ports are skipped without generating mode=version transport resets.",
+    "Retains full SAB version plus historical API-key authentication when a historical port is actually occupied, preserving stale-engine quarantine safety while eliminating pointless probes against closed ports.",
+    "Adds Historical SAB sweep diagnostics for sweeps, ports considered, closed-port skips, occupied probes, authenticated stale engines, and last sweep time.",
+    "Preserves the accepted v3.6.30 runtime-auth/no-op synchronization behavior, v3.6.29 persistent serialized HTTP/1.1 transport, and v3.6.28 Downloads visibility continuity unchanged."
   ],
   "regression_guards": [
-    "Startup, port-occupancy, stale-engine quarantine, explicit restart, and authoritative identity-reconciliation paths retain a real key-free SAB version fingerprint where strong identity proof is required.",
-    "Routine runtime liveness still performs a real localhost authenticated SAB request when no recent successful API call already proves the engine healthy.",
-    "Provider/configuration synchronization still validates the authoritative running SAB before applying a changed or forced configuration; only unchanged no-op passes skip the redundant heartbeat.",
-    "v3.6.29 persistent connection serialization/reconnect semantics and v3.6.28 visibility continuity/fresh Queue+History absence rules remain unchanged.",
+    "The authoritative current SAB port is never subject to the historical-port preflight skip path.",
+    "Any occupied historical port still requires a real key-free SAB version fingerprint followed by authentication with a historical NewzDeck-owned API key before pause or shutdown is allowed.",
+    "Unknown processes on historical ports are never adopted, paused, shut down, or otherwise mutated.",
+    "v3.6.30 runtime authentication, v3.6.29 persistent transport serialization/reconnect behavior, and v3.6.28 visibility continuity/fresh Queue+History absence rules remain unchanged.",
     "Discover/TMDB, Metadata Server v0.3.3 integration, Smart Import, provider settings, installer/updater behavior, and user data preservation are otherwise unchanged."
   ],
   "name": "SAB Identity Probe Stabilization"

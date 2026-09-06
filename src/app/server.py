@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.30"
+APP_VERSION = "3.6.31"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11801,6 +11801,15 @@ def diagnostics_report() -> str:
             f"runtime_auth_failures={int(tel.get('sab_runtime_auth_failures',0) or 0)}; "
             f"last_runtime_auth_ts={float(tel.get('sab_runtime_auth_last_ts',0) or 0):.3f}; "
             f"sync_noop_skips={int(tel.get('sab_sync_noop_skips',0) or 0)}"
+        )
+        lines.append(
+            "Historical SAB sweep: "
+            f"sweeps={int(tel.get('historical_sab_sweeps',0) or 0)}; "
+            f"ports_considered={int(tel.get('historical_sab_ports_considered',0) or 0)}; "
+            f"closed_skips={int(tel.get('historical_sab_closed_port_skips',0) or 0)}; "
+            f"occupied_probes={int(tel.get('historical_sab_occupied_port_probes',0) or 0)}; "
+            f"authenticated_stale={int(tel.get('historical_sab_authenticated',0) or 0)}; "
+            f"last_sweep_ts={float(tel.get('historical_sab_last_sweep_ts',0) or 0):.3f}"
         )
         lines.append(
             "Backlog reliability: "

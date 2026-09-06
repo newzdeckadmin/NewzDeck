@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.30"
+ADAPTER_VERSION = "3.6.31"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -759,6 +759,17 @@ class SabDownloadManager:
         self._stale_engines_shutdown = 0
         self._stale_engine_last_port = 0
         self._stale_engine_last_slots = 0
+        # v3.6.31: historical SAB retirement is intentionally low-frequency, but
+        # v3.6.30 production telemetry showed that probing known-dead historical
+        # localhost ports still generated one failed mode=version request per port
+        # per sweep. Preflight the TCP listener first so closed/free historical
+        # ports are skipped without disturbing the authoritative persistent SAB
+        # control connection. Occupied ports retain the full version+key proof.
+        self._historical_sab_sweeps = 0
+        self._historical_sab_ports_considered = 0
+        self._historical_sab_closed_port_skips = 0
+        self._historical_sab_occupied_port_probes = 0
+        self._historical_sab_authenticated = 0
         self._stale_duplicate_queue_cleanups = 0
         self._stale_duplicate_queue_last_ts = 0.0
         self._completion_control_failures = 0
@@ -1780,6 +1791,7 @@ class SabDownloadManager:
         except Exception:
             return
 
+        self._historical_sab_sweeps += 1
         ports: list[int] = []
         for rec in self._identity_candidates():
             port = _clamp_int(rec.get("port"), 1025, 65535, 0)
@@ -1788,7 +1800,19 @@ class SabDownloadManager:
         for port in ports:
             if self.shutdown_event.is_set():
                 return
-            self._quarantine_known_engine_on_port(port, reason="historical private SAB identity")
+            self._historical_sab_ports_considered += 1
+            # A free localhost port cannot contain a stale SAB process. Avoid the
+            # expensive HTTP fingerprint entirely; this also prevents a dead port
+            # from replacing/closing the healthy authoritative keep-alive socket.
+            if self._port_available(port):
+                self._historical_sab_closed_port_skips += 1
+                continue
+            self._historical_sab_occupied_port_probes += 1
+            result = self._quarantine_known_engine_on_port(
+                port, reason="historical private SAB identity"
+            )
+            if bool((result or {}).get("authenticated")):
+                self._historical_sab_authenticated += 1
 
     def _load_engine_identity(self) -> dict[str, Any]:
         """Load SAB identity without rotating credentials because of a transient file-read failure."""
@@ -1985,6 +2009,12 @@ class SabDownloadManager:
             'sab_runtime_auth_failures': int(self._sab_runtime_auth_failures),
             'sab_runtime_auth_last_ts': float(self._sab_runtime_auth_last_ts or 0.0),
             'sab_sync_noop_skips': int(self._sab_sync_noop_skips),
+            'historical_sab_sweeps': int(self._historical_sab_sweeps),
+            'historical_sab_ports_considered': int(self._historical_sab_ports_considered),
+            'historical_sab_closed_port_skips': int(self._historical_sab_closed_port_skips),
+            'historical_sab_occupied_port_probes': int(self._historical_sab_occupied_port_probes),
+            'historical_sab_authenticated': int(self._historical_sab_authenticated),
+            'historical_sab_last_sweep_ts': float(self._stale_engine_quarantine_last_ts or 0.0),
         }
 
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
@@ -6162,6 +6192,12 @@ class SabDownloadManager:
                                 "stale_engines_shutdown": int(self._stale_engines_shutdown),
                                 "stale_engine_last_port": int(self._stale_engine_last_port),
                                 "stale_engine_last_slots": int(self._stale_engine_last_slots),
+                                "historical_sab_sweeps": int(self._historical_sab_sweeps),
+                                "historical_sab_ports_considered": int(self._historical_sab_ports_considered),
+                                "historical_sab_closed_port_skips": int(self._historical_sab_closed_port_skips),
+                                "historical_sab_occupied_port_probes": int(self._historical_sab_occupied_port_probes),
+                                "historical_sab_authenticated": int(self._historical_sab_authenticated),
+                                "historical_sab_last_sweep_ts": float(self._stale_engine_quarantine_last_ts or 0.0),
                                 "stale_duplicate_queue_cleanups": int(self._stale_duplicate_queue_cleanups),
                                 "stale_duplicate_queue_last_ts": float(self._stale_duplicate_queue_last_ts),
                                 "completion_control_failures": int(self._completion_control_failures),
