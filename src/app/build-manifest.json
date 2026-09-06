@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.29",
-  "base_version": "3.6.28",
-  "release": "Persistent SAB Control Transport",
-  "adapter_version": "3.6.29",
+  "version": "3.6.30",
+  "base_version": "3.6.29",
+  "release": "SAB Identity Probe Stabilization",
+  "adapter_version": "3.6.30",
   "changes": [
-    "Replaces per-request localhost SAB HTTP teardown with one serialized persistent HTTP/1.1 control connection while preserving the existing single-filed request lock.",
-    "Reopens the private SAB control connection automatically after genuine transport faults, listener replacement, port changes, long idle intervals, or server-requested connection closure.",
-    "Adds SAB HTTP transport diagnostics for total requests, opened/reused connections, reuse percentage, reconnects, transport resets, server closes, idle reopens, and resets grouped by SAB API mode.",
-    "Preserves v3.6.28 durable Downloads visibility continuity as an independent safety layer instead of weakening or replacing it.",
-    "Preserves v3.6.28 clean-generation recovery rules, v3.6.27 adapter identity validation, v3.6.26 verified Remove/bulk Failed cleanup, and v3.6.25 Smart Import safeguards."
+    "Removes redundant routine SAB mode=version fingerprints from the healthy runtime path after v3.6.29 production telemetry isolated virtually every residual control reset to that probe.",
+    "Uses the authoritative current-generation API key through SAB mode=auth for routine runtime liveness while preserving full version+credential proof at startup, reconciliation, restart, and recovery boundaries.",
+    "Checks the local provider/configuration signature before any synchronization heartbeat so unchanged configuration no longer performs unnecessary SAB identity work on every engine-loop pass.",
+    "Adds SAB identity-probe diagnostics for full version probes/failures, routine runtime-auth probes/failures, and configuration no-op skips.",
+    "Preserves the accepted v3.6.29 persistent serialized HTTP/1.1 transport and v3.6.28 Downloads visibility continuity without altering their retry, ownership, or safety behavior."
   ],
   "regression_guards": [
-    "All NewzDeck-to-SAB API traffic remains serialized through the existing re-entrant transport lock; persistent connection reuse never introduces overlapping control requests.",
-    "HTTP 401/403 and SAB JSON API-key errors remain authentication failures and continue through the existing authoritative identity-reconciliation path rather than being counted as transport resets.",
-    "Any transport exception invalidates the persistent client connection before existing bounded retry/reconciliation logic runs.",
-    "v3.6.28 visibility continuity and fresh Queue+History absence rules remain unchanged.",
-    "Discover/TMDB, Metadata Server v0.3.3 integration, installer/updater behavior, provider settings, and user data preservation are otherwise unchanged."
+    "Startup, port-occupancy, stale-engine quarantine, explicit restart, and authoritative identity-reconciliation paths retain a real key-free SAB version fingerprint where strong identity proof is required.",
+    "Routine runtime liveness still performs a real localhost authenticated SAB request when no recent successful API call already proves the engine healthy.",
+    "Provider/configuration synchronization still validates the authoritative running SAB before applying a changed or forced configuration; only unchanged no-op passes skip the redundant heartbeat.",
+    "v3.6.29 persistent connection serialization/reconnect semantics and v3.6.28 visibility continuity/fresh Queue+History absence rules remain unchanged.",
+    "Discover/TMDB, Metadata Server v0.3.3 integration, Smart Import, provider settings, installer/updater behavior, and user data preservation are otherwise unchanged."
   ],
-  "name": "Persistent SAB Control Transport"
+  "name": "SAB Identity Probe Stabilization"
 }

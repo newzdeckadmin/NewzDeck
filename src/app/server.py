@@ -282,7 +282,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.29"
+APP_VERSION = "3.6.30"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -11791,6 +11791,16 @@ def diagnostics_report() -> str:
             f"last_reset_ts={float(tel.get('sab_http_last_reset_ts',0) or 0):.3f}; "
             f"last_reset_mode={str(tel.get('sab_http_last_reset_mode','') or '')}; "
             f"resets_by_mode={reset_modes_text}"
+        )
+        lines.append(
+            "SAB identity probes: "
+            f"version={int(tel.get('sab_version_probes',0) or 0)}; "
+            f"version_failures={int(tel.get('sab_version_probe_failures',0) or 0)}; "
+            f"last_version_ts={float(tel.get('sab_version_probe_last_ts',0) or 0):.3f}; "
+            f"runtime_auth={int(tel.get('sab_runtime_auth_probes',0) or 0)}; "
+            f"runtime_auth_failures={int(tel.get('sab_runtime_auth_failures',0) or 0)}; "
+            f"last_runtime_auth_ts={float(tel.get('sab_runtime_auth_last_ts',0) or 0):.3f}; "
+            f"sync_noop_skips={int(tel.get('sab_sync_noop_skips',0) or 0)}"
         )
         lines.append(
             "Backlog reliability: "

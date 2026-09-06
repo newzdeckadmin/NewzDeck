@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.29"
+ADAPTER_VERSION = "3.6.30"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -617,6 +617,19 @@ class SabDownloadManager:
         self._sab_http_last_reset_ts = 0.0
         self._sab_http_last_reset_mode = ""
         self._sab_http_resets_by_mode: dict[str, int] = {}
+        # v3.6.30: production v3.6.29 proved the persistent transport itself is
+        # healthy (97%+ reuse and essentially zero Queue/History read resets), while
+        # nearly every residual transport reset came from a redundant key-free SAB
+        # ``version`` fingerprint. Runtime liveness now uses the current generation's
+        # authenticated ``auth`` endpoint; full version fingerprints are reserved for
+        # startup, reconciliation and explicit recovery/occupancy boundaries.
+        self._sab_version_probes = 0
+        self._sab_version_probe_failures = 0
+        self._sab_version_probe_last_ts = 0.0
+        self._sab_runtime_auth_probes = 0
+        self._sab_runtime_auth_failures = 0
+        self._sab_runtime_auth_last_ts = 0.0
+        self._sab_sync_noop_skips = 0
         # Reopen proactively after a long quiet interval. This is not a failure:
         # Cheroot may legitimately retire an idle keep-alive socket. Busy Downloads
         # sessions should reuse the same connection continuously.
@@ -1965,6 +1978,13 @@ class SabDownloadManager:
             'sab_http_persistent_active': active,
             'sab_http_connection_age_seconds': max(0.0, now - opened_ts) if active and opened_ts > 0 else 0.0,
             'sab_http_idle_seconds': max(0.0, now - last_request_ts) if last_request_ts > 0 else 0.0,
+            'sab_version_probes': int(self._sab_version_probes),
+            'sab_version_probe_failures': int(self._sab_version_probe_failures),
+            'sab_version_probe_last_ts': float(self._sab_version_probe_last_ts or 0.0),
+            'sab_runtime_auth_probes': int(self._sab_runtime_auth_probes),
+            'sab_runtime_auth_failures': int(self._sab_runtime_auth_failures),
+            'sab_runtime_auth_last_ts': float(self._sab_runtime_auth_last_ts or 0.0),
+            'sab_sync_noop_skips': int(self._sab_sync_noop_skips),
         }
 
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
@@ -2021,11 +2041,23 @@ class SabDownloadManager:
         return data
 
     def _probe_version(self, port: int, timeout: float = 0.6) -> str:
-        """Fingerprint SAB without credentials. SAB documents version as key-free."""
+        """Fingerprint SAB without credentials at an explicit identity boundary.
+
+        v3.6.30 intentionally keeps this as a real network fingerprint, but normal
+        runtime health checks no longer call it. That preserves strong startup and
+        recovery identity proof without sending a redundant ``mode=version`` request
+        on every engine-loop/configuration pass.
+        """
+        self._sab_version_probes += 1
+        self._sab_version_probe_last_ts = time.time()
         try:
             data = self._raw_api(port, "version", timeout=timeout, include_key=False)
-            return str(data.get("version") or data.get("value") or "").strip()
+            version = str(data.get("version") or data.get("value") or "").strip()
+            if not version:
+                self._sab_version_probe_failures += 1
+            return version
         except Exception:
+            self._sab_version_probe_failures += 1
             return ""
 
     def _auth_kind(self, port: int, candidate: str, timeout: float = 0.6) -> str:
@@ -2146,6 +2178,37 @@ class SabDownloadManager:
             if include_key and _retry_auth and "api key" in message.casefold() and self._reconcile_live_identity(timeout=0.8):
                 return self._api(mode, timeout=timeout, include_key=include_key, _retry_auth=False, **params)
             raise
+
+    def _runtime_ping(self, timeout: float = 0.8) -> bool:
+        """Prove the authoritative running SAB generation without a version probe.
+
+        The current generation's private API key is already an authoritative runtime
+        identity. SAB's key-free ``auth`` endpoint can prove that key belongs to the
+        listener on the saved localhost port. A full key-free ``version`` fingerprint
+        remains mandatory in startup/recovery paths, but is intentionally avoided for
+        routine liveness because v3.6.29 production telemetry isolated virtually all
+        residual resets to that redundant probe.
+        """
+        self._sab_runtime_auth_probes += 1
+        self._sab_runtime_auth_last_ts = time.time()
+        try:
+            ident = self._load_engine_identity()
+            port = int(ident["port"])
+            key = str(ident.get("api_key") or "")
+            if key and self._auth_kind(port, key, timeout=timeout) == "apikey":
+                self._last_ready_ts = time.time()
+                self._last_error = ""
+                return True
+        except Exception:
+            pass
+        self._sab_runtime_auth_failures += 1
+        # Recovery is exceptional and deliberately restores the stronger full
+        # version+credential proof before repairing the authoritative key.
+        if self._reconcile_live_identity(timeout=timeout):
+            self._last_ready_ts = time.time()
+            self._last_error = ""
+            return True
+        return False
 
     def _ping(self, timeout: float = 0.8) -> bool:
         """Prove both SAB identity and a full API credential without mutating config."""
@@ -2678,7 +2741,7 @@ class SabDownloadManager:
             self._ensure_probe_miss_count = 0
             return True
 
-        if self._ping(timeout=0.9):
+        if self._runtime_ping(timeout=0.9):
             self._last_api_success_ts = time.time()
             self._ensure_probe_miss_since = 0.0
             self._ensure_probe_miss_count = 0
@@ -3178,13 +3241,19 @@ class SabDownloadManager:
         return {}
 
     def _sync_configuration(self, force: bool = False) -> None:
-        if not self._ping():
-            return
+        # v3.6.30: compute the local desired signature before any SAB heartbeat. The
+        # engine loop already calls ensure_running() first, so when configuration is
+        # unchanged there is nothing to synchronize and no reason to fingerprint the
+        # same healthy listener again. This removes the periodic version-probe churn
+        # measured in v3.6.29 without weakening real configuration changes.
         signature = self._provider_signature()
         now = time.time()
         if not force and signature == self._last_sync_signature:
+            self._sab_sync_noop_skips += 1
             return
         if not force and now < float(getattr(self, "_config_sync_retry_after", 0.0) or 0.0):
+            return
+        if not self._runtime_ping():
             return
         self._config_sync_attempts += 1
         settings = self.settings_getter() or {}
@@ -3604,7 +3673,7 @@ class SabDownloadManager:
         if self._engine_status_cache and now - self._engine_status_ts < 1.0:
             return dict(self._engine_status_cache)
         recent_api = bool(self._last_api_success_ts and now - self._last_api_success_ts <= 3.0)
-        probe_ready = recent_api or self._ping(timeout=0.7)
+        probe_ready = recent_api or self._runtime_ping(timeout=0.7)
         if probe_ready:
             if not recent_api:
                 self._last_api_success_ts = time.time()
@@ -6260,7 +6329,7 @@ class SabDownloadManager:
             return self.snapshot()
 
         # Local Stop All must remain usable during an engine reconnect.
-        if action == "hard_stop_all" and not self._ping(timeout=0.5):
+        if action == "hard_stop_all" and not self._runtime_ping(timeout=0.5):
             self.state["paused"] = True
             self.state["_paused_updated_ts"] = time.time()
             self._save_state()
@@ -6971,7 +7040,7 @@ class SabDownloadManager:
             keep_running = bool(self.keep_engine_running())
         except Exception:
             keep_running = False
-        if not keep_running and self._ping(timeout=0.35):
+        if not keep_running and self._runtime_ping(timeout=0.35):
             try:
                 self._api("shutdown", timeout=2.0)
             except Exception:

@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.29
+## Current release: v3.6.30
 
-**v3.6.29 is the current stable production release.**
+**v3.6.30 is the current stable production release.**
 
-The `v3.6.29` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.30` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.30 - SAB Identity Probe Stabilization.** Replaces redundant routine `mode=version` heartbeats with authoritative API-key `auth` liveness checks, makes unchanged provider/configuration sync passes return before any SAB heartbeat, adds identity-probe telemetry, and preserves the accepted v3.6.29 persistent transport plus v3.6.28 Downloads continuity unchanged.
 
 - **v3.6.29 - Persistent SAB Control Transport.** Replaces explicit per-request localhost SAB connection teardown with a serialized persistent HTTP/1.1 control connection, safely recreates the socket after genuine control faults/listener changes, adds per-mode transport telemetry, and preserves the v3.6.28 Downloads visibility bridge unchanged.
 
