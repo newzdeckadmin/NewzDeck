@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.32** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.33** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.32_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.33_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** — you need
 - **Organize completed media** with Smart Import, including identification, renaming, moving, duplicate/existing-media handling, and cleanup of completed download folders.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.32 highlights
+## v3.6.33 highlights
 
-v3.6.32 hardens Continuous Automation after a production audit found stale `missing` targets could survive long enough to trigger redundant downloads and, when combined with a stale library-scan merge and unknown existing quality, could replace better media with a lower-quality fallback.
+v3.6.33 fixes a TV-edition naming compatibility gap found in production Automation searches: indexers can use a short country code while the canonical TMDB title uses a longer country name (or vice versa). The production case was **Love Island USA** versus releases named `Love.Island.US...`, but the fix now covers the same safe pattern for several common country editions.
 
-- **Last-second automatic target validation:** unattended grabs re-check the live library and physical target before fetching an NZB or submitting anything to SAB.
-- **Absolute downgrade protection:** Smart Import only replaces existing media when the incoming file is provably better. Equal, worse, or indeterminate quality keeps the existing library file.
-- **Scan/import race protection:** long library scans compare their start-state with the live state at commit time and skip stale per-target merges after a newer Smart Import.
-- **New integrity telemetry:** Diagnostics reports stale automatic grabs suppressed, scan merge conflicts, downgrades blocked, existing quality recovered, and the last protection timestamp.
-- **Accepted SAB behavior preserved:** v3.6.31 historical-port quieting and the v3.6.29-v3.6.30 persistent/current-SAB control path are unchanged apart from the required version identity marker.
+- **Safe country-edition search aliases:** confirmed TV editions can search equivalent suffixes for `USA`/`US`, `Australia`/`AU`/`AUS`, `United Kingdom`/`UK`/`GB`, `Canada`/`CA`/`CAN`, and `New Zealand`/`NZ`/`NZL`.
+- **Alias-aware release validation:** equivalent suffixes are accepted only when persisted country metadata confirms the same edition; conflicting country editions and fuzzy/bare franchise aliases remain rejected.
+- **Merged/deduplicated indexer results:** canonical and alias searches are combined without duplicating the same GUID/result.
+- **Bounded compatibility budget:** the indexer worker wall-clock allowance covers the canonical specialized query plus at most three bounded generic canonical/alias fallbacks.
+- **Accepted safety stack preserved:** v3.6.32 Automation target-integrity/downgrade protection and the accepted v3.6.28-v3.6.31 SAB/download-control path are unchanged apart from required version identity markers.
 
-See [the full v3.6.32 release notes](release/RELEASE_NOTES_v3.6.32.md).
+See [the full v3.6.33 release notes](release/RELEASE_NOTES_v3.6.33.md).
 
 ## Requirements
 
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.32_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.33_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

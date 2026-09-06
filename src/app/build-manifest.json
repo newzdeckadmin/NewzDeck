@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.32",
-  "base_version": "3.6.31",
-  "release": "Automation Target Integrity & Downgrade Protection",
-  "adapter_version": "3.6.32",
+  "version": "3.6.33",
+  "base_version": "3.6.32",
+  "release": "TV Edition Search Alias Compatibility",
+  "adapter_version": "3.6.33",
   "changes": [
-    "Revalidates every unattended Automation target against the live library and physical media immediately before NZB retrieval/submission, suppressing stale missing/upgrade grabs after the target has already changed.",
-    "Recovers trustworthy existing-media quality from the live record, fingerprint cache, filename, or conservative media probe and treats unknown existing quality as protected rather than as permission to overwrite.",
-    "Enforces a fail-closed no-downgrade gate immediately before Smart Import commit: an incoming file may replace an existing library file only when it is provably strictly better; otherwise the existing file is kept.",
-    "Adds optimistic concurrency to long library scans so scan results captured before a Smart Import cannot overwrite newer per-episode or movie file state at commit time.",
-    "Adds Automation target-integrity diagnostics for stale grabs suppressed, scan merge conflicts, downgrades blocked, recovered existing quality, and last integrity event time."
+    "Adds safe confirmed TV country-suffix aliases for USA/US, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN, and New Zealand/NZ/NZL.",
+    "Searches canonical and equivalent country-edition title forms through bounded Newznab compatibility queries and merges/deduplicates returned releases.",
+    "Makes local TV release identity validation accept the same exact country-suffix equivalence while rejecting conflicting editions and fuzzy/bare franchise aliases.",
+    "Expands the per-indexer search wall-clock allowance only enough to cover the canonical specialized request plus at most three bounded canonical/alias generic fallbacks."
   ],
   "regression_guards": [
-    "Manual Interactive Search and one-time Discover media grabs remain user-controlled; the stale-target suppression gate applies only to unattended automatic Automation grabs.",
-    "A genuinely missing target may still use an allowed fallback quality such as 720p when that profile permits it; the new guard blocks only stale or unsafe replacement of existing media.",
-    "Legitimate quality upgrades remain allowed only when the incoming quality is provably better than the current physical library file.",
-    "Long library scans still reconcile unchanged targets normally while any target changed after scan start keeps the newer live state.",
-    "v3.6.31 historical SAB probe quieting, v3.6.30 runtime-auth/no-op synchronization, v3.6.29 persistent HTTP/1.1 control transport, and v3.6.28 Downloads visibility continuity are unchanged except for the required v3.6.32 adapter identity marker."
+    "Ordinary titles retain the prior canonical specialized-search fast path; aliases require persisted TV country identity to agree with an explicit canonical country suffix, and short codes must be uppercase.",
+    "Country-suffix aliases are bounded to USA/US, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN, and New Zealand/NZ/NZL; fuzzy/bare franchise aliases are not added.",
+    "Conflicting country editions remain rejected by the existing identity gate.",
+    "Base retry timing, Wanted policy, queue depth, release-feed behavior, and Continuous Automation scheduler semantics are unchanged.",
+    "v3.6.32 Automation target-integrity and no-downgrade protections remain intact.",
+    "v3.6.31 historical SAB probe quieting, v3.6.30 runtime-auth/no-op synchronization, v3.6.29 persistent HTTP/1.1 transport, and v3.6.28 Downloads visibility continuity are unchanged except for the required v3.6.33 adapter identity marker."
   ],
-  "name": "Automation Target Integrity & Downgrade Protection"
+  "name": "TV Edition Search Alias Compatibility"
 }

@@ -1,27 +1,23 @@
-NewzDeck v3.6.32
-Automation Target Integrity & Downgrade Protection
+NewzDeck v3.6.33
+TV Edition Search Alias Compatibility
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader,
 and personal media automation application.
 
-WHAT'S NEW IN v3.6.32
+WHAT'S NEW IN v3.6.33
 
-- Revalidates unattended Automation targets against the current library and physical
-  media immediately before NZB retrieval/submission, suppressing stale missing,
-  season-pack, and unsafe upgrade grabs.
-- Makes Smart Import fail closed for existing media: only a provably better incoming
-  file may replace the library file; equal, worse, or indeterminate quality keeps
-  the existing file.
-- Recovers existing quality from live state, fingerprint history, filename metadata,
-  or conservative media probing instead of treating blank quality as permission to
-  overwrite.
-- Prevents a long-running library scan from overwriting newer Smart Import state by
-  detecting per-target scan merge conflicts at commit time.
-- Adds Automation target-integrity diagnostics for stale grabs suppressed, scan merge
-  conflicts, downgrades blocked, recovered existing quality, and last event time.
-- Preserves v3.6.31 historical SAB probe quieting, v3.6.30 runtime-auth/no-op
-  synchronization, v3.6.29 persistent HTTP/1.1 control transport, and v3.6.28
-  Downloads visibility continuity unchanged except for the v3.6.32 adapter identity.
+- Adds safe country-edition TV title aliases when persisted metadata confirms the
+  same edition: USA/US, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN,
+  and New Zealand/NZ/NZL.
+- Searches canonical and equivalent suffix forms through bounded Newznab fallback
+  queries, then merges and deduplicates returned releases.
+- Makes local release identity validation understand the same exact country-suffix
+  equivalence while continuing to reject conflicting editions and fuzzy/bare aliases.
+- Short country codes must be explicit uppercase suffixes, so ordinary titles such
+  as This Is Us are not reinterpreted as a country edition.
+- Preserves v3.6.32 Automation target-integrity/no-downgrade protections and the
+  accepted v3.6.28-v3.6.31 SAB/download-control stack except for required v3.6.33
+  identity markers.
 
 Normal installed updates preserve settings, provider configuration, Automation data,
 history, queue state, and user data.

@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.32
+## Current release: v3.6.33
 
-**v3.6.32 is the current stable production release.**
+**v3.6.33 is the current stable production release.**
 
-The `v3.6.32` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.33` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 All six NewzDeck-owned Windows executables are built from public Go source:
 
@@ -22,6 +22,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.33 - TV Edition Search Alias Compatibility.** Adds safe confirmed country-suffix aliases for USA/US, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN, and New Zealand/NZ/NZL to Newznab search and local TV release identity validation; merges/deduplicates alias results; keeps conflicting/fuzzy editions rejected; and preserves v3.6.32 Automation integrity plus the accepted SAB/download-control stack.
 
 - **v3.6.32 - Automation Target Integrity & Downgrade Protection.** Revalidates unattended targets immediately before NZB submission, blocks any unproven Smart Import downgrade, protects live import state from stale long-running library-scan merges, and adds direct target-integrity diagnostics while preserving the accepted SAB transport stack.
 

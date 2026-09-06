@@ -257,36 +257,110 @@ def _tv_item_country_tag(item: dict[str,Any] | None) -> str:
         if tag: return tag
     return ''
 
-def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
-    """Reject same-prefix TV franchise/edition releases belonging to another series.
+_TV_TITLE_COUNTRY_SUFFIX_ALIASES = {
+    # Search aliases are intentionally limited to common release-name suffixes.
+    # The stored TV country identity must confirm the same edition before any
+    # variant is generated, so this remains exact edition matching rather than
+    # fuzzy title matching.
+    'US': ('USA','US'),
+    'AU': ('Australia','AU','AUS'),
+    'UK': ('United Kingdom','UK','GB'),
+    'CA': ('Canada','CA','CAN'),
+    'NZ': ('New Zealand','NZ','NZL'),
+}
 
-    A token match such as ``Love Island`` inside ``Love Island Australia`` or
-    ``Big Brother`` inside ``Big Brother Canada`` is not enough to establish series
-    identity. Preserve the accent-insensitive title matcher, then inspect every exact
-    occurrence of the canonical title. This matters for library scan strings where a
-    generic parent folder may repeat the title before the actual filename; a later
-    explicit conflicting edition must never be hidden by that first folder match.
+def _tv_title_search_variants(item: dict[str,Any] | None) -> list[str]:
+    """Return safe indexer/matcher title variants for an explicit TV country edition.
+
+    Usenet naming is inconsistent about country suffixes: a canonical title may
+    use ``Australia`` while posts use ``AU``/``AUS``, or ``USA`` while posts use
+    ``US``. Generate only the bounded aliases for the country identity already
+    persisted on the TV item, and only when the canonical title explicitly ends
+    in one of that country's recognized suffixes.
+
+    Short country codes must be uppercase in the stored title. This prevents an
+    ordinary title such as ``This Is Us`` from being reinterpreted as the US
+    country marker. Bare franchise names remain intentionally unsupported by this
+    alias generator.
+    """
+    row=item if isinstance(item,dict) else {}
+    title=_indexer_search_title(str(row.get('title') or '').strip())
+    if not title:
+        return []
+    variants=[title]
+    if str(row.get('kind') or '')!='tv':
+        return variants
+    expected=_tv_item_country_tag(row)
+    aliases=_TV_TITLE_COUNTRY_SUFFIX_ALIASES.get(expected) or ()
+    if not aliases:
+        return variants
+
+    base=''
+    matched_alias=''
+    # Longest-first matters for ``United Kingdom`` before any short code.
+    for alias in sorted(aliases,key=len,reverse=True):
+        marker=' '+alias
+        if not title.casefold().endswith(marker.casefold()):
+            continue
+        actual=title[-len(alias):]
+        # Two/three-letter edition markers are codes, not ordinary words.
+        if len(alias)<=3 and actual!=alias.upper():
+            continue
+        candidate=title[:-len(marker)].strip()
+        if candidate:
+            base=candidate; matched_alias=alias
+            break
+    if not base or not matched_alias:
+        return variants
+
+    for alias in aliases:
+        candidate=f'{base} {alias}'
+        if candidate.casefold() not in {x.casefold() for x in variants}:
+            variants.append(candidate)
+    return variants
+
+def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
+    """Reject releases belonging to another TV franchise/edition.
+
+    Matching remains token/phrase based and strict. v3.6.33 adds only the safe
+    confirmed country-suffix variants returned by ``_tv_title_search_variants``;
+    it does not broaden ambiguous franchise matching.
     """
     row=item if isinstance(item,dict) else {}
     title=str(row.get('title') or '').strip()
     if not title:
         return False
-    if not _slug_match(str(release_title or ''),title,row.get('year') if row.get('kind')=='movie' else None):
+    variants=_tv_title_search_variants(row) or [_indexer_search_title(title)]
+    year=row.get('year') if row.get('kind')=='movie' else None
+    if not any(_slug_match(str(release_title or ''),variant,year) for variant in variants):
         return False
     if str(row.get('kind') or '')!='tv':
         return True
+
     release_tokens=_norm(release_title).split()
-    title_tokens=_norm(title).split()
-    if not release_tokens or not title_tokens:
-        return True
-    width=len(title_tokens)
-    starts=[i for i in range(0,max(0,len(release_tokens)-width+1)) if release_tokens[i:i+width]==title_tokens]
-    if not starts:
-        return True
     expected=_tv_item_country_tag(row)
+    if not release_tokens:
+        return True
+
+    # Inspect every exact occurrence of every permitted title variant. A later
+    # explicit conflicting edition in a path/release name must still win over a
+    # neutral parent-directory occurrence.
+    occurrences=[]
+    for variant in variants:
+        variant_tokens=_norm(variant).split()
+        if not variant_tokens:
+            continue
+        width=len(variant_tokens)
+        for start in range(0,max(0,len(release_tokens)-width+1)):
+            if release_tokens[start:start+width]==variant_tokens:
+                occurrences.append((start,width))
+    if not occurrences:
+        # Preserve the pre-existing acrostic/stylized-title fallback from _slug_match.
+        return True
+
     saw_positive=False
     saw_neutral=False
-    for start in starts:
+    for start,width in sorted(set(occurrences)):
         pos=start+width
         if pos>=len(release_tokens):
             saw_positive=True
@@ -315,9 +389,6 @@ def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -
             continue
         if nxt in _TV_EDITION_MARKERS or pair in _TV_EDITION_MARKER_PAIRS:
             return False
-        # A parent directory can produce a neutral repeated-title occurrence, e.g.
-        # ``.../Love Island/Season 1/Love Island (UK) - S01E01...``. Keep looking;
-        # a later explicit UK/US/AU/etc. occurrence has stronger identity evidence.
         saw_neutral=True
     return bool(saw_positive or saw_neutral)
 
@@ -400,11 +471,12 @@ INDEXER_SEARCH_MARGIN = 2.0
 def _indexer_search_wall_timeout() -> float:
     """Maximum wall-clock budget for one indexer search worker.
 
-    Keep this derived from the two sequential request budgets so the outer
-    ThreadPool wait can never cancel a healthy generic fallback before it has
-    had a chance to finish.
+    v3.6.33 may perform one canonical specialized request plus bounded generic
+    searches for the canonical title and up to two confirmed country-suffix aliases.
+    This covers US/USA, Australia/AU/AUS, United Kingdom/UK/GB, Canada/CA/CAN,
+    and New Zealand/NZ/NZL without making the worker unbounded.
     """
-    return INDEXER_PRIMARY_TIMEOUT + INDEXER_FALLBACK_TIMEOUT + INDEXER_SEARCH_MARGIN
+    return INDEXER_PRIMARY_TIMEOUT + (3 * INDEXER_FALLBACK_TIMEOUT) + INDEXER_SEARCH_MARGIN
 
 DEFAULT_PROFILES = [
     {
@@ -418,7 +490,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.32'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.33'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -4696,7 +4768,11 @@ class MediaAutomationEngine:
         kind=item.get('kind')
         category=idx.get('categories_tv') if kind=='tv' else idx.get('categories_movies')
         title=str(item.get('title') or '').strip()
-        search_title=_indexer_search_title(title)
+        search_titles=_tv_title_search_variants(item) if kind=='tv' else [_indexer_search_title(title)]
+        search_titles=[x for i,x in enumerate(search_titles) if x and x.casefold() not in {v.casefold() for v in search_titles[:i]}]
+        if not search_titles:
+            search_titles=[_indexer_search_title(title)]
+        search_title=search_titles[0]
         headers={'User-Agent':f'NewzDeck/{self.version}','Accept':'application/rss+xml,application/xml,text/xml,*/*'}
 
         def request(params:dict[str,Any], timeout:float) -> list[dict[str,Any]]:
@@ -4704,20 +4780,39 @@ class MediaAutomationEngine:
             raw=self._http_bytes_deadline(url,timeout,headers,12*1024*1024)
             return self._parse_newznab_items(raw,idx)
 
+        def generic_params(base_title:str) -> dict[str,Any]:
+            generic_title=base_title
+            if kind=='tv' and season is not None:
+                generic_title += f' S{int(season):02d}'
+                if episode is not None: generic_title += f'E{int(episode):02d}'
+            elif kind=='movie' and item.get('year'):
+                generic_title += f' {item.get("year")}'
+            return {'t':'search','q':generic_title,'limit':100,'cat':category}
+
+        def dedupe(rows:list[dict[str,Any]]) -> list[dict[str,Any]]:
+            unique={}
+            for row in rows:
+                key=str(row.get('guid') or row.get('download_url') or row.get('title') or '').casefold()
+                if not key: continue
+                old=unique.get(key)
+                if old is None or int(row.get('grabs') or 0)>int(old.get('grabs') or 0):
+                    unique[key]=row
+            return list(unique.values())
+
         primary={'t':'tvsearch' if kind=='tv' else 'movie','q':search_title,'limit':100,'cat':category}
         if kind=='tv' and season is not None:
             primary['season']=int(season)
             if episode is not None: primary['ep']=int(episode)
         if kind=='movie' and item.get('year'): primary['year']=item['year']
 
-        primary_error=None
+        rows=[]; primary_error=None; fallback_errors=[]; fallback_successes=0
         try:
-            rows=request(primary,INDEXER_PRIMARY_TIMEOUT)
-            if rows:
-                return rows
+            primary_rows=request(primary,INDEXER_PRIMARY_TIMEOUT)
+            rows.extend(primary_rows)
+            # Preserve the exact pre-v3.6.33 fast path for ordinary titles.
+            if primary_rows and len(search_titles)==1:
+                return primary_rows
         except urllib.error.HTTPError as exc:
-            # Authentication/permission failures will not improve with a generic
-            # query and should be reported immediately rather than duplicated.
             if int(getattr(exc,'code',0) or 0) in {401,403}:
                 raise
             primary_error=exc
@@ -4725,21 +4820,28 @@ class MediaAutomationEngine:
             primary_error=exc
 
         # Newznab implementations vary considerably in tvsearch/movie support.
-        # A bounded generic search is a compatibility fallback and also prevents a
-        # slow specialized endpoint from making Interactive Search unusable.
-        generic_title=search_title
-        if kind=='tv' and season is not None:
-            generic_title += f' S{int(season):02d}'
-            if episode is not None: generic_title += f'E{int(episode):02d}'
-        elif kind=='movie' and item.get('year'):
-            generic_title += f' {item.get("year")}'
-        generic={'t':'search','q':generic_title,'limit':100,'cat':category}
-        try:
-            return request(generic,INDEXER_FALLBACK_TIMEOUT)
-        except Exception as fallback_error:
-            if primary_error is not None:
-                raise TimeoutError(f'Specialized search failed ({primary_error}); generic fallback also failed ({fallback_error})') from fallback_error
-            raise
+        # If the canonical specialized query found nothing, keep the canonical
+        # generic fallback. For an explicit US/USA TV edition also issue one generic
+        # queries for equivalent confirmed country-edition aliases so common
+        # release suffixes (US/USA, Australia/AU/AUS, UK/GB, CA/CAN, NZ/NZL)
+        # are discoverable without allowing bare-franchise matches.
+        generic_titles=list(search_titles[1:])
+        if not rows:
+            generic_titles.insert(0,search_title)
+        for generic_base in generic_titles:
+            try:
+                rows.extend(request(generic_params(generic_base),INDEXER_FALLBACK_TIMEOUT)); fallback_successes+=1
+            except Exception as exc:
+                fallback_errors.append(exc)
+
+        rows=dedupe(rows)
+        if rows:
+            return rows
+        if primary_error is not None and fallback_errors and fallback_successes==0:
+            raise TimeoutError(f'Specialized search failed ({primary_error}); generic fallback also failed ({fallback_errors[-1]})') from fallback_errors[-1]
+        if fallback_errors and fallback_successes==0:
+            raise fallback_errors[-1]
+        return []
 
     def _recent_indexer_releases(self, idx:dict[str,Any]) -> list[dict[str,Any]]:
         cats=[]
