@@ -1,27 +1,26 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.47",
-  "base_version": "3.6.46",
-  "release": "PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring",
-  "adapter_version": "3.6.47",
-  "name": "PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring",
+  "version": "3.6.48",
+  "base_version": "3.6.47",
+  "release": "Library Integrity & Downloads Runtime Hardening",
+  "adapter_version": "3.6.48",
+  "name": "Library Integrity & Downloads Runtime Hardening",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds TV Selected Episodes monitoring so users can explicitly monitor whole seasons or individual episodes, including old aired episodes, without implicitly monitoring other seasons.",
-    "Explicit Selected Episodes are immediately eligible for Continuous Automation even when Search existing missing backlog is off; partial selections never trigger whole-season pack downloads.",
-    "Persists observable SAB Verify/PAR2/Repair evidence into NewzDeck Completed and Failed download records without changing SAB's repair/recoverability decisions.",
-    "Classifies terminal failures as unrecoverable-data, unpack, password, filesystem, post-processing-aborted, or other when SAB's own status/log/fail_message supports that distinction.",
-    "Shows PAR2 outcome, repair attempted, extra PAR2 fetch observation, post-processing time, and bounded SAB repair-history messages in Download details and copied diagnostics.",
-    "Stops presenting unavailable SAB recovery-block counts as real zeroes; the UI explicitly says Not reported by SAB when exact counts are unavailable.",
-    "Upgrades the private pinned SABnzbd runtime from 5.1.1 to 5.1.2 using the official win64 portable asset and SHA-256, with a graceful same-admin queue-preserving startup handoff and no force-kill path.",
-    "Preserves v3.6.46 quality-aware release selection, v3.6.45 scan progress, strict TV identity, Library Integrity, Smart Import, and Downloads continuity behavior."
+    "Flags identical media fingerprints assigned to different episodes of the same TV title when they are separate physical files, while leaving one shared multi-episode file informational.",
+    "Adds a production regression guard built from 29 exact historical false-positive TV releases retained in v3.6.47 diagnostics, plus the Love Island: All Stars companion-show identity pattern.",
+    "Reduces Downloads polling pressure from 4 Hz to 2 Hz while queue/post-processing work is active, 0.8 Hz when the Downloads page is idle, and about 0.67 Hz outside the visible Downloads page.",
+    "Widens the coherent Downloads snapshot cache from 0.22s to 0.40s so nearby UI/diagnostic callers reuse one authoritative presentation instead of forcing redundant rebuilds.",
+    "Adds split snapshot telemetry for SAB/reconciliation time, provider-health time, and derived remaining NewzDeck presentation time so future slow-build diagnostics identify the real phase.",
+    "Clears the transient SAB Queue/History reader-busy last_error after a fresh Queue+History pair succeeds, while retaining existing contention counters/telemetry.",
+    "Refreshes UPDATING.txt so newly built packages no longer ship the stale v3.6.20 update description.",
+    "Preserves v3.6.47 Selected Episodes, PAR2/repair visibility, SABnzbd 5.1.2, v3.6.46 quality-aware selection, scan progress, Smart Import, and strict TV identity behavior."
   ],
   "regression_guards": [
-    "Selected Episodes regression tests verify empty first-entry selection, Season 3-only monitoring, old-episode automatic eligibility, partial-selection pack suppression, and dormant selection restoration.",
-    "Synthetic SAB history verifies completed-with-repair, completed-after-verify, active PAR2 fetch, unrecoverable cannot-complete, password, unpack, and filesystem classifications.",
-    "Terminal repair telemetry is persisted with terminal NewzDeck job state so reconnect/restart cards retain the observed outcome.",
-    "Pinned SAB runtime must be 5.1.2 with official win64 URL and SHA-256 0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46.",
-    "The managed SAB upgrade path provisions before graceful shutdown, waits for authoritative port release, and contains no force-kill operation for an already-running prior SAB generation.",
-    "The 30 strict TV identity cases, Library Integrity safety, scan-progress guards, and v3.6.46 quality-selection guards remain mandatory."
+    "The existing production identity/Library Integrity/scan/quality/Selected Episodes/PAR2 repair guard remains mandatory and is updated only for the 3.6.48 adapter/runtime identity.",
+    "A new v3.6.48 regression guard rejects 29 exact historical false positives from the 2026-09-07 diagnostics and a representative Love Island: All Stars / The Morning After mismatch.",
+    "Synthetic Library Integrity coverage requires separate same-title cross-episode duplicate files to need review and requires one shared multi-episode file path to remain informational.",
+    "Downloads runtime source guards require the adaptive polling cadence, 0.40-second coherent cache, split snapshot phase telemetry, and recovered reader-busy last_error semantics.",
+    "The GitHub release workflow runs both the established validator and the v3.6.48 supplemental regression validator before building release artifacts."
   ]
 }

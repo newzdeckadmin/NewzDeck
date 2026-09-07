@@ -4168,26 +4168,52 @@ class MediaAutomationEngine:
                     fp=str(mf.get('file_fingerprint') or '').strip()
                     rec={'item_id':item_id,'title':title,'season':None,'episode':None,'path':str(mf.get('path') or ''),'fingerprint':fp}
                     if fp: by_fp.setdefault(fp,[]).append(rec)
-        duplicate=[]; cross_title=[]
+        duplicate=[]; cross_title=[]; cross_episode=[]
         for fp,rows in by_fp.items():
             targets={(str(r.get('item_id')),r.get('season'),r.get('episode')) for r in rows}
             if len(targets)<=1: continue
             distinct_paths={str(r.get('path') or '').casefold() for r in rows if str(r.get('path') or '').strip()}
             distinct_titles={str(r.get('item_id') or '') for r in rows if str(r.get('item_id') or '')}
-            entry={'fingerprint':fp,'targets':rows[:12],'target_count':len(targets),'distinct_path_count':len(distinct_paths),'distinct_title_count':len(distinct_titles),'needs_review':len(distinct_titles)>1}
+            cross_title_review=len(distinct_titles)>1
+            # v3.6.48: identical media bytes assigned to two different episodes of
+            # the same TV title are also suspicious when they are separate physical
+            # files. A legitimate multi-episode file normally has one shared path,
+            # so keep that case informational instead of flagging it for review.
+            same_title_cross_episode_review=(
+                len(distinct_titles)==1
+                and len(distinct_paths)>1
+                and len(targets)>1
+                and any(r.get('season') is not None and r.get('episode') is not None for r in rows)
+            )
+            review_reason=(
+                'Fingerprint is associated with different library titles' if cross_title_review
+                else 'Identical media bytes are assigned to different episodes of the same TV title' if same_title_cross_episode_review
+                else ''
+            )
+            entry={
+                'fingerprint':fp,'targets':rows[:12],'target_count':len(targets),
+                'distinct_path_count':len(distinct_paths),'distinct_title_count':len(distinct_titles),
+                'needs_review':bool(cross_title_review or same_title_cross_episode_review),
+                'review_reason':review_reason,
+            }
             duplicate.append(entry)
-            if len(distinct_titles)>1:
+            if cross_title_review:
                 cross_title.append(entry)
-        duplicate.sort(key=lambda x:(-int(x.get('target_count') or 0),-int(x.get('distinct_path_count') or 0),str(x.get('fingerprint') or '')))
+            elif same_title_cross_episode_review:
+                cross_episode.append(entry)
+        duplicate.sort(key=lambda x:(-int(bool(x.get('needs_review'))),-int(x.get('target_count') or 0),-int(x.get('distinct_path_count') or 0),str(x.get('fingerprint') or '')))
         cross_title.sort(key=lambda x:(-int(x.get('distinct_path_count') or 0),-int(x.get('target_count') or 0),str(x.get('fingerprint') or '')))
+        cross_episode.sort(key=lambda x:(-int(x.get('distinct_path_count') or 0),-int(x.get('target_count') or 0),str(x.get('fingerprint') or '')))
         identity_mismatches.sort(key=lambda x:(str(x.get('title') or ''),int(x.get('season') or 0),int(x.get('episode') or 0)))
-        needs_review_count=len(identity_mismatches)+len(cross_title)+len(edition_mismatches)
+        needs_review_count=len(identity_mismatches)+len(cross_title)+len(cross_episode)+len(edition_mismatches)
         return {
             'ok':True,'read_only':True,'file_records':file_records,'fingerprints':len(by_fp),
             'duplicate_fingerprints':len(duplicate),'cross_title_duplicate_fingerprints':len(cross_title),
+            'same_title_cross_episode_duplicate_fingerprints':len(cross_episode),
             'edition_mismatches':len(edition_mismatches),'identity_mismatches':len(identity_mismatches),
             'needs_review_count':needs_review_count,'needs_review':bool(needs_review_count),
             'duplicates':duplicate[:50],'cross_title_duplicates':cross_title[:50],
+            'same_title_cross_episode_duplicates':cross_episode[:50],
             'edition_mismatch_examples':edition_mismatches[:50],
             'identity_mismatch_examples':identity_mismatches[:100],
         }

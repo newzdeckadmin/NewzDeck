@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.47"
+ADAPTER_VERSION = "3.6.48"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -749,10 +749,11 @@ class SabDownloadManager:
         self._last_snapshot_ts = 0.0
         # v3.5.37 Live Downloads: serialize snapshot generation so fast foreground
         # polling never launches overlapping Queue/History reads that can complete
-        # out of order. The browser can poll at 250 ms while most requests are
-        # served from this short-lived coherent snapshot.
+        # out of order. v3.6.48 reduces visible polling pressure and keeps a slightly
+        # wider coherent cache window so diagnostics/sidebar callers reuse the same
+        # authoritative presentation instead of forcing redundant rebuilds.
         self._snapshot_lock = threading.Lock()
-        self._snapshot_cache_seconds = 0.22
+        self._snapshot_cache_seconds = 0.40
         self._snapshot_sequence = 0
         # v3.6.41: foreground/API snapshot callers must never queue behind a long
         # snapshot build once a coherent presentation snapshot already exists.
@@ -761,6 +762,13 @@ class SabDownloadManager:
         self._snapshot_last_build_ms = 0.0
         self._snapshot_max_build_ms = 0.0
         self._snapshot_slow_builds = 0
+        # v3.6.48: split slow snapshot time into the two bounded external/recovery
+        # phases that diagnostics can act on. The remaining time is presentation/
+        # reconciliation work inside NewzDeck and is derived from total minus these.
+        self._snapshot_sab_reconcile_last_ms = 0.0
+        self._snapshot_sab_reconcile_max_ms = 0.0
+        self._snapshot_provider_health_last_ms = 0.0
+        self._snapshot_provider_health_max_ms = 0.0
         # v3.6.20: all NewzDeck -> SAB HTTP requests share one transport lock.
         # The anonymized SAB log proved SAB itself stayed alive and downloaded while
         # NewzDeck saw WinError 10054 from overlapping localhost control requests.
@@ -6016,6 +6024,12 @@ class SabDownloadManager:
                 "snapshot_last_build_ms": round(float(self._snapshot_last_build_ms or 0.0), 3),
                 "snapshot_max_build_ms": round(float(self._snapshot_max_build_ms or 0.0), 3),
                 "snapshot_slow_builds": int(self._snapshot_slow_builds),
+                "snapshot_cache_seconds": round(float(self._snapshot_cache_seconds or 0.0), 3),
+                "snapshot_sab_reconcile_last_ms": round(float(self._snapshot_sab_reconcile_last_ms or 0.0), 3),
+                "snapshot_sab_reconcile_max_ms": round(float(self._snapshot_sab_reconcile_max_ms or 0.0), 3),
+                "snapshot_provider_health_last_ms": round(float(self._snapshot_provider_health_last_ms or 0.0), 3),
+                "snapshot_provider_health_max_ms": round(float(self._snapshot_provider_health_max_ms or 0.0), 3),
+                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0)), 3),
             })
             stale["telemetry"] = telemetry
             return stale
@@ -6046,6 +6060,12 @@ class SabDownloadManager:
                 "snapshot_last_build_ms": round(build_ms, 3),
                 "snapshot_max_build_ms": round(float(self._snapshot_max_build_ms or 0.0), 3),
                 "snapshot_slow_builds": int(self._snapshot_slow_builds),
+                "snapshot_cache_seconds": round(float(self._snapshot_cache_seconds or 0.0), 3),
+                "snapshot_sab_reconcile_last_ms": round(float(self._snapshot_sab_reconcile_last_ms or 0.0), 3),
+                "snapshot_sab_reconcile_max_ms": round(float(self._snapshot_sab_reconcile_max_ms or 0.0), 3),
+                "snapshot_provider_health_last_ms": round(float(self._snapshot_provider_health_last_ms or 0.0), 3),
+                "snapshot_provider_health_max_ms": round(float(self._snapshot_provider_health_max_ms or 0.0), 3),
+                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0)), 3),
             })
             decorated["telemetry"] = telemetry
             self._last_snapshot = decorated
@@ -6229,6 +6249,7 @@ class SabDownloadManager:
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
+        sab_reconcile_started = time.monotonic()
         try:
             queue_payload, history_payload = self._queue_and_history(live=True)
             qroot, qslots = self._queue_slots(queue_payload)
@@ -6266,6 +6287,18 @@ class SabDownloadManager:
             if history_read_fresh:
                 self._kick_completed_automation_imports(qslots, hslots)
 
+            sab_reconcile_ms = max(0.0, (time.monotonic() - sab_reconcile_started) * 1000.0)
+            self._snapshot_sab_reconcile_last_ms = sab_reconcile_ms
+            self._snapshot_sab_reconcile_max_ms = max(self._snapshot_sab_reconcile_max_ms, sab_reconcile_ms)
+            # A bounded live-reader contention warning is transient. Once a fresh
+            # Queue+History pair succeeds, do not keep presenting that recovered
+            # condition as the engine's current last_error indefinitely.
+            if queue_read_fresh and history_read_fresh and self._last_error == "SAB Queue/History reader is busy":
+                self._last_error = ""
+                engine = dict(engine)
+                engine["last_error"] = ""
+                engine["last_error_recovered"] = True
+
             bridge_remaining_hint = _mb_to_bytes(qroot.get("mbleft"))
             if bridge_remaining_hint <= 0:
                 bridge_remaining_hint = sum(
@@ -6282,6 +6315,9 @@ class SabDownloadManager:
                     return bridged_pause
                 self._last_coherent_sab_snapshot_ts = now
         except Exception as exc:
+            sab_reconcile_ms = max(0.0, (time.monotonic() - sab_reconcile_started) * 1000.0)
+            self._snapshot_sab_reconcile_last_ms = sab_reconcile_ms
+            self._snapshot_sab_reconcile_max_ms = max(self._snapshot_sab_reconcile_max_ms, sab_reconcile_ms)
             self._last_error = str(exc)
             coherent_age = now - float(self._last_coherent_sab_snapshot_ts or 0.0)
             if self._last_snapshot is not None and coherent_age <= 1.5:
@@ -6333,6 +6369,7 @@ class SabDownloadManager:
         engine_pause_mismatch = self._observe_engine_pause_intent(
             qroot, now, has_transfer_work=has_engine_transfer_work,
         )
+        provider_health_started = time.monotonic()
         if queue_read_fresh:
             provider_health = self._recover_zero_socket_transfer(
                 queue_active=queue_active_signal, queue_paused=queue_paused, total_speed=total_speed,
@@ -6342,6 +6379,9 @@ class SabDownloadManager:
             # A cached Queue sample cannot prove a provider stall. Read cached health
             # only and wait for fresh Queue truth before any recovery decision.
             provider_health = self._provider_health(force=False)
+        provider_health_ms = max(0.0, (time.monotonic() - provider_health_started) * 1000.0)
+        self._snapshot_provider_health_last_ms = provider_health_ms
+        self._snapshot_provider_health_max_ms = max(self._snapshot_provider_health_max_ms, provider_health_ms)
         actual_active_connections = int(provider_health.get("active_connections", 0) or 0)
         provider_summary = str(provider_health.get("summary") or "").strip()
         engine_warning_summary = str((provider_health.get("engine_warnings") or [""])[0] or "").strip()

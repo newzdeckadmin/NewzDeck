@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.47
+## Current release: v3.6.48
 
-**v3.6.47 is the current stable production release.**
+**v3.6.48 is the current stable production release.**
 
-The `v3.6.47` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.48` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.48 - Library Integrity & Downloads Runtime Hardening.** Flags identical fingerprints across separate episode files of the same TV series while preserving legitimate shared multi-episode files, promotes 29 real historical false-positive TV identities into release-blocking regression evidence, reduces avoidable Downloads/SAB polling pressure, adds split snapshot phase telemetry, and clears recovered reader-busy state while preserving v3.6.47 Selected Episodes/PAR2 behavior and SABnzbd 5.1.2.
 
 - **v3.6.47 - PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring.** Adds explicit whole-season/individual-episode TV monitoring with old-episode eligibility and partial-pack suppression, persists observable SAB Verify/PAR2/Repair evidence into Completed/Failed downloads, distinguishes terminal failure classes, and upgrades the private pinned SAB runtime to official 5.1.2 with SHA verification and a graceful queue-preserving handoff.
 

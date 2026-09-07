@@ -1,11 +1,12 @@
-NewzDeck v3.6.47
-PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring
+NewzDeck v3.6.48
+Library Integrity & Downloads Runtime Hardening
 
-New in v3.6.47:
-- Adds Selected Episodes monitoring for TV shows: choose whole seasons or individual episodes, including old aired episodes, without monitoring other seasons. Explicit selections bypass the global old-backlog gate and partial selections cannot trigger whole-season packs.
-- Completed and Failed downloads retain SAB's observed Verify/PAR2/Repair outcome instead of reducing every terminal job to a generic status.
-- Download details distinguish unrecoverable article/recovery data from unpack, password, filesystem, post-processing-aborted, and other terminal failures when SAB reports that evidence.
-- PAR2 outcome, repair attempt, extra PAR2 fetch observation, post-processing time, and bounded SAB repair-history messages are visible and included in copied diagnostics.
-- Exact recovery-block counts are shown as Not reported by SAB when SAB History does not expose them; NewzDeck no longer implies a real zero.
-- The private embedded SABnzbd runtime is upgraded from 5.1.1 to pinned 5.1.2 with official SHA-256 validation and a graceful queue-preserving startup handoff.
-- v3.6.46 quality-aware release selection, v3.6.45 library-scan progress, Library Integrity, strict TV identity, and Downloads continuity are preserved.
+New in v3.6.48:
+- Library Integrity now flags identical media bytes assigned to different episodes of the same TV title when they are separate physical files, while legitimate one-file multi-episode mappings remain informational.
+- A new release-blocking regression suite preserves 29 exact historical false-positive TV identities from real v3.6.47 diagnostics, including Love Island companion/related-show collisions and the Dark Matter title collision.
+- Downloads polling is adaptive instead of fixed at 4 Hz: active work remains responsive at 2 Hz, idle polling relaxes further, and hidden/non-Downloads views poll less often.
+- The coherent Downloads snapshot cache is widened to 0.40 seconds so nearby UI/diagnostic callers can reuse one authoritative state.
+- Diagnostics telemetry now splits slow snapshot time into SAB/reconciliation, provider-health, and remaining NewzDeck presentation work.
+- A recovered SAB Queue/History reader-busy event no longer remains indefinitely as the engine's current last_error after fresh Queue+History succeeds.
+- UPDATING.txt is refreshed from its stale v3.6.20 text.
+- v3.6.47 Selected Episodes, PAR2/repair visibility, private SABnzbd 5.1.2, quality-aware selection, scan progress, Smart Import, and strict TV identity remain preserved.

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.47** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.48** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.47_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.48_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,19 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.47 highlights
+## v3.6.48 highlights
 
-v3.6.47 adds explicit Selected Episodes monitoring for TV libraries, makes SABnzbd Verify/PAR2/Repair outcomes visible after a download finishes, and upgrades the private pinned engine to SABnzbd 5.1.2.
+v3.6.48 hardens Library Integrity and the Downloads control plane using evidence from real v3.6.47 diagnostics, without changing SABnzbd's authoritative transfer or repair behavior.
 
-- **Selected Episodes monitoring:** choose whole TV seasons or individual episodes, including old aired episodes, without implicitly monitoring other seasons; explicit selections bypass the old-backlog gate and partial selections cannot trigger whole-season packs.
-- **Persistent repair evidence:** Completed and Failed downloads retain observed SAB verification, repair, and extra-PAR2-fetch activity across refresh/reconnect.
-- **Failure reason clarity:** unrecoverable article/recovery data is distinguished from unpack, password, filesystem, post-processing-aborted, and other failures when SAB reports that evidence.
-- **No invented PAR2 counts:** if SAB History does not provide exact recovery-block counts, NewzDeck explicitly says Not reported by SAB.
-- **Repair history in Downloads:** details and Copy Diagnostics include the bounded SAB Verify/Repair/post-processing timeline and post-processing duration.
-- **Private SABnzbd 5.1.2:** NewzDeck pins the patched official 5.1.2 Windows x64 portable runtime and gracefully hands off a running prior private SAB generation without force-killing it.
-- **Existing behavior preserved:** v3.6.46 quality-aware ranking, v3.6.45 scan progress, strict TV identity, Library Integrity, Smart Import, and Downloads continuity remain in place.
+- **Same-title duplicate review:** identical fingerprints across different physical episode files of the same series now require review, while one shared multi-episode file remains informational.
+- **Production regression evidence:** 29 exact historical false-positive TV release identities from real diagnostics are now release blockers, including Love Island companion/related-show collisions and the Dark Matter title collision.
+- **Less control-plane pressure:** visible Downloads polling backs off to 2 Hz during active work and 0.8 Hz while idle, with a slower hidden-page cadence; the coherent presentation snapshot cache increases from 0.22s to 0.40s.
+- **Actionable snapshot telemetry:** SAB reconciliation, provider-health, and remaining snapshot time are measured separately so slow builds can be traced instead of appearing as one opaque duration.
+- **Recovered busy state:** a transient SAB Queue/History reader-busy condition is cleared from active last-error state after a later fresh Queue+History pair succeeds.
+- **Existing behavior preserved:** v3.6.47 Selected Episodes, persistent PAR2/repair visibility, private SABnzbd 5.1.2, quality-aware selection, scan progress, Smart Import, strict TV identity, and installer/runtime handoff remain intact.
 
-See [the full v3.6.47 release notes](release/RELEASE_NOTES_v3.6.47.md).
+See [the full v3.6.48 release notes](release/RELEASE_NOTES_v3.6.48.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -68,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.47_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.48_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

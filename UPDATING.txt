@@ -1,5 +1,5 @@
-NewzDeck v3.6.20
-Authoritative SAB & Fresh-State Reconciliation
+NewzDeck v3.6.48
+Library Integrity & Downloads Runtime Hardening
 Updating
 
 INSTALLED NEWZDECK
@@ -16,8 +16,9 @@ The installer-owned update lifecycle remains authoritative:
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.20 promotes the accepted serialized SAB-control / fresh-state reconciliation
-architecture while preserving the verified Automation -> download -> Smart Import path.
+v3.6.48 hardens Library Integrity and reduces Downloads control-plane pressure while
+preserving the v3.6.47 Selected Episodes, SAB 5.1.2, PAR2/repair visibility, strict
+TV identity, Automation, Smart Import, and authoritative background-runtime behavior.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and
