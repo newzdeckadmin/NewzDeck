@@ -1,30 +1,15 @@
-NewzDeck v3.6.49
-Downloads Data-Plane & Runtime Efficiency
+NewzDeck v3.6.50
+Snapshot Sampler & State-Lock Hardening
 Updating
 
 INSTALLED NEWZDECK
 ------------------
 Use NewzDeck > About & Updates > Install Update.
 
-The installer-owned update lifecycle remains authoritative:
-  1. Capture whether the background service and tray are present/running.
-  2. Close the browser-hosted NewzDeck app window.
-  3. Stop the tray and background service.
-  4. Replace NewzDeck program files.
-  5. Run the newly installed helper as an app-window-close safety net.
-  6. Repair and START the existing background service.
-  7. Restore the tray.
-  8. Finish Setup and relaunch NewzDeck automatically for /update installs.
+The installer-owned update lifecycle remains authoritative. v3.6.50 keeps the existing service/tray handoff and additionally removes only the retired NewzDeckBootstrap.exe and NewzDeckCore.exe program files after the old runtime has been stopped. User data is not purged.
 
-v3.6.49 reduces routine Downloads payload/serialization work, moves provider-health
-reads off the foreground snapshot path, adds latency percentiles, compacts terminal
-legacy native-engine segment history, caches unchanged Library Integrity audits, and
-hardens Smart Import output ownership against stale cross-job SAB paths.
+v3.6.50 centralizes routine SAB Queue/History sampling, bounds presentation-only job-ledger refreshes, defers snapshot-discovered durable-state writes to the background engine worker, adds phase/worst-build telemetry, and safely compacts aged successful Automation candidate transcripts.
 
-It preserves v3.6.48 Library Integrity, v3.6.47 Selected Episodes, SAB 5.1.2,
-PAR2/repair visibility, strict TV identity, quality-aware selection, Automation,
-Smart Import, and authoritative background-runtime behavior.
+It preserves v3.6.49 bounded Downloads history/payload behavior, provider-health caching, Library Integrity caching, Smart Import output ownership, v3.6.48 Library Integrity hardening, v3.6.47 Selected Episodes/PAR2 repair visibility, private SABnzbd 5.1.2, strict TV identity and quality-aware selection.
 
-Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
-Existing settings, provider configuration, Automation data, history, queue state, and
-user data remain stored outside the program directory.
+Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder. Existing settings, provider configuration, Automation data, history, queue state and user data remain stored outside the program directory.

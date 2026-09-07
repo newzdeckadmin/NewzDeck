@@ -58,6 +58,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Deterministic release timestamps can make an old same-size Python bytecode cache
 ; look current to CPython. Remove only NewzDeck's adjacent application cache on upgrade.
 Type: filesandordirs; Name: "{app}\__pycache__"
+; v3.6.50 removes only known retired NewzDeck binaries left by older overlays.
+Type: files; Name: "{app}\NewzDeckBootstrap.exe"
+Type: files; Name: "{app}\NewzDeckCore.exe"
 
 [Files]
 ; Overlay the exact source-built payload. Extra/generated files in the install

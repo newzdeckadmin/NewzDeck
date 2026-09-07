@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.49"
+ADAPTER_VERSION = "3.6.50"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -815,6 +815,19 @@ class SabDownloadManager:
         self._snapshot_sab_reconcile_max_ms = 0.0
         self._snapshot_provider_health_last_ms = 0.0
         self._snapshot_provider_health_max_ms = 0.0
+        # v3.6.50: attribute the formerly opaque pre-SAB snapshot time. A real
+        # v3.6.49 production capture observed one 63-second build while the SAB
+        # reconciliation phase itself peaked around 4.5 seconds. Presentation
+        # snapshots therefore use a bounded ledger refresh and report each phase.
+        self._snapshot_shared_state_last_ms = 0.0
+        self._snapshot_shared_state_max_ms = 0.0
+        self._snapshot_shared_state_lock_skips = 0
+        self._snapshot_shared_state_lock_skip_last_ts = 0.0
+        self._snapshot_engine_status_last_ms = 0.0
+        self._snapshot_engine_status_max_ms = 0.0
+        self._snapshot_worst_build_ts = 0.0
+        self._snapshot_worst_phase = ""
+        self._snapshot_worst_phase_ms = 0.0
         # v3.6.20: all NewzDeck -> SAB HTTP requests share one transport lock.
         # The anonymized SAB log proved SAB itself stayed alive and downloaded while
         # NewzDeck saw WinError 10054 from overlapping localhost control requests.
@@ -896,6 +909,30 @@ class SabDownloadManager:
         self._live_queue_reuses = 0
         self._live_queue_fetches = 0
         self._live_queue_ids: set[str] = set()
+        # v3.6.50: one background sampler owns routine Queue/History reads. UI
+        # snapshots and the completion monitor consume this coherent pair instead
+        # of independently competing for SAB's serialized localhost transport.
+        self._queue_sample_lock = threading.RLock()
+        self._queue_sample_pair: tuple[dict[str, Any], dict[str, Any]] | None = None
+        self._queue_sample_ts = 0.0
+        self._queue_sampler_cycles = 0
+        self._queue_sampler_successes = 0
+        self._queue_sampler_failures = 0
+        self._queue_sampler_last_success_ts = 0.0
+        self._queue_sampler_last_error = ""
+        self._queue_sample_consumers = 0
+        self._queue_sample_stale_consumers = 0
+        self._queue_sample_bootstrap_fetches = 0
+        # v3.6.50: snapshot reconciliation may discover durable bookkeeping updates,
+        # but a presentation request must never block while persisting them. Queue
+        # the save for the engine worker; strict mutation/control paths still call
+        # _save_state() synchronously.
+        self._deferred_state_persist_event = threading.Event()
+        self._deferred_state_persist_requests = 0
+        self._deferred_state_persist_flushes = 0
+        self._deferred_state_persist_failures = 0
+        self._deferred_state_persist_last_request_ts = 0.0
+        self._deferred_state_persist_last_flush_ts = 0.0
         # SAB queue snapshots can briefly report the foreground job as Queued, or
         # omit a slot for one poll while its internal queue is being reshaped. Keep
         # a short presentation latch so NewzDeck does not flicker Active/Queued
@@ -1075,6 +1112,7 @@ class SabDownloadManager:
         self._ensure_statistics_schema(self.state)
         self._engine_thread = None
         self._completion_thread = None
+        self._queue_sampler_thread = None
         self._background_threads_lock = threading.Lock()
         self._import_kick_lock = threading.Lock()
         self._import_kick_inflight: set[str] = set()
@@ -1110,6 +1148,9 @@ class SabDownloadManager:
             if self._engine_thread is None or not self._engine_thread.is_alive():
                 self._engine_thread = threading.Thread(target=self._engine_loop, name="newzdeck-sab-engine", daemon=True)
                 self._engine_thread.start()
+            if self._queue_sampler_thread is None or not self._queue_sampler_thread.is_alive():
+                self._queue_sampler_thread = threading.Thread(target=self._queue_sampler_loop, name="newzdeck-sab-sampler", daemon=True)
+                self._queue_sampler_thread.start()
             if self._completion_thread is None or not self._completion_thread.is_alive():
                 self._completion_thread = threading.Thread(target=self._completion_loop, name="newzdeck-sab-completion", daemon=True)
                 self._completion_thread.start()
@@ -1195,6 +1236,43 @@ class SabDownloadManager:
                 finally:
                     fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
         finally:
+            fh.close()
+
+    @contextlib.contextmanager
+    def _try_state_file_guard(self):
+        """Try the cross-process ledger lock once without blocking the caller."""
+        self.state_lock_file.parent.mkdir(parents=True, exist_ok=True)
+        fh = self.state_lock_file.open("a+b")
+        acquired = False
+        try:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() <= 0:
+                fh.write(b"0")
+                fh.flush()
+            fh.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except (OSError, BlockingIOError):
+                acquired = False
+            yield acquired
+        finally:
+            if acquired:
+                try:
+                    fh.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
             fh.close()
 
     @staticmethod
@@ -1321,6 +1399,41 @@ class SabDownloadManager:
                 disk = _json_read(self.state_file, {})
                 self.state = self._merge_shared_states(disk, self.state)
 
+    def _refresh_shared_state_for_snapshot(self, max_wait_seconds: float = 0.025) -> bool:
+        """Refresh presentation state within one budget across both ledger locks.
+
+        Strict mutation/control paths keep using ``_refresh_shared_state`` and the
+        blocking lock order (``self.lock`` then cross-process ledger lock). A
+        presentation must never reverse that order or wait indefinitely on either
+        lock. Try the in-process lock non-blocking, then the file lock non-blocking,
+        and fall back to the already-coherent in-memory state when the tiny shared
+        budget expires.
+        """
+        started = time.monotonic()
+        deadline = started + max(0.0, float(max_wait_seconds or 0.0))
+        while True:
+            local_acquired = self.lock.acquire(blocking=False)
+            if local_acquired:
+                try:
+                    with self._try_state_file_guard() as file_acquired:
+                        if file_acquired:
+                            disk = _json_read(self.state_file, {})
+                            self.state = self._merge_shared_states(disk, self.state)
+                            elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
+                            self._snapshot_shared_state_last_ms = elapsed
+                            self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
+                            return True
+                finally:
+                    self.lock.release()
+            if time.monotonic() >= deadline:
+                elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
+                self._snapshot_shared_state_last_ms = elapsed
+                self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
+                self._snapshot_shared_state_lock_skips += 1
+                self._snapshot_shared_state_lock_skip_last_ts = time.time()
+                return False
+            time.sleep(0.002)
+
     def _save_state(self) -> None:
         """Merge and save without allowing another NewzDeck runtime to clobber jobs."""
         with self.lock:
@@ -1329,6 +1442,34 @@ class SabDownloadManager:
                 merged = self._merge_shared_states(disk, self.state)
                 _atomic_json_write(self.state_file, merged)
                 self.state = merged
+
+    def _request_deferred_state_persist(self) -> None:
+        """Schedule durable reconciliation bookkeeping without blocking presentation/sampling."""
+        self._deferred_state_persist_requests += 1
+        self._deferred_state_persist_last_request_ts = time.time()
+        self._deferred_state_persist_event.set()
+        # Wake the engine worker so persistence normally happens immediately rather
+        # than waiting for its next three-second coordination tick.
+        self.sync_event.set()
+
+    def _flush_deferred_state_persist(self) -> bool:
+        """Persist deferred reconciliation bookkeeping on a background worker.
+
+        Clear before saving so a new request that arrives while the strict save owns
+        the ledger lock remains set for the following pass rather than being lost.
+        """
+        if not self._deferred_state_persist_event.is_set():
+            return False
+        self._deferred_state_persist_event.clear()
+        try:
+            self._save_state()
+            self._deferred_state_persist_flushes += 1
+            self._deferred_state_persist_last_flush_ts = time.time()
+            return True
+        except Exception:
+            self._deferred_state_persist_failures += 1
+            self._deferred_state_persist_event.set()
+            raise
 
     def _ensure_statistics_schema(self, state: dict[str, Any] | None = None) -> dict[str, Any]:
         """Migrate legacy/session statistics into a durable SAB-aware schema.
@@ -2509,6 +2650,21 @@ class SabDownloadManager:
             'sab_transport_last_completed_mode': str(self._sab_transport_last_completed_mode or ''),
             'queue_history_busy_fallbacks': int(self._queue_history_busy_fallbacks),
             'queue_history_busy_last_ts': float(self._queue_history_busy_last_ts or 0.0),
+            'queue_sampler_cycles': int(self._queue_sampler_cycles),
+            'queue_sampler_successes': int(self._queue_sampler_successes),
+            'queue_sampler_failures': int(self._queue_sampler_failures),
+            'queue_sampler_last_success_ts': float(self._queue_sampler_last_success_ts or 0.0),
+            'queue_sampler_sample_age_seconds': max(0.0, now - float(self._queue_sample_ts or 0.0)) if self._queue_sample_ts else 0.0,
+            'queue_sampler_last_error': str(self._queue_sampler_last_error or ''),
+            'queue_sample_consumers': int(self._queue_sample_consumers),
+            'queue_sample_stale_consumers': int(self._queue_sample_stale_consumers),
+            'queue_sample_bootstrap_fetches': int(self._queue_sample_bootstrap_fetches),
+            'deferred_state_persist_pending': bool(self._deferred_state_persist_event.is_set()),
+            'deferred_state_persist_requests': int(self._deferred_state_persist_requests),
+            'deferred_state_persist_flushes': int(self._deferred_state_persist_flushes),
+            'deferred_state_persist_failures': int(self._deferred_state_persist_failures),
+            'deferred_state_persist_last_request_ts': float(self._deferred_state_persist_last_request_ts or 0.0),
+            'deferred_state_persist_last_flush_ts': float(self._deferred_state_persist_last_flush_ts or 0.0),
             'sab_version_probes': int(self._sab_version_probes),
             'sab_version_probe_failures': int(self._sab_version_probe_failures),
             'sab_version_probe_last_ts': float(self._sab_version_probe_last_ts or 0.0),
@@ -4369,6 +4525,10 @@ class SabDownloadManager:
         # Provision asynchronously so NewzDeck UI startup is never blocked by a first-run download.
         while not self.shutdown_event.is_set():
             try:
+                # v3.6.50: presentation/sampler-discovered bookkeeping is durable, but the
+                # strict cross-process save happens here rather than on /api/downloads.
+                if self._deferred_state_persist_event.is_set():
+                    self._flush_deferred_state_persist()
                 self.ensure_running(blocking=True)
                 self._sync_configuration()
                 # v3.6.49: refresh expensive provider config/status/warning evidence
@@ -5366,7 +5526,91 @@ class SabDownloadManager:
                                 file_count=len(items), automation_context=None,
                                 browser_flat_images=loose_browser, browser_flat_filenames=flat_filenames, browser_group=group)
 
+    def _publish_queue_sample(self, queue_data: dict[str, Any], history_data: dict[str, Any]) -> None:
+        with self._queue_sample_lock:
+            self._queue_sample_pair = (dict(queue_data), dict(history_data))
+            self._queue_sample_ts = time.time()
+            self._queue_sampler_successes += 1
+            self._queue_sampler_last_success_ts = self._queue_sample_ts
+            self._queue_sampler_last_error = ""
+
+    def _queue_sampler_loop(self) -> None:
+        """Continuously maintain the one authoritative routine Queue/History sample.
+
+        Publish the fresh pair before any optional housekeeping so UI/completion
+        readers never wait behind cleanup. Removed-tombstone/stale-duplicate cleanup
+        is driven only from this freshly fetched pair; if it mutates SAB, refresh and
+        republish before the next cycle.
+        """
+        delay = 0.05
+        while not self.shutdown_event.wait(delay):
+            self._queue_sampler_cycles += 1
+            try:
+                queue_data, history_data = self._queue_and_history_fetch(live=True)
+                self._publish_queue_sample(queue_data, history_data)
+                qroot, qslots = self._queue_slots(queue_data)
+                queue_fresh = bool(qroot.get("_newzdeck_fresh", True))
+                cleanup_changed = False
+                if queue_fresh:
+                    cleanup_ids = self._enforce_removed_tombstones(qslots)
+                    duplicate_ids = self._cleanup_proven_stale_queue_duplicates(
+                        qslots, refresh_shared=False, defer_persist=True,
+                    )
+                    cleanup_changed = bool(cleanup_ids or duplicate_ids)
+                if cleanup_changed:
+                    queue_data, history_data = self._queue_and_history_fetch(live=False)
+                    self._publish_queue_sample(queue_data, history_data)
+                    if cleanup_ids:
+                        _qroot_after, qslots_after = self._queue_slots(queue_data)
+                        remaining_live = self._slot_ids(qslots_after)
+                        for cleaned_id in cleanup_ids:
+                            if cleaned_id not in remaining_live:
+                                self._orphan_removed_cleanup_count += 1
+                                self._orphan_removed_cleanup_last_ts = time.time()
+                                self._event("warning", "Stopped hidden SAB transfer left by an older unverified Remove/Cancel", nzo_id=cleaned_id)
+                            else:
+                                self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
+                delay = 0.40
+            except Exception as exc:
+                self._queue_sampler_failures += 1
+                self._queue_sampler_last_error = str(exc)[:300]
+                delay = 0.75
+
     def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return the background sample for routine readers; fetch for controls.
+
+        ``live=True`` is presentation/completion-monitor traffic and must not start
+        another routine SAB read when the sampler already has a recent pair.
+        ``live=False`` remains the fresh authoritative path for explicit controls.
+        """
+        if not live:
+            return self._queue_and_history_fetch(live=False)
+        now = time.time()
+        with self._queue_sample_lock:
+            pair = self._queue_sample_pair
+            sample_ts = float(self._queue_sample_ts or 0.0)
+            if pair is not None:
+                queue_data, history_data = dict(pair[0]), dict(pair[1])
+            else:
+                queue_data = history_data = None
+        if queue_data is not None and history_data is not None:
+            age = max(0.0, now - sample_ts)
+            self._queue_sample_consumers += 1
+            if age <= 2.5:
+                return queue_data, history_data
+            # Once a sample exists, routine consumers never bypass the sampler and
+            # compete for SAB control traffic. An old sample is presentation-only
+            # and explicitly stale until the sampler recovers.
+            self._queue_sample_stale_consumers += 1
+            return (
+                self._tag_sab_payload(queue_data, "queue", fresh=False, age=age, error="Background Queue/History sample is stale"),
+                self._tag_sab_payload(history_data, "history", fresh=False, age=age, error="Background Queue/History sample is stale"),
+            )
+        # Startup-only bootstrap before the sampler has produced its first pair.
+        self._queue_sample_bootstrap_fetches += 1
+        return self._queue_and_history_fetch(live=True)
+
+    def _queue_and_history_fetch(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
         """Read one coherent SAB Queue/History pair through a shared reader.
 
         Snapshot polling and the Automation completion monitor used to issue their
@@ -5528,7 +5772,7 @@ class SabDownloadManager:
             self._event("warning", f"Could not recover Automation context for SAB job {nzo_id}: {exc}")
             return {}
 
-    def _cleanup_proven_stale_queue_duplicates(self, queue_slots: list[dict[str, Any]]) -> set[str]:
+    def _cleanup_proven_stale_queue_duplicates(self, queue_slots: list[dict[str, Any]], *, refresh_shared: bool = True, defer_persist: bool = False) -> set[str]:
         """Remove only queue entries that are *provably* stale duplicates.
 
         Safe cases:
@@ -5540,7 +5784,8 @@ class SabDownloadManager:
         A tracked non-terminal re-download is never removed merely because its name
         matches an older completion.
         """
-        self._refresh_shared_state()
+        if refresh_shared:
+            self._refresh_shared_state()
         with self.lock:
             tracked = dict(self._tracked())
 
@@ -5587,6 +5832,9 @@ class SabDownloadManager:
                 if nzo_id not in tracked:
                     with self.lock:
                         self._mark_removed_locked(nzo_id, "stale_duplicate")
+                    if defer_persist:
+                        self._request_deferred_state_persist()
+                    else:
                         self._save_state()
                 self._event(
                     "warning",
@@ -6147,7 +6395,16 @@ class SabDownloadManager:
                 "snapshot_sab_reconcile_max_ms": round(float(self._snapshot_sab_reconcile_max_ms or 0.0), 3),
                 "snapshot_provider_health_last_ms": round(float(self._snapshot_provider_health_last_ms or 0.0), 3),
                 "snapshot_provider_health_max_ms": round(float(self._snapshot_provider_health_max_ms or 0.0), 3),
-                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0)), 3),
+                "snapshot_shared_state_last_ms": round(float(self._snapshot_shared_state_last_ms or 0.0), 3),
+                "snapshot_shared_state_max_ms": round(float(self._snapshot_shared_state_max_ms or 0.0), 3),
+                "snapshot_shared_state_lock_skips": int(self._snapshot_shared_state_lock_skips),
+                "snapshot_shared_state_lock_skip_last_ts": float(self._snapshot_shared_state_lock_skip_last_ts or 0.0),
+                "snapshot_engine_status_last_ms": round(float(self._snapshot_engine_status_last_ms or 0.0), 3),
+                "snapshot_engine_status_max_ms": round(float(self._snapshot_engine_status_max_ms or 0.0), 3),
+                "snapshot_worst_build_ts": float(self._snapshot_worst_build_ts or 0.0),
+                "snapshot_worst_phase": str(self._snapshot_worst_phase or ""),
+                "snapshot_worst_phase_ms": round(float(self._snapshot_worst_phase_ms or 0.0), 3),
+                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0) - float(self._snapshot_shared_state_last_ms or 0.0) - float(self._snapshot_engine_status_last_ms or 0.0)), 3),
             })
             stale["telemetry"] = telemetry
             return stale
@@ -6160,7 +6417,18 @@ class SabDownloadManager:
             result = self._snapshot_uncached()
             build_ms = max(0.0, (time.monotonic() - build_started) * 1000.0)
             self._snapshot_last_build_ms = build_ms
-            self._snapshot_max_build_ms = max(self._snapshot_max_build_ms, build_ms)
+            if build_ms > self._snapshot_max_build_ms:
+                self._snapshot_max_build_ms = build_ms
+                self._snapshot_worst_build_ts = time.time()
+                phases = {
+                    "shared-state": float(self._snapshot_shared_state_last_ms or 0.0),
+                    "engine-status": float(self._snapshot_engine_status_last_ms or 0.0),
+                    "sab-reconcile": float(self._snapshot_sab_reconcile_last_ms or 0.0),
+                    "provider-health": float(self._snapshot_provider_health_last_ms or 0.0),
+                }
+                phases["other"] = max(0.0, build_ms - sum(phases.values()))
+                self._snapshot_worst_phase = max(phases, key=phases.get) if phases else ""
+                self._snapshot_worst_phase_ms = float(phases.get(self._snapshot_worst_phase, 0.0))
             self._record_snapshot_build_sample(build_ms)
             if build_ms >= 1000.0:
                 self._snapshot_slow_builds += 1
@@ -6185,7 +6453,16 @@ class SabDownloadManager:
                 "snapshot_sab_reconcile_max_ms": round(float(self._snapshot_sab_reconcile_max_ms or 0.0), 3),
                 "snapshot_provider_health_last_ms": round(float(self._snapshot_provider_health_last_ms or 0.0), 3),
                 "snapshot_provider_health_max_ms": round(float(self._snapshot_provider_health_max_ms or 0.0), 3),
-                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0)), 3),
+                "snapshot_shared_state_last_ms": round(float(self._snapshot_shared_state_last_ms or 0.0), 3),
+                "snapshot_shared_state_max_ms": round(float(self._snapshot_shared_state_max_ms or 0.0), 3),
+                "snapshot_shared_state_lock_skips": int(self._snapshot_shared_state_lock_skips),
+                "snapshot_shared_state_lock_skip_last_ts": float(self._snapshot_shared_state_lock_skip_last_ts or 0.0),
+                "snapshot_engine_status_last_ms": round(float(self._snapshot_engine_status_last_ms or 0.0), 3),
+                "snapshot_engine_status_max_ms": round(float(self._snapshot_engine_status_max_ms or 0.0), 3),
+                "snapshot_worst_build_ts": float(self._snapshot_worst_build_ts or 0.0),
+                "snapshot_worst_phase": str(self._snapshot_worst_phase or ""),
+                "snapshot_worst_phase_ms": round(float(self._snapshot_worst_phase_ms or 0.0), 3),
+                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0) - float(self._snapshot_shared_state_last_ms or 0.0) - float(self._snapshot_engine_status_last_ms or 0.0)), 3),
             })
             decorated["telemetry"] = telemetry
             self._last_snapshot = decorated
@@ -6377,8 +6654,12 @@ class SabDownloadManager:
 
     def _snapshot_uncached(self) -> dict[str, Any]:
         now = time.time()
-        self._refresh_shared_state()
+        self._refresh_shared_state_for_snapshot(max_wait_seconds=0.025)
+        engine_started = time.monotonic()
         engine = self.engine_status()
+        engine_ms = max(0.0, (time.monotonic() - engine_started) * 1000.0)
+        self._snapshot_engine_status_last_ms = engine_ms
+        self._snapshot_engine_status_max_ms = max(self._snapshot_engine_status_max_ms, engine_ms)
         if not engine.get("ready"):
             # Never show a queue badge with an empty Downloads page. If the private
             # engine is provisioning/reconnecting, render tracked NewzDeck jobs from
@@ -6417,35 +6698,9 @@ class SabDownloadManager:
             queue_read_fresh = bool(qroot.get("_newzdeck_fresh", True))
             history_read_fresh = bool(hroot.get("_newzdeck_fresh", True))
 
-            # Never perform destructive reconciliation from a short cached Queue
-            # fallback. Only a fresh SAB Queue response may prove a live job exists.
-            if queue_read_fresh:
-                cleanup_ids = self._enforce_removed_tombstones(qslots)
-                if cleanup_ids:
-                    queue_payload, history_payload = self._queue_and_history(live=False)
-                    qroot, qslots = self._queue_slots(queue_payload)
-                    hroot, hslots = self._history_slots(history_payload)
-                    queue_read_fresh = bool(qroot.get("_newzdeck_fresh", True))
-                    history_read_fresh = bool(hroot.get("_newzdeck_fresh", True))
-                    remaining_live=self._slot_ids(qslots)
-                    for cleaned_id in cleanup_ids:
-                        if cleaned_id not in remaining_live:
-                            self._orphan_removed_cleanup_count += 1
-                            self._orphan_removed_cleanup_last_ts = time.time()
-                            self._event("warning", "Stopped hidden SAB transfer left by an older unverified Remove/Cancel", nzo_id=cleaned_id)
-                        else:
-                            self._event("warning", "Hidden removed SAB transfer is still live after cleanup request", nzo_id=cleaned_id)
-                stale_duplicate_ids = self._cleanup_proven_stale_queue_duplicates(qslots)
-                if stale_duplicate_ids:
-                    queue_payload, history_payload = self._queue_and_history(live=False)
-                    qroot, qslots = self._queue_slots(queue_payload)
-                    hroot, hslots = self._history_slots(history_payload)
-                    queue_read_fresh = bool(qroot.get("_newzdeck_fresh", True))
-                    history_read_fresh = bool(hroot.get("_newzdeck_fresh", True))
-
-            self._adopt_untracked_slots(qslots, hslots)
-            if history_read_fresh:
-                self._kick_completed_automation_imports(qslots, hslots)
+            # v3.6.50 keeps presentation reconciliation non-destructive. The
+            # background sampler owns fresh Queue cleanup, while the completion
+            # worker owns adoption/import/failure/terminal persistence.
 
             sab_reconcile_ms = max(0.0, (time.monotonic() - sab_reconcile_started) * 1000.0)
             self._snapshot_sab_reconcile_last_ms = sab_reconcile_ms
@@ -6740,7 +6995,7 @@ class SabDownloadManager:
                         self._active_bridge_open.discard(nzo_id)
                         self._close_visibility_bridge(nzo_id)
                         self._job_queued_observations.pop(nzo_id, None)
-                        self._save_state()
+                        self._request_deferred_state_persist()
                     self._event("warning", "Released stale SAB ownership record without removal tombstone",
                                 nzo_id=nzo_id, automation=bool(context), missing_seconds=int(now - missing_since))
                     continue
@@ -6782,11 +7037,7 @@ class SabDownloadManager:
                         live_meta.pop("ownership_released_ts",None)
                         live_meta.pop("ownership_released_reason",None)
                         self._touch_job_locked(live_meta)
-                        self._save_state()
-            if history and str(slot.get('status') or '').casefold()=='failed':
-                self._remember_failed_automation_release(nzo_id,meta,slot)
-            if history and history_read_fresh and str(slot.get('status') or '').casefold() == 'completed' and bool(meta.get('browser_flat_images')):
-                self._flatten_completed_browser_images(nzo_id, meta, slot)
+                        self._request_deferred_state_persist()
             job = self._job_from_slot(nzo_id, meta, slot, history=history)
             if not history and str(meta.get("terminal_status") or "").casefold() == "completed" and bool(meta.get("imported")):
                 job["status"] = "cancelling"
@@ -6888,45 +7139,12 @@ class SabDownloadManager:
                 self._job_queued_observations.pop(nzo_id, None)
             self._job_last_seen_ts[nzo_id] = now
             self._job_last_view[nzo_id] = dict(job)
-            if history and str(job.get("status") or "") in {"completed", "failed", "cancelled"}:
-                # Persist terminal classification, not only the timestamp. This makes
-                # restart/reconnect reconstruction monotonic even before SAB history
-                # is reachable in the new process.
-                with self.lock:
-                    live_meta = self._tracked().get(nzo_id)
-                    if isinstance(live_meta, dict):
-                        changed_terminal = False
-                        terminal = str(job.get("status") or "")
-                        if str(live_meta.get("terminal_status") or "") != terminal:
-                            live_meta["terminal_status"] = terminal
-                            changed_terminal = True
-                        completed_value = _num(job.get("completed_ts"), 0)
-                        if completed_value > 0 and _num(live_meta.get("completed_ts"), 0) <= 0:
-                            live_meta["completed_ts"] = completed_value
-                            changed_terminal = True
-                        repair_telemetry = {
-                            "verification_observed": bool(job.get("verification_observed")),
-                            "repair_attempted": bool(job.get("repair_attempted")),
-                            "par2_fetch_observed": bool(job.get("par2_fetch_observed")),
-                            "repair_outcome": str(job.get("repair_outcome") or "not_observed"),
-                            "repair_summary": str(job.get("repair_summary") or ""),
-                            "failure_class": str(job.get("failure_class") or ""),
-                            "sab_fail_message": str(job.get("sab_fail_message") or ""),
-                            "sab_stage_log": list(job.get("sab_stage_log") or [])[-16:],
-                            "postproc_seconds": int(job.get("postproc_seconds") or 0),
-                            "recovery_blocks_reported": False,
-                        }
-                        if live_meta.get("repair_telemetry") != repair_telemetry:
-                            live_meta["repair_telemetry"] = repair_telemetry
-                            changed_terminal = True
-                        if changed_terminal:
-                            self._touch_job_locked(live_meta)
-                            self._save_state()
             jobs.append(job)
             collections.append(self._collection_from_job(job, meta))
             counts[job["status"] if job["status"] in counts else "queued"] += 1
         # Fundamental Downloads invariant: every live SAB Queue slot must have a
-        # NewzDeck-visible card. Normally _adopt_untracked_slots() makes this true.
+        # NewzDeck-visible card. Normally the completion worker adopts shared SAB
+        # jobs into the durable ledger.
         # If a cross-runtime race, explicit removal tombstone, or ledger problem
         # prevents adoption, surface a temporary card rather than hiding a live
         # transfer behind SAB aggregate Remaining/speed counters.
@@ -7071,7 +7289,6 @@ class SabDownloadManager:
                        "servers": list(provider_health.get("servers") or []),
                        "pools": [{"name": "SABnzbd", "pipeline_depth": 1, "pipeline_enabled": False}] if configured else [],
                        "yenc": {"available": True, "workers": 0, "engine": "SABnzbd"}}
-        self._reconcile_statistics(hroot, hslots, total_speed)
         statistics = self._statistics(hroot)
         post_active = sum(1 for j in jobs if str(j.get("post_status") or "") in {"queued", "verifying", "repairing", "extracting", "importing"})
         result = {"paused": bool(self.state.get("paused", False)), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
@@ -7617,6 +7834,53 @@ class SabDownloadManager:
                 self._last_snapshot_ts = 0
         threading.Thread(target=worker, args=(chosen,), name="newzdeck-sab-import-kick", daemon=True).start()
 
+    def _persist_terminal_history_evidence(self, history_slots: list[dict[str, Any]]) -> int:
+        """Persist terminal/PAR2 evidence on the background completion path."""
+        changed = 0
+        with self.lock:
+            tracked = self._tracked()
+            for slot in history_slots:
+                if not isinstance(slot, dict):
+                    continue
+                raw_status = str(slot.get("status") or "").casefold()
+                if raw_status not in {"completed", "failed"}:
+                    continue
+                nzo_id = str(slot.get("nzo_id") or slot.get("id") or "").strip()
+                live_meta = tracked.get(nzo_id)
+                if not isinstance(live_meta, dict):
+                    continue
+                terminal = "completed" if raw_status == "completed" else "failed"
+                dirty = False
+                if str(live_meta.get("terminal_status") or "") != terminal:
+                    live_meta["terminal_status"] = terminal
+                    dirty = True
+                completed_value = _num(slot.get("completed"), 0)
+                if completed_value > 0 and _num(live_meta.get("completed_ts"), 0) <= 0:
+                    live_meta["completed_ts"] = completed_value
+                    dirty = True
+                repair = _sab_repair_telemetry(slot)
+                repair_telemetry = {
+                    "verification_observed": bool(repair.get("verification_observed")),
+                    "repair_attempted": bool(repair.get("repair_attempted")),
+                    "par2_fetch_observed": bool(repair.get("par2_fetch_observed")),
+                    "repair_outcome": str(repair.get("repair_outcome") or "not_observed"),
+                    "repair_summary": str(repair.get("repair_summary") or ""),
+                    "failure_class": str(repair.get("failure_class") or ""),
+                    "sab_fail_message": str(repair.get("sab_fail_message") or ""),
+                    "sab_stage_log": list(repair.get("sab_stage_log") or [])[-16:],
+                    "postproc_seconds": int(repair.get("postproc_seconds") or 0),
+                    "recovery_blocks_reported": False,
+                }
+                if live_meta.get("repair_telemetry") != repair_telemetry:
+                    live_meta["repair_telemetry"] = repair_telemetry
+                    dirty = True
+                if dirty:
+                    self._touch_job_locked(live_meta)
+                    changed += 1
+        if changed:
+            self._save_state()
+        return changed
+
     def _completion_loop(self) -> None:
         delay = 2.0
         while not self.shutdown_event.wait(delay):
@@ -7630,6 +7894,8 @@ class SabDownloadManager:
                 self._reconcile_statistics(hroot, hslots, _kb_to_bps(qroot.get("kbpersec")))
                 self._adopt_untracked_slots(qslots, hslots)
                 self._refresh_shared_state()
+                if bool(hroot.get("_newzdeck_fresh", True)):
+                    self._persist_terminal_history_evidence(hslots)
                 self._recover_single_recovered_paused_queue_job(qroot, qslots)
                 by_id = {str(x.get("nzo_id") or x.get("id") or ""): x for x in hslots}
                 with self.lock:

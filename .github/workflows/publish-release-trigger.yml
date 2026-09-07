@@ -205,6 +205,7 @@ jobs:
 
           python release/windows/validate-automation-identity.py
           python release/windows/validate-v3648-regressions.py
+          python release/windows/validate-v3650-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 

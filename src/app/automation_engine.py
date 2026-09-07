@@ -844,10 +844,32 @@ class MediaAutomationEngine:
             targets=value.get('targets') if isinstance(value.get('targets'),dict) else {}
             cutoff=time.time()-(45*86400)
             cleaned={}
+            now=time.time()
             for key,rec in targets.items():
                 if not isinstance(rec,dict): continue
                 stamp=max(float(rec.get('last_search_ts') or 0),float(rec.get('last_grab_ts') or 0),float(rec.get('updated_ts') or 0))
-                if stamp<=0 or stamp>=cutoff: cleaned[str(key)]=rec
+                if stamp<=0 or stamp>=cutoff:
+                    kept=rec
+                    age=max(0.0,now-stamp) if stamp>0 else 0.0
+                    status=str(rec.get('status') or '').casefold()
+                    # v3.6.50: successful/satisfied targets older than seven days do
+                    # not need a full eight-candidate search transcript forever. Keep
+                    # the selected/top candidate, durable blacklist and selection
+                    # reason, but discard transient attempted-release memory after its
+                    # normal retry horizon. Active/waiting/problem targets stay intact.
+                    if age>=7*86400 and status in {'imported','satisfied'}:
+                        candidates=[x for x in rec.get('last_candidates') or [] if isinstance(x,dict)]
+                        needs_compaction=(len(candidates)>1 or 'attempted_releases' in rec or not rec.get('candidate_history_compacted'))
+                        if needs_compaction:
+                            kept=copy.deepcopy(rec)
+                            if candidates: kept['last_candidates']=candidates[:1]
+                            kept.pop('attempted_releases',None)
+                            kept['candidate_history_compacted']=True
+                            kept.setdefault('candidate_history_compacted_ts',now)
+                    elif age>=86400 and status not in {'queued','queueing','grabbed','searching','error','waiting'} and 'attempted_releases' in rec:
+                        kept=copy.deepcopy(rec)
+                        kept.pop('attempted_releases',None)
+                    cleaned[str(key)]=kept
             value['targets']=cleaned
             # v3.6.49: this file can contain thousands of targets and is rewritten
             # frequently. Compact JSON preserves identical data while reducing write
