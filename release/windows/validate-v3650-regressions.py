@@ -11,7 +11,7 @@ WORKFLOW=ROOT/'.github'/'workflows'/'publish-release-trigger.yml'
 
 sab_source=SAB.read_text(encoding='utf-8')
 for marker in (
-    'ADAPTER_VERSION = "3.6.50"',
+    'ADAPTER_VERSION = "3.6.51"',
     'def _queue_sampler_loop(self) -> None:',
     'self._queue_sampler_thread',
     'return self._queue_and_history_fetch(live=False)',
@@ -72,8 +72,11 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3650-state-') as td:
         fcntl.flock(blocker.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
         started=time.monotonic(); ok=obj._refresh_shared_state_for_snapshot(0.025); elapsed=time.monotonic()-started
         fcntl.flock(blocker.fileno(),fcntl.LOCK_UN); blocker.close()
-        if ok or elapsed>0.20 or obj._snapshot_shared_state_lock_skips!=1:
-            raise SystemExit(f'Bounded shared-state file-lock refresh blocked or failed telemetry: ok={ok} elapsed={elapsed} skips={obj._snapshot_shared_state_lock_skips}')
+        # v3.6.51 strengthens the v3.6.50 bound: presentation no longer touches
+        # the cross-process ledger lock at all, so a held file lock must not block
+        # or force a skip. The local in-process lock test below remains mandatory.
+        if not ok or elapsed>0.20 or obj._snapshot_shared_state_lock_skips!=0:
+            raise SystemExit(f'Presentation was affected by held cross-process ledger lock: ok={ok} elapsed={elapsed} skips={obj._snapshot_shared_state_lock_skips}')
 
     # The same budget must cover the in-process RLock. A strict background save
     # can hold it while waiting on a cross-process writer; presentation must not.
@@ -94,7 +97,7 @@ spec=importlib.util.spec_from_file_location('v3650_auto',AUTO)
 auto=importlib.util.module_from_spec(spec); spec.loader.exec_module(auto)
 class Dummy: pass
 with tempfile.TemporaryDirectory(prefix='newzdeck-v3650-auto-') as td:
-    eng=auto.MediaAutomationEngine(pathlib.Path(td),lambda x:x,lambda x:x,Dummy(),lambda:[],version='3.6.50')
+    eng=auto.MediaAutomationEngine(pathlib.Path(td),lambda x:x,lambda x:x,Dummy(),lambda:[],version='3.6.51')
     now=time.time(); old=now-8*86400
     rt={'targets':{
       'done':{'status':'imported','updated_ts':old,'last_candidates':[{'title':f'Candidate {i}'} for i in range(8)],'attempted_releases':[{'guid':'old','ts':old}],'blacklist':[{'guid':'bad','failed_ts':old}]},

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.50"
+ADAPTER_VERSION = "3.6.51"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -730,7 +730,14 @@ class SabDownloadManager:
                     _atomic_json_write(Path(legacy_statistics_file), legacy_raw)
                     self._legacy_compaction_bytes_after = int(Path(legacy_statistics_file).stat().st_size)
                 except OSError:
-                    self._legacy_compaction_bytes_after = 0
+                    try:
+                        self._legacy_compaction_bytes_after = int(Path(legacy_statistics_file).stat().st_size)
+                    except OSError:
+                        self._legacy_compaction_bytes_after = self._legacy_compaction_bytes_before
+            else:
+                # Already-compacted legacy state is a no-op, not a zero-byte result.
+                # Report the real current size so diagnostics cannot imply data loss.
+                self._legacy_compaction_bytes_after = self._legacy_compaction_bytes_before
         self.keep_engine_running = keep_engine_running or (lambda: False)
         self.process_launcher = process_launcher
 
@@ -825,6 +832,11 @@ class SabDownloadManager:
         self._snapshot_shared_state_lock_skip_last_ts = 0.0
         self._snapshot_engine_status_last_ms = 0.0
         self._snapshot_engine_status_max_ms = 0.0
+        # v3.6.51: split card/collection/statistics projection out of the old
+        # catch-all "other" phase so heavy-load diagnostics can name the real
+        # remaining presentation cost.
+        self._snapshot_projection_last_ms = 0.0
+        self._snapshot_projection_max_ms = 0.0
         self._snapshot_worst_build_ts = 0.0
         self._snapshot_worst_phase = ""
         self._snapshot_worst_phase_ms = 0.0
@@ -989,6 +1001,14 @@ class SabDownloadManager:
         # Remaining/counts are derived from the same visible job set as the cards.
         self._snapshot_consistency_mismatches = 0
         self._snapshot_consistency_last_ts = 0.0
+        # v3.6.51: SAB can expose a newly accepted queue slot a moment before the
+        # submitting runtime's durable NewzDeck ledger write becomes visible. Keep
+        # the card visible immediately, but suppress the scary ownership warning for
+        # a short handoff grace window and emit at most one warning per true orphan.
+        self._untracked_queue_first_seen_ts: dict[str, float] = {}
+        self._untracked_queue_warned: set[str] = set()
+        self._untracked_queue_grace_seconds = 4.0
+        self._untracked_queue_grace_suppressions = 0
         self._engine_pause_mismatch_since = 0.0
         self._engine_pause_reassert_count = 0
         self._engine_pause_reassert_last_ts = 0.0
@@ -1023,7 +1043,12 @@ class SabDownloadManager:
         self._config_sync_failures = 0
         self._config_retry_storms_suppressed = 0
         self._config_sync_last_error_ts = 0.0
+        # Corrections count distinct overlap episodes, not every 400 ms snapshot
+        # that observes the same healthy SAB download/post-process overlap.
         self._multiple_active_slot_corrections = 0
+        self._multiple_active_slot_samples = 0
+        self._multiple_active_slot_condition = ""
+        self._multiple_active_slot_condition_since = 0.0
         self._multiple_active_slot_last_ts = 0.0
         self._progress_regression_corrections = 0
         self._progress_regression_last_ts = 0.0
@@ -1067,6 +1092,12 @@ class SabDownloadManager:
         # synchronously reading SAB config/status/warnings on the HTTP request path.
         # The engine worker refreshes this cache independently every few seconds.
         self._provider_health_background_last_ts = 0.0
+        # v3.6.51: the engine worker owns live engine-status refreshes. Downloads
+        # presentation consumes this cache and never performs a SAB heartbeat or
+        # engine-identity JSON read on the HTTP snapshot path.
+        self._engine_status_background_refreshes = 0
+        self._engine_status_background_failures = 0
+        self._engine_status_background_last_ts = 0.0
         self._provider_unblock_after: dict[str, float] = {}
         self._zero_socket_since = 0.0
         self._last_stall_repair_ts = 0.0
@@ -1400,29 +1431,24 @@ class SabDownloadManager:
                 self.state = self._merge_shared_states(disk, self.state)
 
     def _refresh_shared_state_for_snapshot(self, max_wait_seconds: float = 0.025) -> bool:
-        """Refresh presentation state within one budget across both ledger locks.
+        """Bound presentation access to the already-synchronized in-memory ledger.
 
-        Strict mutation/control paths keep using ``_refresh_shared_state`` and the
-        blocking lock order (``self.lock`` then cross-process ledger lock). A
-        presentation must never reverse that order or wait indefinitely on either
-        lock. Try the in-process lock non-blocking, then the file lock non-blocking,
-        and fall back to the already-coherent in-memory state when the tiny shared
-        budget expires.
+        v3.6.50 bounded lock acquisition but still read/decoded/merged the multi-MB
+        cross-process jobs JSON after acquiring the locks, so a nominal 25 ms budget
+        reached 562 ms under active downloads. Strict background workers continue to
+        own cross-process disk reconciliation. The HTTP snapshot path now performs no
+        ledger file I/O and no JSON merge at all; it only waits briefly for the local
+        in-memory state lock, then falls back to the last coherent memory view.
         """
         started = time.monotonic()
         deadline = started + max(0.0, float(max_wait_seconds or 0.0))
         while True:
-            local_acquired = self.lock.acquire(blocking=False)
-            if local_acquired:
+            if self.lock.acquire(blocking=False):
                 try:
-                    with self._try_state_file_guard() as file_acquired:
-                        if file_acquired:
-                            disk = _json_read(self.state_file, {})
-                            self.state = self._merge_shared_states(disk, self.state)
-                            elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
-                            self._snapshot_shared_state_last_ms = elapsed
-                            self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
-                            return True
+                    elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
+                    self._snapshot_shared_state_last_ms = elapsed
+                    self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
+                    return True
                 finally:
                     self.lock.release()
             if time.monotonic() >= deadline:
@@ -2665,6 +2691,9 @@ class SabDownloadManager:
             'deferred_state_persist_failures': int(self._deferred_state_persist_failures),
             'deferred_state_persist_last_request_ts': float(self._deferred_state_persist_last_request_ts or 0.0),
             'deferred_state_persist_last_flush_ts': float(self._deferred_state_persist_last_flush_ts or 0.0),
+            'engine_status_background_refreshes': int(self._engine_status_background_refreshes),
+            'engine_status_background_failures': int(self._engine_status_background_failures),
+            'engine_status_background_last_ts': float(self._engine_status_background_last_ts or 0.0),
             'sab_version_probes': int(self._sab_version_probes),
             'sab_version_probe_failures': int(self._sab_version_probe_failures),
             'sab_version_probe_last_ts': float(self._sab_version_probe_last_ts or 0.0),
@@ -4539,6 +4568,12 @@ class SabDownloadManager:
                     self._provider_health_background_last_ts=time.time()
                 except Exception:
                     pass
+                try:
+                    self.engine_status()
+                    self._engine_status_background_refreshes += 1
+                    self._engine_status_background_last_ts = time.time()
+                except Exception:
+                    self._engine_status_background_failures += 1
                 self._quarantine_stale_private_engines()
                 if self._resume_intent_event.is_set():
                     self._resume_intent_event.clear()
@@ -4572,10 +4607,39 @@ class SabDownloadManager:
                 self.sync_event.wait(3.0)
                 self.sync_event.clear()
 
+    def engine_status_cached(self) -> dict[str, Any]:
+        """Return presentation engine health without SAB or engine-identity I/O."""
+        now = time.time()
+        if self._engine_status_cache:
+            result = dict(self._engine_status_cache)
+            result["cache_age_seconds"] = max(0.0, now - float(self._engine_status_ts or 0.0))
+            result["cache_source"] = "background"
+            return result
+        # Startup-only fallback before the background coordinator has built its
+        # first rich status. Use existing in-memory proof; never probe SAB here.
+        recent_api = bool(self._last_api_success_ts and now - self._last_api_success_ts <= 5.0)
+        ready = recent_api or bool(self._last_ready_ts and now - self._last_ready_ts <= self._engine_probe_grace_seconds)
+        progress = dict(self._download_progress)
+        return {
+            "name": "SABnzbd", "version": self._running_sab_version or SAB_VERSION,
+            "target_version": SAB_VERSION, "upgrade_pending": bool(self._running_sab_version and self._running_sab_version != SAB_VERSION),
+            "adapter_version": ADAPTER_VERSION, "mode": "built-in", "ready": bool(ready),
+            "probe_ready": bool(recent_api), "heartbeat_degraded": bool(ready and not recent_api),
+            "heartbeat_gap_seconds": 0.0, "provisioned": False,
+            "provisioning": bool(self._provisioning or progress.get("active")),
+            "provision_bytes": int(progress.get("bytes", 0) or 0), "provision_total": int(progress.get("total", 0) or 0),
+            "last_error": self._last_error, "localhost_only": True, "port": 0, "config_generation": "",
+            "official_sha256": SAB_WINDOWS_X64_SHA256, "cache_age_seconds": 0.0, "cache_source": "memory-fallback",
+            "legacy_compaction_jobs": int(self._legacy_compaction_jobs),
+            "legacy_compaction_segments": int(self._legacy_compaction_segments),
+            "legacy_compaction_bytes_before": int(self._legacy_compaction_bytes_before),
+            "legacy_compaction_bytes_after": int(self._legacy_compaction_bytes_after),
+        }
+
     def engine_status(self) -> dict[str, Any]:
         exe = self._engine_exe()
         now = time.time()
-        if self._engine_status_cache and now - self._engine_status_ts < 1.0:
+        if self._engine_status_cache and now - self._engine_status_ts < 2.5:
             return dict(self._engine_status_cache)
         recent_api = bool(self._last_api_success_ts and now - self._last_api_success_ts <= 3.0)
         probe_ready = recent_api or self._runtime_ping(timeout=0.7)
@@ -6401,10 +6465,12 @@ class SabDownloadManager:
                 "snapshot_shared_state_lock_skip_last_ts": float(self._snapshot_shared_state_lock_skip_last_ts or 0.0),
                 "snapshot_engine_status_last_ms": round(float(self._snapshot_engine_status_last_ms or 0.0), 3),
                 "snapshot_engine_status_max_ms": round(float(self._snapshot_engine_status_max_ms or 0.0), 3),
+                "snapshot_projection_last_ms": round(float(self._snapshot_projection_last_ms or 0.0), 3),
+                "snapshot_projection_max_ms": round(float(self._snapshot_projection_max_ms or 0.0), 3),
                 "snapshot_worst_build_ts": float(self._snapshot_worst_build_ts or 0.0),
                 "snapshot_worst_phase": str(self._snapshot_worst_phase or ""),
                 "snapshot_worst_phase_ms": round(float(self._snapshot_worst_phase_ms or 0.0), 3),
-                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0) - float(self._snapshot_shared_state_last_ms or 0.0) - float(self._snapshot_engine_status_last_ms or 0.0)), 3),
+                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0) - float(self._snapshot_shared_state_last_ms or 0.0) - float(self._snapshot_engine_status_last_ms or 0.0) - float(self._snapshot_projection_last_ms or 0.0)), 3),
             })
             stale["telemetry"] = telemetry
             return stale
@@ -6425,6 +6491,7 @@ class SabDownloadManager:
                     "engine-status": float(self._snapshot_engine_status_last_ms or 0.0),
                     "sab-reconcile": float(self._snapshot_sab_reconcile_last_ms or 0.0),
                     "provider-health": float(self._snapshot_provider_health_last_ms or 0.0),
+                    "projection": float(self._snapshot_projection_last_ms or 0.0),
                 }
                 phases["other"] = max(0.0, build_ms - sum(phases.values()))
                 self._snapshot_worst_phase = max(phases, key=phases.get) if phases else ""
@@ -6459,10 +6526,12 @@ class SabDownloadManager:
                 "snapshot_shared_state_lock_skip_last_ts": float(self._snapshot_shared_state_lock_skip_last_ts or 0.0),
                 "snapshot_engine_status_last_ms": round(float(self._snapshot_engine_status_last_ms or 0.0), 3),
                 "snapshot_engine_status_max_ms": round(float(self._snapshot_engine_status_max_ms or 0.0), 3),
+                "snapshot_projection_last_ms": round(float(self._snapshot_projection_last_ms or 0.0), 3),
+                "snapshot_projection_max_ms": round(float(self._snapshot_projection_max_ms or 0.0), 3),
                 "snapshot_worst_build_ts": float(self._snapshot_worst_build_ts or 0.0),
                 "snapshot_worst_phase": str(self._snapshot_worst_phase or ""),
                 "snapshot_worst_phase_ms": round(float(self._snapshot_worst_phase_ms or 0.0), 3),
-                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0) - float(self._snapshot_shared_state_last_ms or 0.0) - float(self._snapshot_engine_status_last_ms or 0.0)), 3),
+                "snapshot_other_last_ms": round(max(0.0, float(self._snapshot_last_build_ms or 0.0) - float(self._snapshot_sab_reconcile_last_ms or 0.0) - float(self._snapshot_provider_health_last_ms or 0.0) - float(self._snapshot_shared_state_last_ms or 0.0) - float(self._snapshot_engine_status_last_ms or 0.0) - float(self._snapshot_projection_last_ms or 0.0)), 3),
             })
             decorated["telemetry"] = telemetry
             self._last_snapshot = decorated
@@ -6652,11 +6721,37 @@ class SabDownloadManager:
             "engine": {**dict(engine or {}), "last_error": str(error or ""), "control_degraded": True},
         }
 
+    def _untracked_queue_handoff_state(self, nzo_id: str, *, tombstoned: bool, now: float) -> tuple[float, bool, bool]:
+        """Return orphan age, grace state and whether one warning should be emitted."""
+        key = str(nzo_id or "").strip()
+        first_seen = self._untracked_queue_first_seen_ts.setdefault(key, now)
+        age = max(0.0, now - first_seen)
+        in_grace = bool(not tombstoned and age < self._untracked_queue_grace_seconds)
+        emit_warning = False
+        if not in_grace and key not in self._untracked_queue_warned:
+            self._untracked_queue_warned.add(key)
+            emit_warning = True
+        return age, in_grace, emit_warning
+
+    def _observe_multiple_active_condition(self, signature: str, now: float) -> None:
+        """Count distinct multi-active overlap episodes instead of poll samples."""
+        signature = str(signature or "").strip()
+        if not signature:
+            self._multiple_active_slot_condition = ""
+            self._multiple_active_slot_condition_since = 0.0
+            return
+        self._multiple_active_slot_samples += 1
+        if signature != self._multiple_active_slot_condition:
+            self._multiple_active_slot_corrections += 1
+            self._multiple_active_slot_condition = signature
+            self._multiple_active_slot_condition_since = now
+            self._multiple_active_slot_last_ts = now
+
     def _snapshot_uncached(self) -> dict[str, Any]:
         now = time.time()
         self._refresh_shared_state_for_snapshot(max_wait_seconds=0.025)
         engine_started = time.monotonic()
-        engine = self.engine_status()
+        engine = self.engine_status_cached()
         engine_ms = max(0.0, (time.monotonic() - engine_started) * 1000.0)
         self._snapshot_engine_status_last_ms = engine_ms
         self._snapshot_engine_status_max_ms = max(self._snapshot_engine_status_max_ms, engine_ms)
@@ -6770,9 +6865,9 @@ class SabDownloadManager:
         )
         explicit_active_ids = [str(x.get("nzo_id") or x.get("id") or "") for x in explicit_active_slots]
         foreground_id = explicit_active_ids[0] if explicit_active_ids else ""
+        multi_active_parts: list[str] = []
         if len(explicit_active_ids) > 1:
-            self._multiple_active_slot_corrections += 1
-            self._multiple_active_slot_last_ts = now
+            multi_active_parts.append("sab:" + ",".join(explicit_active_ids))
         # Keep SAB's aggregate Downloading state as a recovery signal, but do not use
         # that aggregate flag alone to promote an arbitrary Queued slot to Active.
         # v3.5.6 could therefore render a false Active package with 0 B/s / 0 sockets.
@@ -6797,6 +6892,7 @@ class SabDownloadManager:
         provider_health_ms = max(0.0, (time.monotonic() - provider_health_started) * 1000.0)
         self._snapshot_provider_health_last_ms = provider_health_ms
         self._snapshot_provider_health_max_ms = max(self._snapshot_provider_health_max_ms, provider_health_ms)
+        projection_started = time.monotonic()
         actual_active_connections = int(provider_health.get("active_connections", 0) or 0)
         provider_summary = str(provider_health.get("summary") or "").strip()
         engine_warning_summary = str((provider_health.get("engine_warnings") or [""])[0] or "").strip()
@@ -7149,6 +7245,12 @@ class SabDownloadManager:
         # prevents adoption, surface a temporary card rather than hiding a live
         # transfer behind SAB aggregate Remaining/speed counters.
         represented_ids = {str(j.get("id") or "") for j in jobs}
+        live_slot_ids = {str(x.get("nzo_id") or x.get("id") or "") for x in qslots if isinstance(x, dict)}
+        # Clear handoff timers once ownership arrives or SAB no longer exposes the slot.
+        for remembered_id in list(self._untracked_queue_first_seen_ts):
+            if remembered_id in represented_ids or remembered_id not in live_slot_ids:
+                self._untracked_queue_first_seen_ts.pop(remembered_id, None)
+                self._untracked_queue_warned.discard(remembered_id)
         with self.lock:
             removed_reason_snapshot = {
                 str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()
@@ -7166,9 +7268,16 @@ class SabDownloadManager:
                 "automation_context": self._recover_automation_context_for_slot(orphan_id, raw_slot),
             }
             orphan_job = self._job_from_slot(orphan_id, synthetic_meta, raw_slot, history=False)
-            if removed_reason_snapshot.get(orphan_id):
+            tombstoned = bool(removed_reason_snapshot.get(orphan_id))
+            orphan_age, in_handoff_grace, emit_orphan_warning = self._untracked_queue_handoff_state(
+                orphan_id, tombstoned=tombstoned, now=now,
+            )
+            if tombstoned:
                 orphan_job["status"] = "cancelling"
                 orphan_job["status_detail"] = "Stopping previously removed download • SAB still exposes the live job"
+            elif in_handoff_grace:
+                orphan_job["status_detail"] = "Finalizing NewzDeck ownership after SAB accepted the download"
+                self._untracked_queue_grace_suppressions += 1
             else:
                 orphan_job["status_detail"] = "Recovering NewzDeck ownership from the live SAB queue"
             self._job_last_seen_ts[orphan_id] = now
@@ -7176,15 +7285,17 @@ class SabDownloadManager:
             jobs.append(orphan_job)
             collections.append(self._collection_from_job(orphan_job, synthetic_meta))
             represented_ids.add(orphan_id)
-            self._snapshot_consistency_mismatches += 1
-            self._snapshot_consistency_last_ts = now
-            self._event(
-                "warning",
-                "Surfaced SAB Queue job that was missing from the NewzDeck ledger",
-                nzo_id=orphan_id,
-                tombstoned=bool(removed_reason_snapshot.get(orphan_id)),
-                status=str(raw_slot.get("status") or ""),
-            )
+            if not in_handoff_grace:
+                self._snapshot_consistency_mismatches += 1
+                self._snapshot_consistency_last_ts = now
+                if emit_orphan_warning:
+                    self._event(
+                        "warning",
+                        "Surfaced SAB Queue job that was missing from the NewzDeck ledger",
+                        nzo_id=orphan_id, tombstoned=tombstoned,
+                        orphan_age_seconds=round(orphan_age, 3),
+                        status=str(raw_slot.get("status") or ""),
+                    )
 
         # Product invariant: queue mode is one package at a time. If transient SAB
         # state/continuity reconstruction still produced multiple Active cards, keep
@@ -7213,8 +7324,9 @@ class SabDownloadManager:
                     c["speed_bps"] = 0
                     c["eta_seconds"] = 0
                     c["connections_used"] = 0
-            self._multiple_active_slot_corrections += 1
-            self._multiple_active_slot_last_ts = now
+            multi_active_parts.append("visible:" + ",".join(sorted(str(j.get("id") or "") for j in active_jobs_now)))
+
+        self._observe_multiple_active_condition("|".join(multi_active_parts), now)
 
         # Completed history must be deterministic and reverse-chronological. SAB's
         # queue/history responses and NewzDeck's tracked dictionary are not a stable
@@ -7291,6 +7403,9 @@ class SabDownloadManager:
                        "yenc": {"available": True, "workers": 0, "engine": "SABnzbd"}}
         statistics = self._statistics(hroot)
         post_active = sum(1 for j in jobs if str(j.get("post_status") or "") in {"queued", "verifying", "repairing", "extracting", "importing"})
+        projection_ms = max(0.0, (time.monotonic() - projection_started) * 1000.0)
+        self._snapshot_projection_last_ms = projection_ms
+        self._snapshot_projection_max_ms = max(self._snapshot_projection_max_ms, projection_ms)
         result = {"paused": bool(self.state.get("paused", False)), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
@@ -7349,7 +7464,13 @@ class SabDownloadManager:
                                 "config_retry_storms_suppressed": int(self._config_retry_storms_suppressed),
                                 "config_sync_last_error_ts": float(self._config_sync_last_error_ts),
                                 "multiple_active_slot_corrections": int(self._multiple_active_slot_corrections),
+                                "multiple_active_slot_samples": int(self._multiple_active_slot_samples),
+                                "multiple_active_slot_active": bool(self._multiple_active_slot_condition),
+                                "multiple_active_slot_condition_seconds": max(0.0, now - self._multiple_active_slot_condition_since) if self._multiple_active_slot_condition_since > 0 else 0.0,
                                 "multiple_active_slot_last_ts": float(self._multiple_active_slot_last_ts),
+                                "untracked_queue_grace_seconds": float(self._untracked_queue_grace_seconds),
+                                "untracked_queue_grace_suppressions": int(self._untracked_queue_grace_suppressions),
+                                "untracked_queue_pending": int(len(self._untracked_queue_first_seen_ts)),
                                 "progress_regression_corrections": int(self._progress_regression_corrections),
                                 "progress_regression_last_ts": float(self._progress_regression_last_ts),
                                 "identity_cross_adoptions_blocked": int(self._identity_cross_adoptions_blocked),

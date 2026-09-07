@@ -1,27 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.50",
-  "base_version": "3.6.49",
-  "release": "Snapshot Sampler & State-Lock Hardening",
-  "adapter_version": "3.6.50",
-  "name": "Snapshot Sampler & State-Lock Hardening",
+  "version": "3.6.51",
+  "base_version": "3.6.50",
+  "release": "Heavy-Load Snapshot & Handoff Hardening",
+  "adapter_version": "3.6.51",
+  "name": "Heavy-Load Snapshot & Handoff Hardening",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds one background SAB Queue/History sampler that publishes fresh pairs before housekeeping; routine Downloads snapshots and the completion monitor consume the same coherent pair instead of independently competing for serialized localhost control traffic, and fresh-sample tombstone/duplicate cleanup is owned by the sampler.",
-    "Makes the presentation-only shared-state refresh bounded and non-blocking across both the in-process state lock and cross-process ledger lock; strict mutation/control/import paths keep blocking authoritative locking, while Downloads safely reuse current in-memory state when either lock is busy. Presentation rendering no longer performs statistics reconciliation, SAB cleanup, adoption/import kicking, failure feedback, browser flattening, or strict state saves.",
-    "Routes the small amount of durable bookkeeping discovered during presentation through a deferred background state flush, and moves terminal/PAR2 evidence persistence to the completion worker so HTTP rendering never waits on the ledger writer.",
-    "Adds explicit snapshot phase telemetry for shared-state refresh and engine-status work plus worst-build timestamp/phase attribution, preserving the v3.6.49 p50/p90/p95/p99 sample window.",
-    "Keeps explicit control actions on fresh authoritative Queue/History reads while sampler consumers never drive destructive recovery from a stale sample.",
-    "Compacts seven-day-old successful/satisfied Automation target candidate transcripts to the selected/top candidate and removes expired attempted-release memory while preserving blacklists, selection reason, active/waiting/problem targets and the existing 45-day target retention.",
-    "Removes the two known retired NewzDeckBootstrap.exe and NewzDeckCore.exe binaries during installer upgrade with targeted InstallDelete entries; no broad program-directory purge is introduced.",
-    "Preserves v3.6.49 bounded Downloads data plane, provider-health background caching, Library Integrity caching, Smart Import output ownership, legacy state compaction, v3.6.48 integrity protections, v3.6.47 Selected Episodes/PAR2 visibility and private SABnzbd 5.1.2."
+    "Removes cross-process ledger file reads, JSON decoding and state merges from Downloads snapshot rendering; the 25 ms presentation budget now covers only bounded access to the already-synchronized in-memory ledger while strict background workers retain authoritative disk reconciliation.",
+    "Moves live engine-status probing/identity reads to the background engine coordinator and makes Downloads snapshots consume cached engine health, eliminating another heavy-load localhost/disk hotspot from the foreground request path.",
+    "Splits card/collection/statistics projection into its own snapshot timing phase so the former catch-all other phase is actionable under load, while retaining p50/p90/p95/p99 and worst-build attribution.",
+    "Adds a four-second newly-submitted SAB handoff grace: live SAB jobs are still surfaced immediately, but a normal submit-to-ledger race no longer emits a false missing-ledger warning or consistency mismatch unless ownership remains missing beyond the grace window.",
+    "Changes multiple-active-slot correction telemetry from per-poll inflation to distinct overlap episodes, while separately counting observed overlap samples and duration.",
+    "Corrects legacy downloads.json compaction telemetry so an already-compacted no-op reports the real current file size instead of incorrectly reporting zero bytes after compaction.",
+    "Preserves the v3.6.50 Queue/History sampler, deferred persistence, installer cleanup and Automation candidate aging; v3.6.49 bounded Downloads data plane, strict Smart Import ownership, Library Integrity protections, Selected Episodes/PAR2 visibility and private SABnzbd 5.1.2 remain intact."
   ],
   "regression_guards": [
-    "All established automation identity, Library Integrity, scan, quality, Selected Episodes, PAR2/repair and v3.6.49 data-plane regressions remain mandatory.",
-    "v3.6.50 guards require routine live Queue/History consumers to read the background sample while explicit non-live control reads retain the authoritative fetch path.",
-    "Synthetic held-lock tests require the snapshot refresh path to return within its bounded budget when either the in-process state lock or cross-process ledger is owned. The snapshot function is forbidden from directly calling strict state saves, statistics reconciliation, SAB cleanup, adoption/import, failure feedback or other background mutation helpers.",
-    "Automation runtime tests require old imported/satisfied candidate history to compact while waiting/error/active targets and blacklists remain intact.",
-    "Installer source must explicitly remove only the retired NewzDeckBootstrap.exe and NewzDeckCore.exe binaries in addition to the existing Python bytecode cache cleanup.",
-    "The release workflow runs the new v3.6.50 regression guard before any Windows release artifacts are built."
+    "All established automation identity, Library Integrity, quality, Selected Episodes, PAR2/repair, v3.6.49 data-plane and v3.6.50 sampler/state-lock regressions remain mandatory.",
+    "v3.6.51 structurally forbids _refresh_shared_state_for_snapshot from reading the ledger file, entering the cross-process ledger guard or merging shared states; a held local lock must still return within the bounded presentation budget.",
+    "Snapshot rendering must use engine_status_cached while the background engine loop refreshes the full engine-status cache.",
+    "Synthetic handoff tests require a newly surfaced SAB slot to stay warning-free during the four-second ownership grace and require a persistent orphan to emit at most one warning after grace.",
+    "Multiple-active telemetry tests require repeated samples of one overlap condition to count as one correction episode until the condition clears.",
+    "Legacy compaction no-op tests require bytes_after to equal the actual unchanged legacy file size.",
+    "The release workflow runs the carried-forward v3.6.50 guard and the new v3.6.51 regression guard before any Windows release assets are built."
   ]
 }

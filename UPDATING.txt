@@ -1,15 +1,15 @@
-NewzDeck v3.6.50
-Snapshot Sampler & State-Lock Hardening
+NewzDeck v3.6.51
+Heavy-Load Snapshot & Handoff Hardening
 Updating
 
 INSTALLED NEWZDECK
 ------------------
 Use NewzDeck > About & Updates > Install Update.
 
-The installer-owned update lifecycle remains authoritative. v3.6.50 keeps the existing service/tray handoff and additionally removes only the retired NewzDeckBootstrap.exe and NewzDeckCore.exe program files after the old runtime has been stopped. User data is not purged.
+The installer-owned update lifecycle remains authoritative. v3.6.51 does not change user-data locations, private SAB ownership, service/tray handoff, or installer cleanup policy.
 
-v3.6.50 centralizes routine SAB Queue/History sampling, bounds presentation-only job-ledger refreshes, defers snapshot-discovered durable-state writes to the background engine worker, adds phase/worst-build telemetry, and safely compacts aged successful Automation candidate transcripts.
+v3.6.51 removes all jobs-ledger disk/JSON work and live engine-status probing from the Downloads presentation path, adds detailed projection timing, suppresses false newly-submitted SAB ownership warnings during a bounded four-second handoff grace, makes multiple-active telemetry episode-based, and corrects no-op legacy-compaction byte reporting.
 
-It preserves v3.6.49 bounded Downloads history/payload behavior, provider-health caching, Library Integrity caching, Smart Import output ownership, v3.6.48 Library Integrity hardening, v3.6.47 Selected Episodes/PAR2 repair visibility, private SABnzbd 5.1.2, strict TV identity and quality-aware selection.
+It preserves v3.6.50 Queue/History sampling, deferred state persistence, targeted retired-binary cleanup and Automation candidate aging; v3.6.49 bounded Downloads history/payload behavior, provider-health caching, Library Integrity caching, strict Smart Import output ownership, v3.6.47 Selected Episodes/PAR2 repair visibility and private SABnzbd 5.1.2 remain intact.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder. Existing settings, provider configuration, Automation data, history, queue state and user data remain stored outside the program directory.
