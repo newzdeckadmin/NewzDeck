@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.38
+## Current release: v3.6.39
 
-**v3.6.38 is the current stable production release.**
+**v3.6.39 is the current stable production release.**
 
-The `v3.6.38` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.39` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.39 - Automation Startup Reservation Refinement.** Limits unproven pending-* handoff reservations to a 120-second startup grace, preserves durable v3.6.38 recovered-job protection, removes the static initial max-grab allowance, and lets the same running cycle use capacity that becomes available while retaining the authoritative pre-Grab occupancy recheck.
 
 - **v3.6.38 - Crash Recovery & Automation Queue Reconciliation.** Prevents post-restart SAB queue/history reconstruction from being mistaken for free Continuous Automation capacity, reconciles false recovered Import Failed cards only from exact authoritative library proof, recovers the narrow sole unintended paused-job state, and shortens only the expected service-before-tray startup retry.
 

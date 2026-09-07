@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.38** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.39** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.38_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.39_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,19 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.38 highlights
+## v3.6.39 highlights
 
-v3.6.38 hardens crash recovery across Automation queue admission, recovered Smart Import state, and a sole unintended SAB per-job pause.
+v3.6.39 refines the v3.6.38 restart guard so unproven handoff reservations cannot make a healthy post-update Automation queue appear occupied for ten minutes.
 
-- **Live admission recheck:** authoritative Automation occupancy is re-read immediately before every unattended Grab.
-- **Restart reconciliation guard:** recent persisted active-target hints protect the first ten minutes of a new runtime while SAB history ownership is rebuilding.
-- **Recovered Smart Import truth:** already-imported recovered SAB History jobs are reconciled only when the exact on-disk library target and equal-or-better quality are proven.
-- **Sole paused-job recovery:** a single adopted/recovered SAB Queue item may be resumed once when the global queue is unpaused and no explicit user pause is recorded.
-- **Engine-ready gate:** Continuous Automation defers new grabs while the private download engine cannot prove its live control identity.
-- **Faster normal boot recovery:** the expected service-before-tray startup race retries after 8 seconds; genuine SAB launch failures keep the existing 90-second cooldown.
-- **No destructive queue mutation:** existing/recovered downloads are never cancelled, removed, reordered, or redownloaded; only the narrowly proven sole recovered Pause can be resumed once.
+- **120-second pending grace:** empty/`pending-*` collection identities are treated as short handoffs, not durable recovered SAB jobs.
+- **Durable crash protection preserved:** recent targets with a real non-pending collection identity keep v3.6.38's bounded startup reconciliation protection.
+- **Dynamic cycle capacity:** the cycle no longer uses a static max-grab allowance derived from its first queue snapshot.
+- **Deeper refill searching:** search budget is based on configured queue depth, so newly available capacity can be used during the same cycle.
+- **Authoritative admission unchanged:** every unattended Grab still rechecks live occupancy immediately before submission.
+- **Crash-recovery stack preserved:** recovered-import reconciliation, sole paused-job repair, Smart Import safety, and the engine-ready gate remain unchanged.
 
-See [the full v3.6.38 release notes](release/RELEASE_NOTES_v3.6.38.md).
+See [the full v3.6.39 release notes](release/RELEASE_NOTES_v3.6.39.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -68,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.38_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.39_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

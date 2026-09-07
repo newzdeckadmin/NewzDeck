@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.38",
-  "base_version": "3.6.37",
-  "release": "Crash Recovery & Automation Queue Reconciliation",
-  "adapter_version": "3.6.38",
-  "name": "Crash Recovery & Automation Queue Reconciliation",
+  "version": "3.6.39",
+  "base_version": "3.6.38",
+  "release": "Automation Startup Reservation Refinement",
+  "adapter_version": "3.6.39",
+  "name": "Automation Startup Reservation Refinement",
   "changes": [
-    "Prevents Continuous Automation from overfilling its configured queue after a Windows/app restart while the private SAB queue/history is still being reconstructed.",
-    "Reconciles crash-recovered completed SAB History jobs against the authoritative media library when their original Completed Download Folder was already cleaned by a successful pre-crash Smart Import, clearing false Import Failed cards without moving or deleting media.",
-    "Rechecks authoritative live Automation occupancy immediately before every automatic Grab, so jobs recovered during a long-running cycle consume queue capacity immediately instead of only being noticed at cycle completion.",
-    "Recovers the narrow state where the global NewzDeck queue is unpaused but the sole adopted/recovered SAB queue job is individually Paused, while persisting future per-job user pause intent so explicit pauses are not overridden.",
-    "Defers unattended grabbing while the private download engine is not probe-ready, and shortens only the expected service-before-tray startup race retry from 90 seconds to 8 seconds without rotating SAB identity or deleting queue state."
+    "Shortens crash-recovery treatment for unproven pending-* Automation handoff reservations to 120 seconds instead of allowing stale pending records to consume queue capacity for the full ten-minute startup recovery window.",
+    "Keeps the stronger ten-minute startup reconciliation window for recent persisted targets that have a durable non-pending collection identity, preserving v3.6.38 protection while SAB queue/history ownership is reconstructed after an unclean restart.",
+    "Removes the static max-grab allowance calculated from the first queue snapshot and lets the existing authoritative pre-Grab occupancy recheck govern admission throughout the cycle.",
+    "Makes the per-cycle search budget depend on configured queue depth rather than initially perceived free slots, so capacity that becomes available while a cycle is running can be used without waiting for another long retry interval.",
+    "Preserves the v3.6.38 recovered-import reconciliation, sole recovered paused-job repair, engine-ready gate, Smart Import protections, and non-destructive queue behavior."
   ],
   "regression_guards": [
-    "Recovered-import reconciliation is fail-closed: only adopted SAB jobs with recovered exact Automation context, missing-media intent, an on-disk exact library target, and equal-or-better authoritative quality are accepted.",
-    "Existing/recovered SAB jobs are never cancelled, removed, reordered, or redownloaded by this fix; only new unattended Automation admission and the narrow sole-job resume recovery are affected.",
-    "Manual Search/Grab, Newznab matching/scoring, normal Smart Import, no-downgrade and target-integrity validation remain on their accepted paths.",
-    "v3.6.37 operation activity feedback, v3.6.36 Automation action wiring, and v3.6.35 Manual Import live progress remain required production markers.",
-    "Release-blocking tests cover restart queue occupancy and recovered completed-import reconciliation."
+    "pending-* or missing collection identities are never treated as durable recovered SAB jobs and expire from persisted startup capacity after at most 120 seconds.",
+    "Durable recovered collection identities still participate in the existing bounded ten-minute startup guard and 12-hour recency filter.",
+    "Every automatic Grab still performs an authoritative live occupancy recheck immediately before queue admission; this release does not weaken the v3.6.38 overfill protection.",
+    "Recovered completed-import reconciliation, no-downgrade behavior, release matching/blacklisting, manual Search/Grab, and Smart Import remain unchanged.",
+    "v3.6.37 activity feedback, v3.6.36 Automation action wiring, and v3.6.35 Manual Import live progress remain required production markers."
   ]
 }

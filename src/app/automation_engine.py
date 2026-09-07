@@ -1010,15 +1010,25 @@ class MediaAutomationEngine:
             return bool(status.get('probe_ready'))
         return bool(status.get('ready',True))
 
-    def _auto_recent_persisted_targets(self, max_age:float=12*3600) -> set[str]:
-        """Conservative restart-only hints while SAB live queue/history is rebuilding."""
+    def _auto_recent_persisted_targets(self, max_age:float=12*3600, pending_grace:float=120.0) -> set[str]:
+        """Conservative restart hints with a short grace for unproven handoffs.
+
+        v3.6.38 intentionally preserved recent persisted targets during the first
+        ten minutes after runtime start while SAB queue/history ownership rebuilt.
+        A ``pending-*`` collection id, however, is only a short pre-SAB handoff
+        marker and must not consume capacity for that full recovery window.
+        """
         active=set(); now=time.time(); rt=self._auto_runtime()
         liveish={'grabbed','queued','queueing','downloading','processing','importing'}
         for key,rec in (rt.get('targets') or {}).items():
             if not isinstance(rec,dict): continue
             status=str(rec.get('status') or '')
             stamp=max(float(rec.get('updated_ts') or 0),float(rec.get('last_grab_ts') or 0))
-            if status in liveish and stamp>0 and now-stamp<=max(60.0,float(max_age or 0)):
+            collection_id=str(rec.get('last_collection_id') or '').strip()
+            age_limit=max(60.0,float(max_age or 0))
+            if not collection_id or collection_id.casefold().startswith('pending-'):
+                age_limit=min(age_limit,max(60.0,float(pending_grace or 0)))
+            if status in liveish and stamp>0 and now-stamp<=age_limit:
                 active.add(str(key))
         return active
 
@@ -1674,7 +1684,7 @@ class MediaAutomationEngine:
             self._set_auto_progress(phase='targets',detail='Evaluating Wanted targets',processed=0,total=len(rows),target='')
             active=self._auto_active_targets(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets
             cycle_reserved_jobs=set(); cycle_overlap_reservations=set()
-            queue_depth=max(1,int(cfg.get('automatic_queue_depth') or 25)); max_grabs=max(0,queue_depth-len(active)); max_searches=max(12,min(250,max(1,max_grabs)*5))
+            queue_depth=max(1,int(cfg.get('automatic_queue_depth') or 25)); max_searches=max(12,min(250,queue_depth*5))
             release_delay=max(0,int(cfg.get('automatic_release_delay_minutes') or 0))*60
             quiet=self._quiet_hours_state(cfg)
             if quiet.get('active') and not force:
@@ -1687,7 +1697,7 @@ class MediaAutomationEngine:
             for row_index,row in enumerate(rows,1):
                 capacity_targets=self._auto_effective_capacity_targets(cycle_reserved_jobs)
                 active=set(capacity_targets); active.update(cycle_overlap_reservations)
-                if len(capacity_targets)>=queue_depth or grabs>=max_grabs or searches>=max_searches: break
+                if len(capacity_targets)>=queue_depth or searches>=max_searches: break
                 now=time.time()
                 self._set_auto_progress(
                     phase='target',
