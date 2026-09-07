@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.39** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.40** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.39_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.40_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,19 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.39 highlights
+## v3.6.40 highlights
 
-v3.6.39 refines the v3.6.38 restart guard so unproven handoff reservations cannot make a healthy post-update Automation queue appear occupied for ten minutes.
+v3.6.40 keeps long-lived NewzDeck installations tidy without weakening private-SAB recovery safeguards.
 
-- **120-second pending grace:** empty/`pending-*` collection identities are treated as short handoffs, not durable recovered SAB jobs.
-- **Durable crash protection preserved:** recent targets with a real non-pending collection identity keep v3.6.38's bounded startup reconciliation protection.
-- **Dynamic cycle capacity:** the cycle no longer uses a static max-grab allowance derived from its first queue snapshot.
-- **Deeper refill searching:** search budget is based on configured queue depth, so newly available capacity can be used during the same cycle.
-- **Authoritative admission unchanged:** every unattended Grab still rechecks live occupancy immediately before submission.
-- **Crash-recovery stack preserved:** recovered-import reconciliation, sole paused-job repair, Smart Import safety, and the engine-ready gate remain unchanged.
+- **Dead admin generations are pruned safely:** only non-authoritative `admin`/`admin-vN` directories whose recorded localhost listeners are proven free are removed.
+- **Busy/unknown history is preserved:** an occupied historical port or unreadable non-empty generation is left untouched.
+- **Canonical admin recovery:** when the authoritative SAB is offline and the launch lock is held, an active `admin-vN` can be normalized back to `sab-engine\admin`.
+- **Provisioning debris is bounded:** verified SAB provisioning ZIPs are removed after extraction, along with retired v3.5 repair artifacts and abandoned old staging.
+- **Startup logs are bounded:** SAB and backend startup logs rotate at about 2 MB with two backups.
+- **Active data is excluded:** incomplete downloads, current cache, job/identity ledgers, lock files, and media/library data are never cleanup targets.
+- **Automation/recovery behavior preserved:** v3.6.39 queue admission and the v3.6.38 crash-recovery stack are unchanged.
 
-See [the full v3.6.39 release notes](release/RELEASE_NOTES_v3.6.39.md).
+See [the full v3.6.40 release notes](release/RELEASE_NOTES_v3.6.40.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.39_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.40_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -24,13 +24,32 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.39"
+ADAPTER_VERSION = "3.6.40"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
 
 SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
+
+def _rotate_bounded_log_file(path: Path, *, max_bytes: int = 2_000_000, backups: int = 2) -> None:
+    """Bound a persistent local diagnostic log without risking active runtime state."""
+    try:
+        path = Path(path)
+        if not path.exists() or path.stat().st_size <= max(1024, int(max_bytes)):
+            return
+        keep = max(1, int(backups))
+        oldest = path.with_name(path.name + f".{keep}")
+        oldest.unlink(missing_ok=True)
+        for index in range(keep - 1, 0, -1):
+            source = path.with_name(path.name + f".{index}")
+            target = path.with_name(path.name + f".{index + 1}")
+            if source.exists():
+                os.replace(source, target)
+        os.replace(path, path.with_name(path.name + ".1"))
+    except OSError:
+        # Log rotation is hygiene only. A sharing lock must never affect downloads.
+        pass
 
 def _sab_text(value: Any) -> str:
     """Return the most useful human-readable string from a SAB API field."""
@@ -841,6 +860,14 @@ class SabDownloadManager:
         self._recovered_pause_resume_attempted: set[str] = set()
         self._recovered_pause_resumes = 0
         self._recovered_pause_resume_last_ts = 0.0
+        # v3.6.40 runtime-storage hygiene. Cleanup is intentionally fail-closed:
+        # only non-authoritative generations whose saved localhost ports are proven
+        # free are removed, and active/incomplete/job state is never touched.
+        self._runtime_storage_cleanup_last_ts = 0.0
+        self._runtime_storage_admin_dirs_removed = 0
+        self._runtime_storage_files_removed = 0
+        self._runtime_storage_bytes_removed = 0
+        self._runtime_storage_last_summary = ""
         if start_threads:
             self.start_background_threads()
 
@@ -1561,6 +1588,227 @@ class SabDownloadManager:
                 return candidate
         return path
 
+    @staticmethod
+    def _runtime_path_size(path: Path) -> int:
+        try:
+            path = Path(path)
+            if path.is_file():
+                return int(path.stat().st_size)
+            total = 0
+            for child in path.rglob("*"):
+                try:
+                    if child.is_file():
+                        total += int(child.stat().st_size)
+                except OSError:
+                    pass
+            return total
+        except OSError:
+            return 0
+
+    def _remove_runtime_path(self, path: Path) -> tuple[bool, int]:
+        path = Path(path)
+        if not path.exists():
+            return False, 0
+        size = self._runtime_path_size(path)
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            return True, size
+        except OSError:
+            return False, 0
+
+    def _admin_generation_ports(self, directory: Path) -> set[int]:
+        ports: set[int] = set()
+        directory = Path(directory)
+        try:
+            directory_key = str(directory.resolve()).casefold()
+        except OSError:
+            directory_key = str(directory).casefold()
+        try:
+            candidates = [x for x in directory.glob("sabnzbd.ini*") if x.is_file()]
+        except OSError:
+            candidates = []
+        for cfg_path in candidates:
+            rec = self._config_identity_from(cfg_path)
+            port = _clamp_int((rec or {}).get("port"), 1025, 65535, 0)
+            if port:
+                ports.add(port)
+        # A damaged/partially cleaned old generation may have lost its readable INI
+        # while engine-identities.json still retains the exact config path and port.
+        # Use that bounded history as additional proof instead of deleting blindly.
+        history = _json_read(self.identity_history_file, [])
+        if isinstance(history, list):
+            for rec in history:
+                if not isinstance(rec, dict):
+                    continue
+                config_value = str(rec.get("config_file") or "").strip()
+                if not config_value:
+                    continue
+                try:
+                    parent_key = str(Path(config_value).parent.resolve()).casefold()
+                except OSError:
+                    parent_key = str(Path(config_value).parent).casefold()
+                if parent_key != directory_key:
+                    continue
+                port = _clamp_int(rec.get("port"), 1025, 65535, 0)
+                if port:
+                    ports.add(port)
+        return ports
+
+    def _cleanup_obsolete_admin_generations(self, *, min_age_seconds: float = 300.0) -> dict[str, Any]:
+        """Remove only proven-dead non-authoritative SAB admin generations."""
+        current = _json_read(self.engine_state_file, {})
+        current = current if isinstance(current, dict) else {}
+        try:
+            current_cfg = self._canonical_config_path(Path(str(current.get("config_file") or self.config_file)))
+            current_dir = current_cfg.parent.resolve()
+        except Exception:
+            current_cfg = self.config_file
+            current_dir = self.admin_dir.resolve()
+        current_port = _clamp_int(current.get("port"), 1025, 65535, 0)
+        now = time.time()
+        removed = 0
+        bytes_removed = 0
+        preserved_busy = 0
+        try:
+            admins = sorted(x for x in self.root.glob("admin*") if x.is_dir())
+        except OSError:
+            admins = []
+        for directory in admins:
+            if not re.fullmatch(r"admin(?:-v\d+)?", directory.name, re.I):
+                continue
+            try:
+                if directory.resolve() == current_dir:
+                    continue
+                age = max(0.0, now - directory.stat().st_mtime)
+            except OSError:
+                continue
+            if age < max(0.0, float(min_age_seconds)):
+                continue
+            ports = self._admin_generation_ports(directory)
+            if not ports:
+                # Fail closed for non-empty generations with no readable identity.
+                try:
+                    if any(directory.iterdir()):
+                        continue
+                except OSError:
+                    continue
+            busy = any(port != current_port and not self._port_available(port) for port in ports)
+            if busy:
+                preserved_busy += 1
+                continue
+            ok, removed_bytes = self._remove_runtime_path(directory)
+            if ok:
+                removed += 1
+                bytes_removed += removed_bytes
+        return {"admin_dirs_removed": removed, "bytes_removed": bytes_removed, "admin_dirs_preserved_busy": preserved_busy}
+
+    def _normalize_authoritative_admin_dir_offline(self) -> bool:
+        """Move an offline active admin-vN generation back to canonical ``admin``."""
+        ident = self._load_engine_identity()
+        port = _clamp_int(ident.get("port"), 1025, 65535, 0)
+        if not port or not self._port_available(port):
+            return False
+        try:
+            current_cfg = self._canonical_config_path(Path(str(ident.get("config_file") or self.config_file)))
+            source_dir = current_cfg.parent
+            canonical_dir = self.root / "admin"
+            if source_dir.resolve() == canonical_dir.resolve():
+                return False
+            if not re.fullmatch(r"admin-v\d+", source_dir.name, re.I) or not source_dir.exists():
+                return False
+        except Exception:
+            return False
+
+        # The old canonical folder is just another historical generation. Delete it
+        # only if its recorded listener is proven dead; otherwise normalization waits.
+        self._cleanup_obsolete_admin_generations(min_age_seconds=0.0)
+        try:
+            if canonical_dir.exists():
+                if any(canonical_dir.iterdir()):
+                    return False
+                canonical_dir.rmdir()
+            os.replace(source_dir, canonical_dir)
+        except OSError:
+            return False
+
+        new_cfg = canonical_dir / current_cfg.name
+        self.admin_dir = canonical_dir
+        self.config_file = new_cfg
+        ident = dict(ident)
+        ident["config_file"] = str(new_cfg)
+        self._save_engine_identity(ident, source="canonical-admin-normalize")
+        self._event("info", "Normalized authoritative SAB admin generation to canonical admin folder", config_file=str(new_cfg), port=port)
+        return True
+
+    def _cleanup_runtime_storage(self, *, authoritative_healthy: bool = False, force: bool = False) -> dict[str, Any]:
+        """Bound NewzDeck-owned SAB storage after the authoritative engine is healthy."""
+        if not authoritative_healthy:
+            return {"ok": False, "deferred": True}
+        now = time.time()
+        if not force and now - self._runtime_storage_cleanup_last_ts < 300.0:
+            return {"ok": True, "skipped": True}
+        self._runtime_storage_cleanup_last_ts = now
+        result = self._cleanup_obsolete_admin_generations(min_age_seconds=300.0)
+        files_removed = 0
+        bytes_removed = int(result.get("bytes_removed") or 0)
+
+        candidates: list[Path] = []
+        if self._engine_exe():
+            candidates.append(self.root / f"SABnzbd-{SAB_VERSION}-win64-bin.zip")
+        candidates.append(self.root / "last-engine-state-repair.txt")
+        try:
+            candidates.extend(self.root.glob("engine-state-backup-v3.5.*"))
+        except OSError:
+            pass
+        try:
+            for stale in self.root.glob(f".{SAB_VERSION}-extract-*"):
+                try:
+                    if now - stale.stat().st_mtime >= 3600.0:
+                        candidates.append(stale)
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        download_temp = self.root / f"SABnzbd-{SAB_VERSION}-win64-bin.download"
+        try:
+            if download_temp.exists() and now - download_temp.stat().st_mtime >= 3600.0:
+                candidates.append(download_temp)
+        except OSError:
+            pass
+
+        seen_paths: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate).casefold()
+            if key in seen_paths:
+                continue
+            seen_paths.add(key)
+            try:
+                if candidate.exists() and candidate.name not in {f"SABnzbd-{SAB_VERSION}-win64-bin.zip", "last-engine-state-repair.txt"} and not candidate.name.startswith("engine-state-backup-v3.5."):
+                    if now - candidate.stat().st_mtime < 3600.0:
+                        continue
+            except OSError:
+                continue
+            ok, removed_bytes = self._remove_runtime_path(candidate)
+            if ok:
+                files_removed += 1
+                bytes_removed += removed_bytes
+
+        self._runtime_storage_admin_dirs_removed += int(result.get("admin_dirs_removed") or 0)
+        self._runtime_storage_files_removed += files_removed
+        self._runtime_storage_bytes_removed += bytes_removed
+        summary = (f"Removed {int(result.get('admin_dirs_removed') or 0)} obsolete SAB admin generation(s) "
+                   f"and {files_removed} redundant runtime artifact(s)")
+        self._runtime_storage_last_summary = summary
+        if int(result.get("admin_dirs_removed") or 0) or files_removed:
+            self._event("info", "Cleaned redundant NewzDeck SAB runtime storage",
+                        admin_dirs_removed=int(result.get("admin_dirs_removed") or 0),
+                        files_removed=files_removed, bytes_removed=bytes_removed,
+                        busy_generations_preserved=int(result.get("admin_dirs_preserved_busy") or 0))
+        return {"ok": True, **result, "files_removed": files_removed, "bytes_removed": bytes_removed}
+
     def _identity_candidates(self) -> list[dict[str, Any]]:
         """Collect every private SAB identity NewzDeck has ever had enough data to prove.
 
@@ -1821,6 +2069,9 @@ class SabDownloadManager:
             )
             if bool((result or {}).get("authenticated")):
                 self._historical_sab_authenticated += 1
+        # Only after historical listeners have been inspected do we prune their
+        # now-dead admin generations and redundant provisioning artifacts.
+        self._cleanup_runtime_storage(authoritative_healthy=True)
 
     def _load_engine_identity(self) -> dict[str, Any]:
         """Load SAB identity without rotating credentials because of a transient file-read failure."""
@@ -2500,6 +2751,10 @@ class SabDownloadManager:
             if not exe:
                 raise RuntimeError("SABnzbd engine provisioning completed without an executable")
             self._event("info", f"SABnzbd {SAB_VERSION} download engine provisioned", sha256=SAB_WINDOWS_X64_SHA256)
+            try:
+                package.unlink(missing_ok=True)
+            except OSError:
+                pass
             return exe
         finally:
             self._provisioning = False
@@ -2587,6 +2842,11 @@ class SabDownloadManager:
             if not self._acquire_launch_lock():
                 raise RuntimeError("Another NewzDeck runtime still owns the private SAB startup guard")
 
+        try:
+            self._normalize_authoritative_admin_dir_offline()
+        except Exception as exc:
+            self._event("warning", "Could not normalize the private SAB admin folder; continuing with the existing generation", error=str(exc))
+
         def stop_spawned_process() -> None:
             proc = self._process
             if proc is None or proc.poll() is not None:
@@ -2662,6 +2922,7 @@ class SabDownloadManager:
             # to DEVNULL, which made a real SAB startup failure indistinguishable from
             # a generic "reconnecting" state in the UI.
             startup_log = self.root / "sab-startup.log"
+            _rotate_bounded_log_file(startup_log, max_bytes=2_000_000, backups=2)
             try:
                 with startup_log.open("ab") as log:
                     stamp = f"\n--- NewzDeck {ADAPTER_VERSION} SAB startup {time.strftime('%Y-%m-%d %H:%M:%S')} recovery={int(recovery)} config={self.config_file} port={ident['port']} service_mode={int(os.environ.get('NEWZDECK_SERVICE') == '1')} ---\n"
@@ -3765,6 +4026,11 @@ class SabDownloadManager:
             "port": port,
             "config_generation": config_name,
             "official_sha256": SAB_WINDOWS_X64_SHA256,
+            "storage_cleanup_last_ts": float(self._runtime_storage_cleanup_last_ts or 0.0),
+            "storage_cleanup_admin_dirs_removed": int(self._runtime_storage_admin_dirs_removed),
+            "storage_cleanup_files_removed": int(self._runtime_storage_files_removed),
+            "storage_cleanup_bytes_removed": int(self._runtime_storage_bytes_removed),
+            "storage_cleanup_summary": str(self._runtime_storage_last_summary or ""),
         }
         self._engine_status_cache = dict(result)
         self._engine_status_ts = now

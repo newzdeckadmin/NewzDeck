@@ -146,10 +146,26 @@ _merge_rebrand_tree(legacy_user_data_root(), USER_ROOT)
 DATA_DIR = USER_ROOT / "data"
 BACKEND_STARTUP_LOG_FILE = DATA_DIR / "backend-startup.log"
 
+def _rotate_backend_startup_log() -> None:
+    """Keep backend startup diagnostics bounded while retaining two prior files."""
+    try:
+        if not BACKEND_STARTUP_LOG_FILE.exists() or BACKEND_STARTUP_LOG_FILE.stat().st_size <= 2_000_000:
+            return
+        for index in (2, 1):
+            source = BACKEND_STARTUP_LOG_FILE if index == 1 else BACKEND_STARTUP_LOG_FILE.with_name(BACKEND_STARTUP_LOG_FILE.name + ".1")
+            target = BACKEND_STARTUP_LOG_FILE.with_name(BACKEND_STARTUP_LOG_FILE.name + f".{index}")
+            if index == 2:
+                target.unlink(missing_ok=True)
+            if source.exists():
+                os.replace(source, target)
+    except OSError:
+        pass
+
 def _backend_startup_excepthook(exc_type, exc_value, exc_tb):
     """Persist uncaught backend-startup failures even when the GUI launcher hides stderr."""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _rotate_backend_startup_log()
         with BACKEND_STARTUP_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(f"\n[{datetime.now().isoformat(timespec='seconds')}] Uncaught backend exception\n")
             traceback.print_exception(exc_type, exc_value, exc_tb, file=handle)
@@ -282,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.39"
+APP_VERSION = "3.6.40"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
@@ -319,6 +335,7 @@ def desktop_heartbeat_state() -> tuple[float, bool]:
         return _desktop_last_heartbeat, _desktop_heartbeat_seen
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+_rotate_backend_startup_log()
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 THUMB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOAD_TEMP_DIR.mkdir(parents=True, exist_ok=True)

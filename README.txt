@@ -1,15 +1,18 @@
-NewzDeck v3.6.39
-Automation Startup Reservation Refinement
+NewzDeck v3.6.40
+Runtime Storage Cleanup & Hygiene
 
-Focused follow-up to v3.6.38 based on a live post-update diagnostic snapshot.
+Focused maintenance release for long-lived NewzDeck installations.
 
-WHAT'S NEW IN v3.6.39
+WHAT'S NEW IN v3.6.40
 
-- pending-* Automation handoff reservations now receive only a 120-second startup grace period instead of consuming queue capacity for the full ten-minute recovery window.
-- Persisted targets with a durable non-pending collection identity keep the stronger v3.6.38 startup recovery protection.
-- Automatic queue admission still rechecks authoritative live occupancy immediately before every Grab.
-- The cycle no longer uses a static max-grab allowance calculated from its first snapshot.
-- Search budget is based on configured queue depth, so capacity that becomes available during a running cycle can be used immediately.
-- v3.6.38 crash-recovered Smart Import reconciliation, sole paused-job recovery, and engine-ready gating are preserved unchanged.
+- Safely removes obsolete private SAB admin/admin-vN generations after proving they are non-authoritative and their saved localhost listeners are no longer live.
+- Preserves any historical generation whose port is occupied or whose identity cannot be safely proven dead.
+- Normalizes an offline active admin-vN generation back to the canonical sab-engine\admin folder when it is safe to do so.
+- Deletes the retained SAB provisioning ZIP after successful provisioning.
+- Removes retired v3.5 engine-state repair artifacts and abandoned provisioning staging files.
+- Bounds sab-startup.log and backend-startup.log to the current file plus two rotated backups.
+- Exposes cleanup counters in download-engine health telemetry.
 
-This release is intentionally narrow and does not alter Newznab matching/scoring, failure blacklists, Smart Import transaction behavior, no-downgrade protection, or manual Search/Grab.
+The cleanup never targets incoming, incomplete, active cache, newzdeck-jobs.json, engine.json, engine-identities.json, active lock files, or media/library data.
+
+v3.6.39 Automation startup reservation refinement and the complete v3.6.38 crash-recovery/queue-admission stack are preserved unchanged.

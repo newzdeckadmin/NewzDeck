@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.39",
-  "base_version": "3.6.38",
-  "release": "Automation Startup Reservation Refinement",
-  "adapter_version": "3.6.39",
-  "name": "Automation Startup Reservation Refinement",
+  "version": "3.6.40",
+  "base_version": "3.6.39",
+  "release": "Runtime Storage Cleanup & Hygiene",
+  "adapter_version": "3.6.40",
+  "name": "Runtime Storage Cleanup & Hygiene",
   "changes": [
-    "Shortens crash-recovery treatment for unproven pending-* Automation handoff reservations to 120 seconds instead of allowing stale pending records to consume queue capacity for the full ten-minute startup recovery window.",
-    "Keeps the stronger ten-minute startup reconciliation window for recent persisted targets that have a durable non-pending collection identity, preserving v3.6.38 protection while SAB queue/history ownership is reconstructed after an unclean restart.",
-    "Removes the static max-grab allowance calculated from the first queue snapshot and lets the existing authoritative pre-Grab occupancy recheck govern admission throughout the cycle.",
-    "Makes the per-cycle search budget depend on configured queue depth rather than initially perceived free slots, so capacity that becomes available while a cycle is running can be used without waiting for another long retry interval.",
-    "Preserves the v3.6.38 recovered-import reconciliation, sole recovered paused-job repair, engine-ready gate, Smart Import protections, and non-destructive queue behavior."
+    "Safely removes obsolete private SAB admin generations after the authoritative engine is healthy, but only when the directory is non-authoritative and every recorded localhost listener for that generation is proven free.",
+    "Normalizes an offline authoritative admin-vN generation back to the canonical sab-engine/admin folder when the old canonical generation is safely removable, preventing historical generation folders from accumulating after clean restarts.",
+    "Deletes the retained SABnzbd provisioning ZIP after successful provisioning and removes old v3.5 engine-state repair artifacts and abandoned extraction/download staging files once they are no longer needed.",
+    "Bounds sab-startup.log and backend-startup.log to the current file plus two rotated backups instead of allowing startup diagnostics to grow indefinitely.",
+    "Exposes cleanup counters in download-engine health telemetry while preserving incoming, incomplete, cache, job ledger, current engine identity, and all active/recoverable queue state."
   ],
   "regression_guards": [
-    "pending-* or missing collection identities are never treated as durable recovered SAB jobs and expire from persisted startup capacity after at most 120 seconds.",
-    "Durable recovered collection identities still participate in the existing bounded ten-minute startup guard and 12-hour recency filter.",
-    "Every automatic Grab still performs an authoritative live occupancy recheck immediately before queue admission; this release does not weaken the v3.6.38 overfill protection.",
-    "Recovered completed-import reconciliation, no-downgrade behavior, release matching/blacklisting, manual Search/Grab, and Smart Import remain unchanged.",
-    "v3.6.37 activity feedback, v3.6.36 Automation action wiring, and v3.6.35 Manual Import live progress remain required production markers."
+    "The authoritative SAB admin directory is never deleted by cleanup, and an occupied historical localhost port always preserves its admin generation for stale-engine quarantine/recovery.",
+    "Canonical admin normalization runs only while the authoritative saved port is offline and while the launch lock is held; a live SAB process is never moved underneath itself.",
+    "incoming, incomplete, cache, newzdeck-jobs.json, engine.json, engine-identities.json, browser filename recovery state, and lock files are never targeted by runtime-storage cleanup.",
+    "v3.6.39 startup-reservation refinement and v3.6.38 crash-recovery/queue-admission protections remain unchanged.",
+    "Manual Search/Grab, Newznab behavior, Smart Import, no-downgrade protection, Downloads continuity, and Automation scheduling semantics are unchanged."
   ]
 }
