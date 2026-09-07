@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.37"
+ADAPTER_VERSION = "3.6.38"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -833,6 +833,14 @@ class SabDownloadManager:
         self._background_threads_lock = threading.Lock()
         self._import_kick_lock = threading.Lock()
         self._import_kick_inflight: set[str] = set()
+        # v3.6.38 crash-recovery telemetry/guards. A hard Windows restart can leave
+        # SAB history intact while NewzDeck's final Smart Import markers never reach
+        # disk, and can also leave one recovered queue item individually paused.
+        self._recovered_import_reconciliations = 0
+        self._recovered_import_last_ts = 0.0
+        self._recovered_pause_resume_attempted: set[str] = set()
+        self._recovered_pause_resumes = 0
+        self._recovered_pause_resume_last_ts = 0.0
         if start_threads:
             self.start_background_threads()
 
@@ -2814,8 +2822,22 @@ class SabDownloadManager:
         try:
             self._launch()
             self._ensure_next_launch_after = 0.0
-        except Exception:
-            self._ensure_next_launch_after = time.time() + 90.0
+        except Exception as exc:
+            # A Windows service can beat the signed-in tray helper during normal
+            # boot/session startup. That is an expected ordering race, not a broken
+            # SAB generation, so retry it quickly instead of imposing the same
+            # 90-second cooldown reserved for genuine engine-launch failures.
+            message = str(exc or "").casefold()
+            environmental_markers = (
+                "tray helper is not running",
+                "background service has no signed-in user-session sab launcher",
+                "tray did not return a valid private sab process id",
+                "another newzdeck runtime still owns the private sab startup guard",
+            )
+            environmental = any(marker in message for marker in environmental_markers)
+            self._ensure_next_launch_after = time.time() + (8.0 if environmental else 90.0)
+            if environmental:
+                self._event("info", "Private SAB startup deferred until signed-in tray/session is ready")
             raise
 
         # Never force a full config rewrite merely because the control plane was
@@ -5499,7 +5521,7 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), **self._sab_http_transport_telemetry(), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "recovered_import_reconciliations": int(self._recovered_import_reconciliations), "recovered_import_last_ts": float(self._recovered_import_last_ts or 0.0), "recovered_pause_resumes": int(self._recovered_pause_resumes), "recovered_pause_resume_last_ts": float(self._recovered_pause_resume_last_ts or 0.0), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), **self._sab_http_transport_telemetry(), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -6388,6 +6410,12 @@ class SabDownloadManager:
         elif action in {"pause", "resume"}:
             for nzo in ids:
                 self._api("queue", name=action, value=nzo, timeout=4)
+                with self.lock:
+                    live = self._tracked().get(str(nzo))
+                    if isinstance(live, dict):
+                        live["user_paused"] = action == "pause"
+                        self._touch_job_locked(live)
+            self._save_state()
         elif action == "retry":
             for nzo in ids:
                 self._api("retry", value=nzo, timeout=8)
@@ -6462,6 +6490,131 @@ class SabDownloadManager:
                 resolution = value
                 break
         return score, resolution, _num(meta.get("created_ts"), 0)
+
+    def _reconcile_recovered_completed_import(self, nzo_id: str, meta: dict[str, Any]) -> bool:
+        """Reconcile a crash-recovered SAB History job already present in the library.
+
+        A hard process/system loss can occur after Smart Import moved the media into
+        the authoritative library but before NewzDeck persisted the final per-SAB-job
+        ``imported`` marker. On restart SAB History still proves the download completed,
+        but its original Completed Download Folder has already been intentionally
+        cleaned. Re-running normal output discovery therefore finds no source and can
+        falsely turn a successful historical import into IMPORT FAILED.
+
+        Recovery is fail-closed: only an adopted SAB job with recovered Automation
+        context may use this path, and Automation itself must prove that the exact
+        target now has an equal-or-better on-disk library file. No media is moved or
+        deleted here.
+        """
+        if self.media_automation is None:
+            return False
+        context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+        if not bool(meta.get("adopted_from_sab")) or not bool(context.get("recovered_context")):
+            return False
+        if str(context.get("source") or "") != "automation_grab":
+            return False
+        try:
+            result = self.media_automation.reconcile_recovered_completed_import(dict(context))
+        except Exception as exc:
+            self._event(
+                "warning",
+                "Could not reconcile recovered completed Smart Import",
+                nzo_id=str(nzo_id), error=str(exc)[:300],
+            )
+            return False
+        if not isinstance(result, dict) or not bool(result.get("ok")):
+            return False
+
+        destination = str(result.get("destination") or "").strip()
+        quality = str(result.get("quality") or "").strip()
+        with self.lock:
+            live = self._tracked().get(str(nzo_id))
+            if not isinstance(live, dict):
+                return False
+            live["imported"] = True
+            live["import_status"] = "completed"
+            live["import_progress"] = 100
+            live["import_retry_count"] = 0
+            live["import_retry_after"] = 0
+            live["import_claim_pid"] = 0
+            live["import_claim_ts"] = 0
+            live["import_heartbeat_ts"] = 0
+            live["import_destination"] = destination[:1000]
+            live["imported_count"] = 0
+            live["kept_existing_count"] = 1
+            live["source_cleaned"] = True
+            live["cleanup_pending"] = False
+            live["cleanup_abandoned"] = False
+            live["cleanup_message"] = "Recovered completed SAB history was already satisfied by the authoritative library"
+            live["output_resolution"] = "Recovered completed SAB history; authoritative library already contains the exact media target"
+            live["resolved_output"] = ""
+            message = "Recovered completed Smart Import from authoritative library"
+            if destination:
+                message += f" • {destination}"
+            if quality:
+                message += f" • {quality}"
+            live["import_message"] = message[:500]
+            self._touch_job_locked(live)
+            self._save_state()
+        self._recovered_import_reconciliations += 1
+        self._recovered_import_last_ts = time.time()
+        self._last_snapshot_ts = 0
+        self._event(
+            "info",
+            "Reconciled crash-recovered Smart Import from authoritative library",
+            nzo_id=str(nzo_id), destination=destination[:500], quality=quality[:80],
+            target_key=str(context.get("target_key") or ""),
+        )
+        return True
+
+    def _recover_single_recovered_paused_queue_job(self, qroot: dict[str, Any],
+                                                   queue_slots: list[dict[str, Any]]) -> None:
+        """Resume one crash-recovered SAB job only when no user/global pause is proven.
+
+        v3.6.37 could restart with the global NewzDeck queue unpaused while SAB kept
+        the sole recovered Queue item individually Paused. That leaves 0 active
+        downloads forever. This recovery is intentionally narrow: one live queue
+        slot, adopted/recovered Automation ownership, no persisted user pause intent,
+        and only one automatic resume attempt per process.
+        """
+        if bool(self.state.get("paused")) or bool((qroot or {}).get("paused")):
+            return
+        slots = [x for x in (queue_slots or []) if isinstance(x, dict)]
+        if len(slots) != 1:
+            return
+        slot = slots[0]
+        if str(slot.get("status") or "").strip().casefold() != "paused":
+            return
+        nzo_id = str(slot.get("nzo_id") or slot.get("id") or "").strip()
+        if not nzo_id or nzo_id in self._recovered_pause_resume_attempted:
+            return
+        with self.lock:
+            meta = self._tracked().get(nzo_id)
+            if not isinstance(meta, dict):
+                return
+            context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}
+            if not bool(meta.get("adopted_from_sab")) or not bool(context.get("recovered_context")):
+                return
+            if bool(meta.get("user_paused")):
+                return
+        self._recovered_pause_resume_attempted.add(nzo_id)
+        try:
+            self._api("queue", name="resume", value=nzo_id, timeout=4)
+        except Exception as exc:
+            self._event(
+                "warning",
+                "Could not resume sole crash-recovered paused SAB job",
+                nzo_id=nzo_id, error=str(exc)[:300],
+            )
+            return
+        self._recovered_pause_resumes += 1
+        self._recovered_pause_resume_last_ts = time.time()
+        self._last_snapshot_ts = 0
+        self._event(
+            "info",
+            "Resumed sole crash-recovered SAB job after unclean restart",
+            nzo_id=nzo_id,
+        )
 
     def _completed_automation_candidates(self, queue_slots: list[dict[str, Any]],
                                          history_slots: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
@@ -6549,6 +6702,7 @@ class SabDownloadManager:
                 self._reconcile_statistics(hroot, hslots, _kb_to_bps(qroot.get("kbpersec")))
                 self._adopt_untracked_slots(qslots, hslots)
                 self._refresh_shared_state()
+                self._recover_single_recovered_paused_queue_job(qroot, qslots)
                 by_id = {str(x.get("nzo_id") or x.get("id") or ""): x for x in hslots}
                 with self.lock:
                     tracked = dict(self._tracked())
@@ -6565,6 +6719,12 @@ class SabDownloadManager:
                         slot = by_id.get(nzo_id)
                         if slot is not None and str(slot.get("status") or "").casefold() == "failed":
                             self._remember_failed_automation_release(nzo_id, meta, slot)
+                        elif (slot is not None and str(slot.get("status") or "").casefold() == "completed"
+                              and str(meta.get("import_status") or "").casefold() == "failed"):
+                            # Heal v3.6.37 false IMPORT FAILED cards created after a
+                            # hard restart when the exact media was already imported
+                            # and the SAB source folder had therefore been cleaned.
+                            self._reconcile_recovered_completed_import(nzo_id, meta)
                     self._process_completed_automation_slots(qslots, hslots)
                     self._retry_pending_automation_cleanups()
                 delay = 2.0
@@ -6899,6 +7059,8 @@ class SabDownloadManager:
             return
         meta = claimed
         candidates, staging_dir, resolution = self._resolve_automation_output(nzo_id, meta, slot)
+        if not candidates and self._reconcile_recovered_completed_import(nzo_id, meta):
+            return
         with self.lock:
             live = self._tracked().get(nzo_id)
             if live:

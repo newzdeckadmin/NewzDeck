@@ -1,20 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.37",
-  "base_version": "3.6.36",
-  "release": "Operation Progress & Activity Feedback",
-  "adapter_version": "3.6.37",
-  "name": "Operation Progress & Activity Feedback",
+  "version": "3.6.38",
+  "base_version": "3.6.37",
+  "release": "Crash Recovery & Automation Queue Reconciliation",
+  "adapter_version": "3.6.38",
+  "name": "Crash Recovery & Automation Queue Reconciliation",
   "changes": [
-    "Makes Automation item Scan files show activity on the actual clicked item button instead of only changing the unrelated global Scan library control, with an inline scanning status while reconciliation runs.",
-    "Adds consistent busy feedback to other potentially noticeable user actions: item metadata refresh/remove, Automation configuration saves and media adds, Settings save/restore/cache cleanup, Diagnostics refresh/clear, and provider save/delete.",
-    "Uses indeterminate spinner/activity states only where the backend does not expose trustworthy percentage progress; existing real Manual Import percentage progress remains unchanged.",
-    "Repairs the stale static sidebar/About display that still showed v3.6.35 in the published v3.6.36 shell and adds release validation for visible version identity."
+    "Prevents Continuous Automation from overfilling its configured queue after a Windows/app restart while the private SAB queue/history is still being reconstructed.",
+    "Reconciles crash-recovered completed SAB History jobs against the authoritative media library when their original Completed Download Folder was already cleaned by a successful pre-crash Smart Import, clearing false Import Failed cards without moving or deleting media.",
+    "Rechecks authoritative live Automation occupancy immediately before every automatic Grab, so jobs recovered during a long-running cycle consume queue capacity immediately instead of only being noticed at cycle completion.",
+    "Recovers the narrow state where the global NewzDeck queue is unpaused but the sole adopted/recovered SAB queue job is individually Paused, while persisting future per-job user pause intent so explicit pauses are not overridden.",
+    "Defers unattended grabbing while the private download engine is not probe-ready, and shortens only the expected service-before-tray startup race retry from 90 seconds to 8 seconds without rotating SAB identity or deleting queue state."
   ],
   "regression_guards": [
-    "No download-engine, Newznab search/scoring, Smart Import transaction, Automation scheduler, or metadata API semantics are changed; this release is limited to browser-side activity feedback plus required version identity markers.",
-    "Existing browse/article skeleton loading, Discover loading surfaces, release-search modal loading, Update Center activity, and v3.6.35 Manual Import real progress remain on their accepted paths and are not replaced.",
-    "v3.6.36 restored Automation action wiring remains required, including wireReleaseSearchButtons and the accepted item Save/Refresh/Open/Remove/Scan helpers.",
-    "v3.6.32 target integrity/no-downgrade protection, v3.6.33 TV-edition compatibility, and v3.6.28-v3.6.31 SAB/download-control behavior remain unchanged except for required v3.6.37 identity markers."
+    "Recovered-import reconciliation is fail-closed: only adopted SAB jobs with recovered exact Automation context, missing-media intent, an on-disk exact library target, and equal-or-better authoritative quality are accepted.",
+    "Existing/recovered SAB jobs are never cancelled, removed, reordered, or redownloaded by this fix; only new unattended Automation admission and the narrow sole-job resume recovery are affected.",
+    "Manual Search/Grab, Newznab matching/scoring, normal Smart Import, no-downgrade and target-integrity validation remain on their accepted paths.",
+    "v3.6.37 operation activity feedback, v3.6.36 Automation action wiring, and v3.6.35 Manual Import live progress remain required production markers.",
+    "Release-blocking tests cover restart queue occupancy and recovered completed-import reconciliation."
   ]
 }

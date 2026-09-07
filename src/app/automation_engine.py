@@ -565,6 +565,9 @@ class MediaAutomationEngine:
         self._downgrades_blocked = 0
         self._existing_quality_recovered = 0
         self._target_integrity_last_ts = 0.0
+        # v3.6.38: for a short post-start window, persisted active-target hints
+        # protect Automation while SAB queue/history ownership is reconstructed.
+        self._automation_process_started_ts = time.time()
 
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -992,6 +995,40 @@ class MediaAutomationEngine:
         try: path.unlink(missing_ok=True)
         except OSError: pass
 
+    def _auto_download_engine_ready(self) -> bool:
+        """Return true only when the private download engine can prove its live control identity."""
+        getter=getattr(self.download_manager,'engine_status',None)
+        if not callable(getter):
+            return True
+        try:
+            status=getter()
+        except Exception:
+            return False
+        if not isinstance(status,dict):
+            return True
+        if 'probe_ready' in status:
+            return bool(status.get('probe_ready'))
+        return bool(status.get('ready',True))
+
+    def _auto_recent_persisted_targets(self, max_age:float=12*3600) -> set[str]:
+        """Conservative restart-only hints while SAB live queue/history is rebuilding."""
+        active=set(); now=time.time(); rt=self._auto_runtime()
+        liveish={'grabbed','queued','queueing','downloading','processing','importing'}
+        for key,rec in (rt.get('targets') or {}).items():
+            if not isinstance(rec,dict): continue
+            status=str(rec.get('status') or '')
+            stamp=max(float(rec.get('updated_ts') or 0),float(rec.get('last_grab_ts') or 0))
+            if status in liveish and stamp>0 and now-stamp<=max(60.0,float(max_age or 0)):
+                active.add(str(key))
+        return active
+
+    def _auto_effective_capacity_targets(self, cycle_reserved_jobs:set[str]|None=None) -> set[str]:
+        """Fresh live capacity plus jobs this cycle has just admitted but SAB may not show yet."""
+        active=set(self._auto_active_targets())
+        if cycle_reserved_jobs:
+            active.update(str(x) for x in cycle_reserved_jobs if str(x))
+        return active
+
     def _auto_active_targets(self, snapshot:dict[str,Any]|None=None) -> set[str]:
         """Reserve a target until its completed download has finished Smart Import."""
         active=set()
@@ -999,13 +1036,7 @@ class MediaAutomationEngine:
             try:
                 snap=self.download_manager.snapshot()
             except Exception:
-                rt=self._auto_runtime(); now=time.time()
-                for key,rec in (rt.get('targets') or {}).items():
-                    if not isinstance(rec,dict): continue
-                    status=str(rec.get('status') or ''); last_grab=float(rec.get('last_grab_ts') or 0)
-                    if status in {'grabbed','queued','downloading','processing','importing'} and last_grab>0 and now-last_grab<12*3600:
-                        active.add(str(key))
-                return active
+                return self._auto_recent_persisted_targets()
         else:
             snap=snapshot
         for job in snap.get('jobs') or []:
@@ -1018,8 +1049,13 @@ class MediaAutomationEngine:
             if status in {'queued','downloading','retry_wait','cancelling'} or post in {'queued','verifying','repairing','extracting','importing','waiting'} or pending_import or (import_status=='failed' and not imported):
                 key=str(ctx.get('target_key') or self._auto_target_key(context=ctx))
                 if key: active.add(key)
+        # A freshly started authoritative runtime can see a valid but incomplete SAB
+        # snapshot for a few minutes while history/job ownership is reconstructed.
+        # During that bounded window only, merge the same recent persisted liveish
+        # states that were already used when snapshot() raised outright.
+        if time.time()-float(getattr(self,'_automation_process_started_ts',0) or 0)<600.0:
+            active.update(self._auto_recent_persisted_targets())
         return active
-
     def _auto_download_states(self, snapshot:dict[str,Any]|None=None) -> dict[str,dict[str,Any]]:
         """Return the best live queue/post-processing state for each Automation target.
 
@@ -1596,6 +1632,13 @@ class MediaAutomationEngine:
         rt=self._auto_runtime(); now=time.time(); last_grabs=[]; searches=0; grabs=0; skipped=0; feed_matches=0; errors=[]
         try:
             self._set_auto_progress(phase='starting',detail='Preparing Continuous Automation',processed=0,total=0,target='')
+            if not self._auto_download_engine_ready():
+                detail='Download engine is still reconnecting; Continuous Automation will retry without queueing new releases'
+                retry_interval=self._feed_cycle_interval(cfg)
+                rt.update({'last_cycle_ts':time.time()-max(0,retry_interval-15),'last_searches':0,'last_grab_count':0,'last_grabs':[],'last_error':'','last_result':detail,'last_active_target_count':len(self._auto_active_targets())})
+                rt=self._save_auto_runtime_merged(rt)
+                self._set_auto_progress(phase='complete',detail='Waiting for download engine',processed=0,total=0,target='')
+                return {'ok':True,'deferred':True,'searched':0,'grabbed':0,'skipped':0,'feed_count':0,'errors':[]}
             blacklisted_now=self._sync_automatic_failures(rt)
             if blacklisted_now: self._save_auto_runtime(rt)
 
@@ -1630,6 +1673,7 @@ class MediaAutomationEngine:
             rows.sort(key=lambda x:(0 if x.get('season_pack') else 1,str(x.get('date') or ''),str(x.get('label') or '')),reverse=True)
             self._set_auto_progress(phase='targets',detail='Evaluating Wanted targets',processed=0,total=len(rows),target='')
             active=self._auto_active_targets(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets
+            cycle_reserved_jobs=set(); cycle_overlap_reservations=set()
             queue_depth=max(1,int(cfg.get('automatic_queue_depth') or 25)); max_grabs=max(0,queue_depth-len(active)); max_searches=max(12,min(250,max(1,max_grabs)*5))
             release_delay=max(0,int(cfg.get('automatic_release_delay_minutes') or 0))*60
             quiet=self._quiet_hours_state(cfg)
@@ -1641,7 +1685,9 @@ class MediaAutomationEngine:
             rt['quiet_active']=False
 
             for row_index,row in enumerate(rows,1):
-                if grabs>=max_grabs or searches>=max_searches: break
+                capacity_targets=self._auto_effective_capacity_targets(cycle_reserved_jobs)
+                active=set(capacity_targets); active.update(cycle_overlap_reservations)
+                if len(capacity_targets)>=queue_depth or grabs>=max_grabs or searches>=max_searches: break
                 now=time.time()
                 self._set_auto_progress(
                     phase='target',
@@ -1726,6 +1772,19 @@ class MediaAutomationEngine:
                     rec.update({'status':'waiting','message':f'No acceptable release found • retry in {self._human_interval(delay)}','next_search_ts':now+delay,'attempted_releases':attempted})
                     continue
                 rel=dict(candidates[0]); rel.update({'automatic':True,'target_key':key,'auto_type':row.get('auto_type') or 'missing','season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'pack_known_episode_numbers':list(row.get('pack_known_episode_numbers') or [])})
+                # Searches can take long enough for recovered SAB jobs or another
+                # authoritative runtime to fill the queue. Recheck immediately before
+                # admission instead of trusting the capacity observed earlier.
+                if not self._auto_download_engine_ready():
+                    rec.update({'status':'waiting','message':'Download engine is reconnecting; automatic Grab deferred','updated_ts':time.time(),'next_search_ts':0})
+                    break
+                capacity_targets=self._auto_effective_capacity_targets(cycle_reserved_jobs)
+                active=set(capacity_targets); active.update(cycle_overlap_reservations)
+                if len(capacity_targets)>=queue_depth:
+                    rec.update({'status':'waiting','message':'Automation queue filled while this cycle was running; automatic Grab deferred','updated_ts':time.time(),'next_search_ts':0})
+                    break
+                if key in capacity_targets:
+                    rec.update({'status':'queued','message':'Download became active while this cycle was searching','updated_ts':time.time()}); skipped+=1; continue
                 grabbed=self.grab_release(rel)
                 if bool(grabbed.get('suppressed')):
                     skipped+=1
@@ -1742,16 +1801,20 @@ class MediaAutomationEngine:
                         rec.update({'status':'queued','message':str(grabbed.get('reason') or 'Download already queued by another NewzDeck runtime'),'updated_ts':time.time(),'last_collection_id':str(grabbed.get('collection_id') or rec.get('last_collection_id') or '')})
                     # Reserve the target only for this cycle so a pack/member target
                     # cannot overlap while the other queue operation settles.
-                    active.add(key)
+                    cycle_reserved_jobs.add(key); cycle_overlap_reservations.add(key); active.add(key)
                     if bool(row.get('season_pack')):
                         for en in row.get('pack_episode_numbers') or []:
-                            try: active.add(f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}")
+                            try:
+                                member_key=f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}"
+                                cycle_overlap_reservations.add(member_key); active.add(member_key)
                             except Exception: pass
                     continue
-                active.add(key)
+                cycle_reserved_jobs.add(key); cycle_overlap_reservations.add(key); active.add(key)
                 if bool(row.get('season_pack')):
                     for en in row.get('pack_episode_numbers') or []:
-                        try: active.add(f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}")
+                        try:
+                                member_key=f"tv:{row.get('item_id')}:s{int(row.get('season') or 0):02d}e{int(en):03d}"
+                                cycle_overlap_reservations.add(member_key); active.add(member_key)
                         except Exception: pass
                 grabs+=1
                 guid=str(rel.get('guid') or rel.get('download_url') or ''); attempted.append({'guid':guid,'title':str(rel.get('title') or ''),'ts':now})
@@ -1759,7 +1822,7 @@ class MediaAutomationEngine:
                 last_grabs.append({'target':str(row.get('label') or ''),'release':str(rel.get('title') or ''),'collection_id':str(grabbed.get('collection_id') or ''),'source':'feed' if from_feed else 'search'})
                 self._event('auto-grab',f"Automatically grabbed {rel.get('title')}",item_id=str(row.get('item_id') or ''),target_key=key,target=row.get('label'),collection=grabbed.get('collection_name'),collection_id=grabbed.get('collection_id'),score=rel.get('score'),effective_score=rel.get('automation_effective_score'),indexer_penalty=rel.get('automation_indexer_penalty'),quality=str((rel.get('parsed') or {}).get('quality') or ''),season_pack=bool(row.get('season_pack')),selection_source='feed' if from_feed else 'scheduled-search')
 
-            active_after=len(self._auto_active_targets())
+            active_after=len(self._auto_effective_capacity_targets(cycle_reserved_jobs))
             rt.update({'last_cycle_ts':time.time(),'last_searches':searches,'last_grab_count':grabs,'last_grabs':last_grabs,'last_error':' | '.join(errors[:5]),'last_result':f'Feed {len(feed_rows)} recent • {feed_matches} matched • searched {searches} target(s) • queued {grabs} • Automation queue {active_after}/{queue_depth} • skipped {skipped}','last_active_target_count':active_after,'last_feed_matches':feed_matches,'targets':targets})
             rt=self._save_auto_runtime_merged(rt)
             self._set_auto_progress(phase='complete',detail='Cycle complete',processed=len(rows),total=len(rows),target='',searches=searches,grabs=grabs)
@@ -4331,6 +4394,66 @@ class MediaAutomationEngine:
             if ep.get('has_file') and current and self._quality_rank(current,profile)<=self._quality_rank(q,profile): continue
             ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)})
 
+    def reconcile_recovered_completed_import(self, context:dict[str,Any]) -> dict[str,Any]:
+        """Prove that a crash-recovered completed SAB job is already in the library.
+
+        This is intentionally narrower than Smart Import. It never discovers or
+        moves media and is used only when a recovered SAB History record has no
+        remaining Completed Download Folder because an earlier runtime already
+        imported/cleaned it before an unclean restart.
+        """
+        if not isinstance(context,dict) or str(context.get('source') or '')!='automation_grab':
+            return {'ok':False,'reconciled':False,'reason':'Not an Automation grab'}
+        if not bool(context.get('recovered_context')) or bool(context.get('season_pack')):
+            return {'ok':False,'reconciled':False,'reason':'Recovered exact-target context is required'}
+        if str(context.get('auto_type') or 'missing')!='missing':
+            return {'ok':False,'reconciled':False,'reason':'Only recovered missing-media targets can be reconciled without source media'}
+        with self.lock:
+            lib=self._library()
+            item=next((x for x in lib if str(x.get('id') or '')==str(context.get('item_id') or '')),None)
+            if not isinstance(item,dict):
+                return {'ok':False,'reconciled':False,'reason':'Automation library item no longer exists'}
+            profile=next((p for p in self._profiles() if str(p.get('id'))==str(item.get('quality_profile_id'))),self._profiles()[0])
+            existing_path=''; existing_quality=''; cutoff=False
+            if str(item.get('kind') or '')=='tv':
+                try: sn=int(context.get('season') or 0); en=int(context.get('episode') or 0)
+                except Exception: return {'ok':False,'reconciled':False,'reason':'Recovered TV target is incomplete'}
+                if sn<=0 or en<=0:
+                    return {'ok':False,'reconciled':False,'reason':'Recovered TV target is incomplete'}
+                season=next((s for s in item.get('seasons') or [] if int(s.get('season_number') or 0)==sn),None)
+                ep=next((e for e in (season or {}).get('episodes') or [] if int(e.get('episode_number') or 0)==en),None)
+                if not isinstance(ep,dict) or not bool(ep.get('has_file')):
+                    return {'ok':False,'reconciled':False,'reason':'Exact recovered episode is not satisfied in the authoritative library'}
+                existing_path=str(ep.get('file_path') or '').strip()
+                existing_quality=str(ep.get('file_quality') or '').strip()
+                cutoff=bool(ep.get('cutoff_met'))
+            elif str(item.get('kind') or '')=='movie':
+                mf=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else {}
+                if not mf:
+                    return {'ok':False,'reconciled':False,'reason':'Recovered movie is not satisfied in the authoritative library'}
+                existing_path=str(mf.get('path') or '').strip()
+                existing_quality=str(mf.get('quality') or '').strip()
+                cutoff=bool(mf.get('cutoff_met'))
+            else:
+                return {'ok':False,'reconciled':False,'reason':'Unsupported recovered media kind'}
+            if not existing_path or not Path(existing_path).is_file():
+                return {'ok':False,'reconciled':False,'reason':'Authoritative library file is missing on disk'}
+            release_quality=str(context.get('release_quality') or '').strip()
+            existing_rank=self._quality_rank(existing_quality,profile)
+            release_rank=self._quality_rank(release_quality,profile)
+            if existing_rank>=999 or release_rank>=999 or existing_rank>release_rank:
+                return {'ok':False,'reconciled':False,'reason':'Existing library quality does not prove this recovered download was already satisfied'}
+            target_key=str(context.get('target_key') or self._auto_target_key(context=context))
+            try:
+                rt=self._auto_runtime(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets
+                if target_key:
+                    rec=targets.setdefault(target_key,{})
+                    rec.update({'status':'imported','message':f'Recovered completed import • {Path(existing_path).name}','updated_ts':time.time(),'imported_path':existing_path,'imported_quality':existing_quality,'imported_count':0,'kept_existing_count':1,'season_pack':False})
+                    self._save_auto_runtime(rt)
+            except Exception:
+                pass
+            self._event('import-recovered',f"Recovered completed Smart Import for {item.get('title')}",item_id=str(item.get('id') or ''),target_key=target_key,destination=existing_path,quality=existing_quality,cutoff_met=cutoff)
+            return {'ok':True,'reconciled':True,'destination':existing_path,'quality':existing_quality,'cutoff_met':cutoff,'reason':'Authoritative library already contains the exact recovered media target'}
     def import_completed_download(self, context: dict[str,Any], candidates: list[str|Path], *, staging_dir: str|Path|None=None, progress_callback:Callable[[float,str],None]|None=None) -> dict[str,Any]:
         """Inspect, transactionally import, and reconcile a completed media grab.
 
