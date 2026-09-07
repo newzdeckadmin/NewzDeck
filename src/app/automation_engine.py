@@ -578,6 +578,13 @@ class MediaAutomationEngine:
         self.auto_progress: dict[str,Any] = {}
         self.manual_import_jobs_lock = threading.RLock()
         self.manual_import_jobs: dict[str,dict[str,Any]] = {}
+        # v3.6.45: user-initiated library scans run as observable background jobs.
+        # A separate execution lock serializes manual and scheduled reconciliation so
+        # large libraries are never walked twice concurrently.
+        self.library_scan_jobs_lock = threading.RLock()
+        self.library_scan_jobs: dict[str,dict[str,Any]] = {}
+        self.library_scan_latest_id = ''
+        self.library_scan_run_lock = threading.Lock()
         self.reconcile_lock = threading.Lock()
         self.reconcile_thread = None
         self.metadata_refresh_run_lock = threading.Lock()
@@ -4136,162 +4143,261 @@ class MediaAutomationEngine:
         self._event('integrity-review','Marked reviewed library association missing without deleting media',item_id=str(item.get('id') or ''),title=str(item.get('title') or ''),season=sn,episode=en,path=current_path,file_preserved=True)
         return {'ok':True,'file_preserved':True,'item_id':str(item.get('id') or ''),'kind':kind,'season':sn,'episode':en,'path':current_path}
 
-    def scan_library(self, ident=''):
-        """Reconcile Automation against configured library folders without UI lock stalls.
+    def _library_scan_job_public(self, job:dict[str,Any]) -> dict[str,Any]:
+        row=copy.deepcopy(job or {})
+        started=float(row.get('started_ts') or row.get('created_ts') or 0)
+        finished=float(row.get('finished_ts') or 0)
+        now=finished or time.time()
+        row['elapsed_seconds']=max(0.0,round(now-started,1)) if started else 0.0
+        return row
 
-        Filesystem traversal and media probing can take tens of seconds on large
-        libraries. Work from a snapshot outside the global Automation mutation lock,
-        then merge only filesystem-derived state back under a short commit lock.
+    def _update_library_scan_job(self, job_id:str, **changes) -> dict[str,Any]:
+        with self.library_scan_jobs_lock:
+            job=self.library_scan_jobs.get(str(job_id) or '')
+            if not isinstance(job,dict):
+                raise ValueError('Library scan job is no longer available')
+            job.update(changes)
+            job['updated_ts']=time.time()
+            return self._library_scan_job_public(job)
+
+    def library_scan_progress(self, job_id:str='') -> dict[str,Any]:
+        with self.library_scan_jobs_lock:
+            key=str(job_id or self.library_scan_latest_id or '')
+            job=self.library_scan_jobs.get(key)
+            if not isinstance(job,dict):
+                return {'ok':True,'status':'idle','running':False,'job_id':'','progress_percent':0,'phase':'idle','detail':'No library scan is running.'}
+            return self._library_scan_job_public(job)
+
+    def _library_scan_job_worker(self, job_id:str, ident:str) -> None:
+        self._update_library_scan_job(job_id,status='running',running=True,started_ts=time.time(),phase='starting',detail='Preparing library scan…')
+        def report(**payload):
+            payload.setdefault('status','running'); payload.setdefault('running',True)
+            self._update_library_scan_job(job_id,**payload)
+        try:
+            result=self.scan_library(ident,progress=report)
+            public_result={k:copy.deepcopy(v) for k,v in result.items() if k!='library'}
+            self._update_library_scan_job(
+                job_id,status='completed',running=False,phase='complete',detail='Library scan complete.',
+                determinate=True,progress_percent=100,eta_seconds=0,finished_ts=time.time(),result=public_result,
+                matched=int(result.get('matched',0) or 0),files_discovered=int(result.get('files_scanned',0) or 0),
+                items_done=int(result.get('items_scanned',0) or 0),items_total=int(result.get('items_scanned',0) or 0),
+            )
+        except Exception as exc:
+            self._update_library_scan_job(job_id,status='failed',running=False,phase='failed',detail='Library scan failed.',error=str(exc)[:800],finished_ts=time.time(),eta_seconds=None)
+            self._event('scan-error',f'Library scan failed: {exc}',item_id=str(ident or ''))
+
+    def start_library_scan(self, ident:str='') -> dict[str,Any]:
+        ident=str(ident or '')
+        with self.library_scan_jobs_lock:
+            for existing in reversed(list(self.library_scan_jobs.values())):
+                if str(existing.get('status') or '') in {'queued','running'}:
+                    row=self._library_scan_job_public(existing); row['already_running']=True; return row
+            job_id=secrets.token_hex(12)
+            now=time.time()
+            job={
+                'ok':True,'job_id':job_id,'ident':ident,'scope':'item' if ident else 'library',
+                'status':'queued','running':True,'phase':'queued','detail':'Library scan queued…',
+                'determinate':False,'progress_percent':0,'created_ts':now,'started_ts':0,'updated_ts':now,'finished_ts':0,
+                'items_done':0,'items_total':0,'files_discovered':0,'files_processed':0,
+                'current_item':'','current_root':'','current_item_file':0,'current_item_files':0,
+                'matched':0,'changes_found':0,'offline_roots':0,'eta_seconds':None,
+            }
+            self.library_scan_jobs[job_id]=job; self.library_scan_latest_id=job_id
+            if len(self.library_scan_jobs)>8:
+                for old_id in list(self.library_scan_jobs)[:-8]: self.library_scan_jobs.pop(old_id,None)
+        threading.Thread(target=self._library_scan_job_worker,args=(job_id,ident),name='newzdeck-library-scan',daemon=True).start()
+        return self.library_scan_progress(job_id)
+
+    def scan_library(self, ident='', progress:Callable[...,None]|None=None):
+        """Reconcile Automation against configured library folders with real progress.
+
+        The filesystem/reconciliation semantics remain synchronous for scheduled
+        maintenance callers. User-initiated scans use ``start_library_scan`` and
+        observe this same work through a lightweight progress job.
         """
-        with self.lock:
-            lib=copy.deepcopy(self._library())
-            profiles_list=copy.deepcopy(self._profiles())
-        targets=[x for x in lib if not ident or str(x.get('id'))==str(ident)]
-        scan_baseline={str(x.get('id') or ''):copy.deepcopy(x) for x in targets if str(x.get('id') or '')}
-        profiles={str(p.get('id')):p for p in profiles_list}; files_by_root={}; scanned_paths=set()
-        qcache=self._media_quality_cache(); qcache_changed=False; matched=0; changes=[]; offline=[]
+        emit=progress if callable(progress) else (lambda **_kwargs: None)
+        acquired=self.library_scan_run_lock.acquire(blocking=False)
+        if not acquired:
+            emit(phase='waiting',detail='Another library scan is finishing. This scan will start next.',determinate=False,progress_percent=0,eta_seconds=None)
+            self.library_scan_run_lock.acquire()
+        scan_started=time.monotonic()
+        last_emit=0.0
+        try:
+            with self.lock:
+                lib=copy.deepcopy(self._library())
+                profiles_list=copy.deepcopy(self._profiles())
+            targets=[x for x in lib if not ident or str(x.get('id'))==str(ident)]
+            scan_baseline={str(x.get('id') or ''):copy.deepcopy(x) for x in targets if str(x.get('id') or '')}
+            profiles={str(p.get('id')):p for p in profiles_list}; files_by_root={}; scanned_paths=set()
+            qcache=self._media_quality_cache(); qcache_changed=False; matched=0; changes=[]; offline=[]
+            total_items=len(targets); files_processed_total=0
+            emit(phase='starting',detail='Preparing library scan…',determinate=bool(total_items),progress_percent=0,items_done=0,items_total=total_items,files_discovered=0,files_processed=0,matched=0,changes_found=0,offline_roots=0,eta_seconds=None)
 
-        def files_for(root:Path|None):
-            if not root: return None
-            try: key=str(root.resolve()).casefold()
-            except OSError: key=str(root).casefold()
-            if key in files_by_root: return files_by_root[key]
-            if not root.exists() or not root.is_dir():
-                files_by_root[key]=None; return None
-            rows=[]
-            try: rows=[f for f in root.rglob('*') if f.is_file() and f.suffix.casefold() in VIDEO_EXTS]
-            except OSError: return None
-            files_by_root[key]=rows; scanned_paths.update(str(f) for f in rows); return rows
+            def pct_for(item_index:int,item_fraction:float=0.0) -> float:
+                if total_items<=0: return 95.0
+                return max(2.0,min(92.0,5.0+87.0*((float(item_index)+max(0.0,min(1.0,float(item_fraction))))/float(total_items))))
 
-        for item in targets:
-            profile=profiles.get(str(item.get('quality_profile_id'))) or (profiles_list[0] if profiles_list else DEFAULT_PROFILES[0])
-            root=self._resolve_root(item)
-            scan_root=root
-            if item.get('kind')=='tv' and root is not None and root.exists() and root.is_dir():
-                # Prefer the established/expected series directory. This avoids
-                # walking an entire multi-show root for every TV item and makes
-                # cross-title file ownership structurally impossible in the common
-                # case. A root-wide fallback remains for externally organized shows
-                # whose series directory has not yet been learned.
-                existing_series=self._existing_tv_series_folder(item,root)
-                if existing_series is not None:
-                    scan_root=existing_series
+            def eta_for(pct:float,determinate:bool=True):
+                if not determinate or pct<8: return None
+                elapsed=max(0.001,time.monotonic()-scan_started)
+                if elapsed<2.0: return None
+                return max(0,int(round(elapsed*(100.0-pct)/max(1.0,pct))))
+
+            def files_for(root:Path|None,item_index:int,item:dict[str,Any]):
+                nonlocal last_emit
+                if not root: return None
+                try: key=str(root.resolve()).casefold()
+                except OSError: key=str(root).casefold()
+                if key in files_by_root: return files_by_root[key]
+                title=str(item.get('title') or 'Media')
+                if not root.exists() or not root.is_dir():
+                    files_by_root[key]=None; return None
+                emit(phase='discovering',detail=f'Discovering media files • {title}',determinate=False,progress_percent=pct_for(item_index),items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,current_item=title,current_root=str(root),current_item_file=0,current_item_files=0,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=None)
+                rows=[]
+                try:
+                    for f in root.rglob('*'):
+                        try:
+                            if not f.is_file() or f.suffix.casefold() not in VIDEO_EXTS: continue
+                        except OSError:
+                            continue
+                        rows.append(f); scanned_paths.add(str(f))
+                        now=time.monotonic()
+                        if len(rows)%128==0 and now-last_emit>=0.20:
+                            last_emit=now
+                            emit(phase='discovering',detail=f'Discovering media files • {title} • {len(rows):,} found',determinate=False,progress_percent=pct_for(item_index),items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,current_item=title,current_root=str(root),current_item_file=0,current_item_files=len(rows),matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=None)
+                except OSError:
+                    return None
+                files_by_root[key]=rows
+                return rows
+
+            cfg_now=self._config()
+            for item_index,item in enumerate(targets):
+                title=str(item.get('title') or 'Media')
+                profile=profiles.get(str(item.get('quality_profile_id'))) or (profiles_list[0] if profiles_list else DEFAULT_PROFILES[0])
+                root=self._resolve_root(item)
+                scan_root=root
+                if item.get('kind')=='tv' and root is not None and root.exists() and root.is_dir():
+                    existing_series=self._existing_tv_series_folder(item,root)
+                    if existing_series is not None:
+                        scan_root=existing_series
+                    else:
+                        try:
+                            desired=self._tv_series_folder(item,root,cfg_now,{
+                                'title':str(item.get('title') or ''),'year':item.get('year') or '',
+                                'library_title':str(item.get('library_title') or self._tv_library_title(item) or ''),
+                            })
+                            if desired.exists() and desired.is_dir(): scan_root=desired
+                        except Exception:
+                            pass
+                item_files=files_for(scan_root,item_index,item)
+                if item_files is None:
+                    prior=str(item.get('library_root_status') or '')
+                    item['library_root_status']='offline'; item['library_scan_error']='Configured Root Folder is unavailable'; item['last_scan_at']=_now()
+                    offline.append({'item_id':str(item.get('id') or ''),'title':title,'root':str(root or '')})
+                    if prior!='offline': changes.append({'type':'root_offline','item_id':str(item.get('id') or ''),'title':title,'root':str(root or '')})
+                    emit(phase='matching',detail=f'Root unavailable • {title}',determinate=True,progress_percent=pct_for(item_index,1.0),items_done=item_index+1,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,current_item=title,current_root=str(root or ''),current_item_file=0,current_item_files=0,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(pct_for(item_index,1.0)))
+                    continue
+                if str(item.get('library_root_status') or '')=='offline': changes.append({'type':'root_online','item_id':str(item.get('id') or ''),'title':title,'root':str(root or '')})
+                item['library_root_status']='online'; item.pop('library_scan_error',None)
+                file_total=len(item_files)
+
+                def report_file(file_no:int,phase:str='matching',detail:str=''):
+                    nonlocal last_emit
+                    now=time.monotonic()
+                    if file_no not in {0,file_total} and file_no%32 and now-last_emit<0.25: return
+                    last_emit=now
+                    frac=(0.88*(file_no/max(1,file_total))) if file_total else 0.88
+                    pct=pct_for(item_index,frac)
+                    emit(phase=phase,detail=detail or f'Matching files • {title}',determinate=True,progress_percent=pct,items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total+file_no,current_item=title,current_root=str(scan_root or root or ''),current_item_file=file_no,current_item_files=file_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(pct))
+
+                report_file(0)
+                if item.get('kind')=='tv':
+                    previous={}
+                    for sr in item.get('seasons') or []:
+                        for ep in sr.get('episodes') or []:
+                            key=(int(sr.get('season_number',0) or 0),int(ep.get('episode_number',0) or 0)); previous[key]=dict(ep)
+                            ep.update({'has_file':False,'file_path':'','file_quality':'','file_size':0,'file_fingerprint':'','quality_source':'','media_info':{},'cutoff_met':False})
+                    candidates={}
+                    for file_no,f in enumerate(item_files,1):
+                        report_file(file_no)
+                        if not _tv_release_identity_match(f.name,item): continue
+                        m=re.search(r'\bS(\d{1,2})E(\d{1,3})\b',f.name,re.I)
+                        if not m: continue
+                        key=(int(m.group(1)),int(m.group(2)))
+                        sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==key[0]),None)
+                        ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==key[1]),None)
+                        if not ep: continue
+                        excluded_path=str(ep.get('integrity_excluded_path') or '').strip(); excluded_fp=str(ep.get('integrity_excluded_fingerprint') or '').strip()
+                        if excluded_path and self._same_library_path(str(f),excluded_path):
+                            current_fp=self._media_fingerprint(f) if excluded_fp else ''
+                            if not excluded_fp or current_fp==excluded_fp: continue
+                            ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
+                        q,source,fp,changed=self._quality_for_media(f,qcache,previous.get(key)); qcache_changed|=changed
+                        rec=(self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp)
+                        if key not in candidates or rec[:2]<candidates[key][:2]: candidates[key]=rec
+                    meta_pct=pct_for(item_index,0.93)
+                    emit(phase='metadata',detail=f'Reading media metadata • {title}',determinate=True,progress_percent=meta_pct,items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total+file_total,current_item=title,current_root=str(scan_root or root or ''),current_item_file=file_total,current_item_files=file_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(meta_pct))
+                    for (sn,en),(_,neg_size,f,q,source,fp) in candidates.items():
+                        sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None)
+                        ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
+                        if ep is None: continue
+                        ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}); matched+=1
+                    for key,old in previous.items():
+                        sn,en=key; sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None); ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
+                        if ep is None: continue
+                        if bool(old.get('has_file')) and not bool(ep.get('has_file')): changes.append({'type':'file_missing','item_id':str(item.get('id') or ''),'title':title,'season':sn,'episode':en,'path':str(old.get('file_path') or '')})
+                        elif not bool(old.get('has_file')) and bool(ep.get('has_file')): changes.append({'type':'file_found','item_id':str(item.get('id') or ''),'title':title,'season':sn,'episode':en,'path':str(ep.get('file_path') or ''),'quality':str(ep.get('file_quality') or '')})
+                        elif bool(ep.get('has_file')) and str(old.get('file_quality') or '') and str(old.get('file_quality') or '')!=str(ep.get('file_quality') or ''): changes.append({'type':'quality_changed','item_id':str(item.get('id') or ''),'title':title,'season':sn,'episode':en,'from_quality':str(old.get('file_quality') or ''),'to_quality':str(ep.get('file_quality') or '')})
                 else:
-                    try:
-                        cfg_now=self._config()
-                        desired=self._tv_series_folder(item,root,cfg_now,{
-                            'title':str(item.get('title') or ''),
-                            'year':item.get('year') or '',
-                            'library_title':str(item.get('library_title') or self._tv_library_title(item) or ''),
-                        })
-                        if desired.exists() and desired.is_dir():
-                            scan_root=desired
-                    except Exception:
-                        pass
-            item_files=files_for(scan_root)
-            if item_files is None:
-                prior=str(item.get('library_root_status') or '')
-                item['library_root_status']='offline'; item['library_scan_error']='Configured Root Folder is unavailable'; item['last_scan_at']=_now()
-                offline.append({'item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'root':str(root or '')})
-                if prior!='offline':
-                    changes.append({'type':'root_offline','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'root':str(root or '')})
-                continue
-            if str(item.get('library_root_status') or '')=='offline':
-                changes.append({'type':'root_online','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'root':str(root or '')})
-            item['library_root_status']='online'; item.pop('library_scan_error',None)
-            if item.get('kind')=='tv':
-                previous={}
-                for sr in item.get('seasons') or []:
-                    for ep in sr.get('episodes') or []:
-                        key=(int(sr.get('season_number',0) or 0),int(ep.get('episode_number',0) or 0)); previous[key]=dict(ep)
-                        ep.update({'has_file':False,'file_path':'','file_quality':'','file_size':0,'file_fingerprint':'','quality_source':'','media_info':{},'cutoff_met':False})
-                candidates={}
-                for f in item_files:
-                    if not _tv_release_identity_match(f.name,item): continue
-                    m=re.search(r'\bS(\d{1,2})E(\d{1,3})\b',f.name,re.I)
-                    if not m: continue
-                    key=(int(m.group(1)),int(m.group(2)))
-                    sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==key[0]),None)
-                    ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==key[1]),None)
-                    if not ep: continue
-                    excluded_path=str(ep.get('integrity_excluded_path') or '').strip()
-                    excluded_fp=str(ep.get('integrity_excluded_fingerprint') or '').strip()
-                    if excluded_path and self._same_library_path(str(f),excluded_path):
-                        current_fp=self._media_fingerprint(f) if excluded_fp else ''
-                        if not excluded_fp or current_fp==excluded_fp:
-                            continue
-                        ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
-                    q,source,fp,changed=self._quality_for_media(f,qcache,previous.get(key)); qcache_changed|=changed
-                    rec=(self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp)
-                    if key not in candidates or rec[:2]<candidates[key][:2]: candidates[key]=rec
-                for (sn,en),(_,neg_size,f,q,source,fp) in candidates.items():
-                    sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None)
-                    ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
-                    if ep is None: continue
-                    ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}); matched+=1
-                for key,old in previous.items():
-                    sn,en=key; sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None); ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
-                    if ep is None: continue
-                    if bool(old.get('has_file')) and not bool(ep.get('has_file')):
-                        changes.append({'type':'file_missing','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':sn,'episode':en,'path':str(old.get('file_path') or '')})
-                    elif not bool(old.get('has_file')) and bool(ep.get('has_file')):
-                        changes.append({'type':'file_found','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':sn,'episode':en,'path':str(ep.get('file_path') or ''),'quality':str(ep.get('file_quality') or '')})
-                    elif bool(ep.get('has_file')) and str(old.get('file_quality') or '') and str(old.get('file_quality') or '')!=str(ep.get('file_quality') or ''):
-                        changes.append({'type':'quality_changed','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'season':sn,'episode':en,'from_quality':str(old.get('file_quality') or ''),'to_quality':str(ep.get('file_quality') or '')})
-            else:
-                previous=dict(item.get('movie_file') or {})
-                candidates=[]
-                for f in item_files:
-                    if not _slug_match(str(f.parent)+' '+f.name,item.get('title',''),item.get('year')): continue
-                    excluded_path=str(item.get('integrity_excluded_path') or '').strip()
-                    excluded_fp=str(item.get('integrity_excluded_fingerprint') or '').strip()
-                    if excluded_path and self._same_library_path(str(f),excluded_path):
-                        current_fp=self._media_fingerprint(f) if excluded_fp else ''
-                        if not excluded_fp or current_fp==excluded_fp:
-                            continue
-                        item.pop('integrity_excluded_path',None); item.pop('integrity_excluded_fingerprint',None); item.pop('integrity_reviewed_at',None)
-                    q,source,fp,changed=self._quality_for_media(f,qcache,previous); qcache_changed|=changed
-                    candidates.append((self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp))
-                item['movie_file']=None
-                if candidates:
-                    _,neg_size,f,q,source,fp=min(candidates,key=lambda x:x[:2])
-                    item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}; matched+=1
-                current=item.get('movie_file') or {}
-                if previous and not current:
-                    changes.append({'type':'file_missing','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'path':str(previous.get('path') or '')})
-                elif not previous and current:
-                    changes.append({'type':'file_found','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'path':str(current.get('path') or ''),'quality':str(current.get('quality') or '')})
-                elif previous and current and str(previous.get('quality') or '')!=str(current.get('quality') or ''):
-                    changes.append({'type':'quality_changed','item_id':str(item.get('id') or ''),'title':str(item.get('title') or ''),'from_quality':str(previous.get('quality') or ''),'to_quality':str(current.get('quality') or '')})
-            item['last_scan_at']=_now()
+                    previous=dict(item.get('movie_file') or {}); candidates=[]
+                    for file_no,f in enumerate(item_files,1):
+                        report_file(file_no)
+                        if not _slug_match(str(f.parent)+' '+f.name,item.get('title',''),item.get('year')): continue
+                        excluded_path=str(item.get('integrity_excluded_path') or '').strip(); excluded_fp=str(item.get('integrity_excluded_fingerprint') or '').strip()
+                        if excluded_path and self._same_library_path(str(f),excluded_path):
+                            current_fp=self._media_fingerprint(f) if excluded_fp else ''
+                            if not excluded_fp or current_fp==excluded_fp: continue
+                            item.pop('integrity_excluded_path',None); item.pop('integrity_excluded_fingerprint',None); item.pop('integrity_reviewed_at',None)
+                        q,source,fp,changed=self._quality_for_media(f,qcache,previous); qcache_changed|=changed
+                        candidates.append((self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp))
+                    meta_pct=pct_for(item_index,0.93)
+                    emit(phase='metadata',detail=f'Reading media metadata • {title}',determinate=True,progress_percent=meta_pct,items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total+file_total,current_item=title,current_root=str(scan_root or root or ''),current_item_file=file_total,current_item_files=file_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(meta_pct))
+                    item['movie_file']=None
+                    if candidates:
+                        _,neg_size,f,q,source,fp=min(candidates,key=lambda x:x[:2])
+                        item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}; matched+=1
+                    current=item.get('movie_file') or {}
+                    if previous and not current: changes.append({'type':'file_missing','item_id':str(item.get('id') or ''),'title':title,'path':str(previous.get('path') or '')})
+                    elif not previous and current: changes.append({'type':'file_found','item_id':str(item.get('id') or ''),'title':title,'path':str(current.get('path') or ''),'quality':str(current.get('quality') or '')})
+                    elif previous and current and str(previous.get('quality') or '')!=str(current.get('quality') or ''): changes.append({'type':'quality_changed','item_id':str(item.get('id') or ''),'title':title,'from_quality':str(previous.get('quality') or ''),'to_quality':str(current.get('quality') or '')})
+                item['last_scan_at']=_now(); files_processed_total+=file_total
+                pct=pct_for(item_index,1.0)
+                emit(phase='matching',detail=f'Finished {title}',determinate=True,progress_percent=pct,items_done=item_index+1,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,current_item=title,current_root=str(scan_root or root or ''),current_item_file=file_total,current_item_files=file_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(pct))
 
-        scanned={str(x.get('id') or ''):x for x in targets if str(x.get('id') or '')}
-        conflict_keys=set()
-        with self.lock:
-            fresh=self._library()
-            for current in fresh:
-                item_id=str(current.get('id') or '')
-                source=scanned.get(item_id)
-                if not source: continue
-                for sn,en in self._merge_scan_state(current,source,scan_baseline.get(item_id)):
-                    conflict_keys.add((item_id,sn,en))
-            self._save_library(fresh)
-        if conflict_keys:
-            self._note_target_integrity('scan_merge_conflicts',len(conflict_keys))
-            self._event('scan-merge-conflict',f'Skipped {len(conflict_keys)} stale library-scan merge(s) because newer file state won',conflicts=len(conflict_keys))
-            changes=[
-                change for change in changes
-                if str(change.get('type') or '') in {'root_offline','root_online'}
-                or (str(change.get('item_id') or ''),change.get('season'),change.get('episode')) not in conflict_keys
-            ]
-        if qcache_changed: _write(self.media_quality_cache_file,qcache)
-        for change in changes[:80]:
-            typ=change.get('type'); label=change.get('title') or 'Media'
-            if change.get('season') is not None: label+=f" {_episode_token(change.get('season'),change.get('episode'))}"
-            messages={'root_offline':f'Root Folder offline for {label}','root_online':f'Root Folder restored for {label}','file_missing':f'Library file is missing for {label}','file_found':f'Library file found for {label}','quality_changed':f'Library quality changed for {label}'}
-            self._event(str(typ),messages.get(str(typ),f'Library changed for {label}'),**change)
-        self._event('scan',f'Library scan matched {matched} media file(s)',matched=matched,files=len(scanned_paths),changes=len(changes),offline_roots=len(offline),merge_conflicts=len(conflict_keys))
-        return {'ok':True,'matched':matched,'files_scanned':len(scanned_paths),'items_scanned':len(targets),'changes':changes,'offline_roots':offline,'merge_conflicts':len(conflict_keys),'library':fresh}
+            emit(phase='reconciling',detail='Reconciling scan results with current Automation state…',determinate=True,progress_percent=94,items_done=total_items,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(94))
+            scanned={str(x.get('id') or ''):x for x in targets if str(x.get('id') or '')}; conflict_keys=set()
+            with self.lock:
+                fresh=self._library()
+                for current in fresh:
+                    item_id=str(current.get('id') or ''); source=scanned.get(item_id)
+                    if not source: continue
+                    for sn,en in self._merge_scan_state(current,source,scan_baseline.get(item_id)): conflict_keys.add((item_id,sn,en))
+                emit(phase='saving',detail='Saving reconciled library state…',determinate=True,progress_percent=98,items_done=total_items,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(98))
+                self._save_library(fresh)
+            if conflict_keys:
+                self._note_target_integrity('scan_merge_conflicts',len(conflict_keys)); self._event('scan-merge-conflict',f'Skipped {len(conflict_keys)} stale library-scan merge(s) because newer file state won',conflicts=len(conflict_keys))
+                changes=[change for change in changes if str(change.get('type') or '') in {'root_offline','root_online'} or (str(change.get('item_id') or ''),change.get('season'),change.get('episode')) not in conflict_keys]
+            if qcache_changed: _write(self.media_quality_cache_file,qcache)
+            for change in changes[:80]:
+                typ=change.get('type'); label=change.get('title') or 'Media'
+                if change.get('season') is not None: label+=f" {_episode_token(change.get('season'),change.get('episode'))}"
+                messages={'root_offline':f'Root Folder offline for {label}','root_online':f'Root Folder restored for {label}','file_missing':f'Library file is missing for {label}','file_found':f'Library file found for {label}','quality_changed':f'Library quality changed for {label}'}
+                self._event(str(typ),messages.get(str(typ),f'Library changed for {label}'),**change)
+            self._event('scan',f'Library scan matched {matched} media file(s)',matched=matched,files=len(scanned_paths),changes=len(changes),offline_roots=len(offline),merge_conflicts=len(conflict_keys))
+            emit(phase='complete',detail='Library scan complete.',determinate=True,progress_percent=100,items_done=total_items,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=0)
+            return {'ok':True,'matched':matched,'files_scanned':len(scanned_paths),'items_scanned':len(targets),'changes':changes,'offline_roots':offline,'merge_conflicts':len(conflict_keys),'library':fresh}
+        finally:
+            self.library_scan_run_lock.release()
 
     def _resolve_root(self, item: dict[str,Any], required_bytes:int=0) -> Path | None:
         configured=str(item.get('root_folder') or '').strip()

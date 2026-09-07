@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.44** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.45** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.44_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.45_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.44 highlights
+## v3.6.45 highlights
 
-v3.6.44 is a focused hotfix for the Library Integrity Review introduced in v3.6.43.
+v3.6.45 makes long Automation library scans observable without weakening library reconciliation or media safety.
 
-- **Integrity Review fixed:** Run integrity review now reaches the read-only audit endpoint instead of returning HTTP 404.
-- **Correct API contract:** `/api/automation/library/integrity-audit` is GET-only/read-only, while Open Folder and Mark Missing remain explicit POST actions.
-- **Non-destructive behavior preserved:** Mark Missing still leaves the physical media file untouched and retains fingerprint-specific reviewed-file protection.
-- **No unrelated changes:** v3.6.43 TV identity compatibility, diagnostics compaction, client-disconnect cleanup, Automation behavior, and Downloads/SAB reliability are otherwise unchanged.
+- **Real scan progress:** Scan library and per-title Scan files now show live backend-measured progress instead of one long opaque request.
+- **Useful phases and counts:** NewzDeck reports discovery, matching, metadata reading, reconciliation, saving, current title/root, file/title counts, matches, changes, and offline roots.
+- **Measured ETA:** once enough determinate work has completed, NewzDeck estimates time remaining from actual scan progress; directory discovery stays honestly indeterminate.
+- **Persistent visibility:** scan status survives normal Automation redraws and reopening an item while the scan continues.
+- **No overlapping library walks:** manual and scheduled reconciliation share one scan execution lock, preventing two expensive scans from walking the same library at once.
+- **Existing safety preserved:** strict TV identity, reviewed-fingerprint exclusions, quality reconciliation, merge-conflict protection, Library Integrity behavior, and Downloads/SAB reliability are unchanged.
 
-See [the full v3.6.44 release notes](release/RELEASE_NOTES_v3.6.44.md).
+See [the full v3.6.45 release notes](release/RELEASE_NOTES_v3.6.45.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.44_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.45_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

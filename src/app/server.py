@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.44"
+APP_VERSION = "3.6.45"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -12271,6 +12271,12 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._json(200, MEDIA_AUTOMATION.manual_library_import_progress(str((query.get("job_id") or [""])[0] or "")))
             except Exception as exc:
                 return self._json(404, {"error": _user_safe_error_message(exc), "version": APP_VERSION})
+        if parsed.path == "/api/automation/library/scan/progress":
+            try:
+                query=urllib.parse.parse_qs(parsed.query or "")
+                return self._json(200, MEDIA_AUTOMATION.library_scan_progress(str((query.get("job_id") or [""])[0] or "")))
+            except Exception as exc:
+                return self._json(404, {"error": _user_safe_error_message(exc), "version": APP_VERSION})
         if parsed.path == "/api/automation/summary":
             try:
                 return self._json(200, MEDIA_AUTOMATION.summary())
@@ -12503,6 +12509,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._json(200, DOWNLOAD_MANAGER.retry_automation_import(str(data.get("collection_id") or "")))
             if parsed.path == "/api/automation/library/scan":
                 return self._json(200, MEDIA_AUTOMATION.scan_library(str(data.get("id") or "")))
+            if parsed.path == "/api/automation/library/scan/start":
+                return self._json(200, MEDIA_AUTOMATION.start_library_scan(str(data.get("id") or "")))
             if parsed.path == "/api/automation/library/integrity/open-folder":
                 rec=MEDIA_AUTOMATION.library_integrity_location(str(data.get('item_id') or ''),data.get('season'),data.get('episode'),data.get('path'))
                 location=str(rec.get('folder') or '')

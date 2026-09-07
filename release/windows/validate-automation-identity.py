@@ -85,10 +85,15 @@ required = [
     "def library_integrity_mark_missing(",
     "automatic_storage_reserve_percent",
     "def _prune_grab_reservations(",
+    "def start_library_scan(",
+    "def library_scan_progress(",
+    "self.library_scan_run_lock",
+    "files_discovered",
+    "eta_seconds",
 ]
 for marker in required:
     if marker not in source:
-        raise SystemExit(f"Missing v3.6.44 production guard marker: {marker}")
+        raise SystemExit(f"Missing v3.6.45 production guard marker: {marker}")
 
 
 
@@ -101,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
     media_dir = data_dir / "TV" / "Show" / "Season 1"
     media_dir.mkdir(parents=True)
     media_file = media_dir / "Show - S01E01 - Wrong.mkv"
-    media_file.write_bytes(b"NewzDeck v3.6.44 non-destructive review guard")
+    media_file.write_bytes(b"NewzDeck v3.6.45 non-destructive review guard")
     library = [{
         "id":"guard-show","kind":"tv","title":"Show","library_title":"Show",
         "seasons":[{"season_number":1,"episodes":[{
@@ -111,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
         }]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.44")
+    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.45")
     result = engine.library_integrity_mark_missing("guard-show",1,1,str(media_file))
     after = json.loads((data_dir / "media-library.json").read_text(encoding="utf-8"))
     episode = after[0]["seasons"][0]["episodes"][0]
@@ -163,4 +168,36 @@ if len(json.dumps(compact).encode("utf-8")) >= len(json.dumps(sample).encode("ut
 if not helper_ns["_client_disconnected"](BrokenPipeError()) or helper_ns["_client_disconnected"](ValueError("application failure")):
     raise SystemExit("Client-disconnect classifier is too broad or failed to recognize BrokenPipeError.")
 
-print(f"TV identity/reliability regression guard passed ({len(CASES)} TV cases + integrity/diagnostics guards).")
+# v3.6.45: real Automation scan progress must use an async start/status contract while
+# preserving the synchronous compatibility route.
+scan_start='"/api/automation/library/scan/start"'
+scan_progress='"/api/automation/library/scan/progress"'
+scan_sync='"/api/automation/library/scan"'
+if scan_progress not in get_block:
+    raise SystemExit("Library scan progress endpoint is missing from GET.")
+if scan_start not in post_block or scan_sync not in post_block:
+    raise SystemExit("Library scan start or synchronous compatibility route is missing from POST.")
+app_source=(ROOT / "src" / "app" / "static" / "app.js").read_text(encoding="utf-8")
+index_source=(ROOT / "src" / "app" / "static" / "index.html").read_text(encoding="utf-8")
+for required_ui in ("pollAutomationScanProgress","renderAutomationScanProgress","/api/automation/library/scan/start","/api/automation/library/scan/progress","eta_seconds","current_item_files"):
+    if required_ui not in app_source:
+        raise SystemExit(f"Library scan progress UI is missing marker: {required_ui}")
+for required_dom in ('id="automationScanProgress"','id="automationScanProgressFill"','id="automationScanProgressMeta"'):
+    if required_dom not in index_source:
+        raise SystemExit(f"Library scan progress DOM is missing marker: {required_dom}")
+
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.45")
+    job=engine.start_library_scan("")
+    if not job.get("job_id"):
+        raise SystemExit("Library scan start did not return a job ID.")
+    import time as _time
+    deadline=_time.time()+5
+    while _time.time()<deadline:
+        current=engine.library_scan_progress(str(job.get("job_id")))
+        if current.get("status") in {"completed","failed"}: break
+        _time.sleep(0.02)
+    if current.get("status")!="completed" or int(current.get("progress_percent") or 0)!=100:
+        raise SystemExit(f"Library scan progress smoke test did not complete cleanly: {current}")
+
+print(f"TV identity/reliability regression guard passed ({len(CASES)} TV cases + integrity/diagnostics/library-scan guards).")

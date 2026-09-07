@@ -1,20 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.44",
-  "base_version": "3.6.43",
-  "release": "Library Integrity Audit Route Hotfix",
-  "adapter_version": "3.6.44",
-  "name": "Library Integrity Audit Route Hotfix",
+  "version": "3.6.45",
+  "base_version": "3.6.44",
+  "release": "Library Scan Progress & Visibility",
+  "adapter_version": "3.6.45",
+  "name": "Library Scan Progress & Visibility",
   "changes": [
-    "Registers the read-only /api/automation/library/integrity-audit endpoint in the HTTP GET handler so the v3.6.43 Library Integrity Review UI and Diagnostic Collector can retrieve the audit instead of receiving HTTP 404.",
-    "Keeps Library Integrity Open Folder and Mark Missing actions POST-only; Mark Missing remains non-destructive and never deletes, moves, renames, or overwrites media.",
-    "Adds a production regression guard that fails if the integrity-audit route is missing from GET or is accidentally reintroduced into POST."
+    "Runs user-initiated Automation library scans as background jobs with a lightweight progress endpoint instead of holding one long browser request open.",
+    "Shows live scan phase, real file/title counts, percentage, matched/change counts, current title/root, and an ETA once enough progress has been measured.",
+    "Uses an indeterminate Discovering files phase until the current directory traversal establishes a real file count, then switches to measured progress.",
+    "Serializes manual and scheduled library reconciliation so overlapping scans cannot walk the same large library concurrently.",
+    "Keeps scan progress visible across Automation redraws and item-dialog reopenings while preserving the existing reconciliation, quality, integrity-exclusion, and no-delete semantics."
   ],
   "regression_guards": [
-    "All v3.6.43 TV identity compatibility, strict cross-series rejection, reviewed-fingerprint protection, diagnostics compaction, and client-disconnect behavior remain unchanged.",
-    "The integrity audit remains read-only; only explicit user actions use POST.",
-    "The existing 30-case TV identity/reliability regression suite remains mandatory in the canonical GitHub release workflow.",
-    "v3.6.42 storage reserve/reservation hygiene and v3.6.41 fail-soft Downloads snapshot behavior remain intact.",
-    "The v3.6.20+ serialized private-SAB transport remains intact."
+    "The original synchronous /api/automation/library/scan route remains available for compatibility; the UI uses /scan/start plus GET /scan/progress.",
+    "Filesystem-derived scan state still merges through _merge_scan_state so newer import/download state wins over stale long-running scan results.",
+    "Library Integrity reviewed-fingerprint exclusions remain honored during TV and movie scans.",
+    "v3.6.44 Library Integrity GET audit route and v3.6.43 strict TV identity behavior remain intact.",
+    "v3.6.41 fail-soft Downloads snapshot and v3.6.20+ serialized private-SAB transport remain unchanged."
   ]
 }

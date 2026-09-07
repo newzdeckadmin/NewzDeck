@@ -1,12 +1,10 @@
-NewzDeck v3.6.44
-Library Integrity Audit Route Hotfix
+NewzDeck v3.6.45
+Library Scan Progress & Visibility
 
-Production hotfix based on v3.6.43.
-
-Highlights:
-- Fixes the Library Integrity Review HTTP 404 by exposing the read-only integrity audit through GET.
-- Keeps Open Folder and Mark Missing actions POST-only.
-- Preserves the v3.6.43 non-destructive review workflow and all TV identity/diagnostics improvements unchanged.
-- Adds a release-blocking API-route regression guard so the read-only audit cannot silently move back to POST.
-
-NewzDeck is free and open-source software licensed under GPL-3.0-only.
+New in v3.6.45:
+- Real progress for Automation Scan library and per-title Scan files.
+- Live phase, percentage, file/title counts, matched/change counts, and ETA.
+- Indeterminate discovery while folders are being enumerated, followed by measured progress.
+- Scan status survives Automation redraws/item-dialog reopening.
+- Manual and scheduled scans are serialized to prevent duplicate expensive library walks.
+- Existing reconciliation, Library Integrity exclusions, naming, quality, and media-safety behavior is preserved.
