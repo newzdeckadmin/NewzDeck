@@ -1,15 +1,18 @@
-NewzDeck v3.6.41
-Downloads Snapshot Responsiveness
+NewzDeck v3.6.42
+TV Release Identity & Reliability Hardening
 
-Focused production reliability release based on a completed v3.6.40 Diagnostic Collector capture.
+Production correctness and reliability release based on the completed v3.6.41 Diagnostic Collector review.
 
-WHAT'S NEW IN v3.6.41
+WHAT'S NEW IN v3.6.42
 
-- Live Downloads Queue/History reads now use a bounded wait for the serialized private-SAB control transport instead of waiting behind long-running control operations.
-- Once a coherent Downloads snapshot exists, concurrent API callers can immediately reuse it while a new snapshot is being built, preventing diagnostics and /api/downloads from lining up behind the same slow snapshot.
-- Live presentation reads use short single-attempt Queue/History budgets; authoritative non-live recovery, reconciliation, mutation, and crash-recovery paths keep their stronger existing retry behavior.
-- SAB transport telemetry is observational and no longer acquires the same control lock merely to report diagnostics.
-- New snapshot/transport telemetry records build duration, lock-busy fallbacks, transport wait time, active control mode, and busy timeouts for future Diagnostic Collector analysis.
-- Installed-runtime detection now recognizes Inno Setup's canonical unins000.exe marker while retaining compatibility with the retired Uninstall.exe marker.
+- TV release identity is now anchored to the complete series prefix before the season/episode marker. Unrelated shows can no longer satisfy a target merely because the target title appears later as an episode title or phrase.
+- The strict persisted title/country-edition identity is enforced across release matching, final Grab validation, Smart Import, and library scanning. Real diagnostic regressions involving Love Island, FROM, Sugar, and S.W.A.T. are protected by production tests.
+- TV library scans prefer the proven series folder and refuse to learn a folder from a stale cross-title episode record.
+- The read-only Library Integrity Audit now reports strict identity mismatches as Needs Review. It never deletes, moves, renames, or automatically repairs media.
+- Expired cross-process Automation Grab reservation files are safely pruned while live reservations keep their full duplicate-Grab protection window.
+- Automation can keep a configurable percentage of each media/staging drive free in addition to the existing GB minimum; unattended grabs/imports are blocked below the reserve and Setup surfaces low-root status.
+- Windows process-memory diagnostics now use typed 64-bit APIs and report explicit telemetry errors instead of silently showing 0 bytes.
+- Generic SAB engine warnings are separated from NNTP provider errors and disk faults, preventing unrelated SAB warnings from appearing as provider failures.
+- Launcher startup-log version identity is now dynamic from version.txt, and the production workflow permanently guards both that behavior and strict TV identity matching.
 
-This release does not weaken serialized SAB transport, queue ownership, destructive reconciliation guards, Automation admission, Smart Import, no-downgrade behavior, or the v3.6.38-v3.6.40 recovery and runtime-storage protections.
+v3.6.41 Downloads snapshot responsiveness, serialized private-SAB transport, authoritative queue/recovery safeguards, Smart Import no-downgrade protections, and installer/runtime handoff behavior remain preserved.

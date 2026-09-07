@@ -319,78 +319,111 @@ def _tv_title_search_variants(item: dict[str,Any] | None) -> list[str]:
             variants.append(candidate)
     return variants
 
-def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
-    """Reject releases belonging to another TV franchise/edition.
+def _tv_release_prefix_tokens(release_title: Any) -> tuple[list[str], bool]:
+    """Return the normalized series-identity prefix before the first season marker.
 
-    Matching remains token/phrase based and strict. v3.6.33 adds only the safe
-    confirmed country-suffix variants returned by ``_tv_title_search_variants``;
-    it does not broaden ambiguous franchise matching.
+    The release title is structured as ``series identity`` + ``SxxEyy``/season pack
+    + episode/release metadata.  Identity matching must never search the whole title:
+    episode names can legitimately contain another show's title (for example
+    ``The Morning Show S03E05 Love Island``), which previously caused cross-series
+    Automation grabs and library corruption.
+    """
+    tokens=_norm(release_title).split()
+    if not tokens:
+        return [],False
+    marker=None
+    for i,token in enumerate(tokens):
+        if re.fullmatch(r's\d{1,2}(?:e\d{1,3})*',token) or re.fullmatch(r'\d{1,2}x\d{1,3}(?:x\d{1,3})*',token):
+            marker=i; break
+        if token in {'season','series'} and i+1<len(tokens) and re.fullmatch(r'\d{1,2}',tokens[i+1]):
+            marker=i-1 if i>0 and tokens[i-1]=='complete' else i
+            break
+    if marker is None:
+        return tokens,False
+    return tokens[:max(0,marker)],True
+
+
+def _tv_allowed_series_prefixes(item: dict[str,Any] | None) -> list[list[str]]:
+    """Build exact, persisted-identity-backed TV series prefixes.
+
+    Country aliases are generated only when the Automation item already has that
+    country identity.  A bare canonical title remains valid for the canonical item
+    (e.g. the UK ``Love Island``), while explicit conflicting/extra edition words
+    are rejected because the complete prefix must match one of these sequences.
+    """
+    row=item if isinstance(item,dict) else {}
+    title=_indexer_search_title(str(row.get('title') or '').strip())
+    if not title:
+        return []
+    variants=list(_tv_title_search_variants(row) or [title])
+    expected=_tv_item_country_tag(row)
+    aliases=_TV_TITLE_COUNTRY_SUFFIX_ALIASES.get(expected) or ()
+
+    # Bare canonical titles can still carry an explicit matching country suffix in
+    # release names. Do not do this when the stored title already contains one of
+    # the aliases because _tv_title_search_variants already generated the safe set.
+    folded_title=title.casefold()
+    explicit_suffix=any(folded_title.endswith((' '+alias).casefold()) for alias in aliases)
+    if expected and aliases and not explicit_suffix:
+        for alias in aliases:
+            variants.append(f'{title} {alias}')
+
+    library_title=_indexer_search_title(str(row.get('library_title') or '').strip())
+    if library_title:
+        variants.append(library_title)
+
+    out=[]; seen=set()
+    for variant in variants:
+        toks=_norm(variant).split()
+        if not toks:
+            continue
+        key=tuple(toks)
+        if key not in seen:
+            out.append(toks); seen.add(key)
+        # Preserve the long-standing acrostic compatibility only as an exact
+        # *prefix* alternative (S.W.A.T. -> SWAT), never as a substring search.
+        if len(toks)>1 and all(len(x)==1 for x in toks):
+            compact=(''.join(toks),)
+            if compact not in seen:
+                out.append([compact[0]]); seen.add(compact)
+    return out
+
+
+def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
+    """Fail closed unless the release's series prefix exactly matches the TV item.
+
+    v3.6.42 intentionally anchors TV identity before the first season/episode token.
+    This prevents episode-title/franchise collisions such as ``FROM`` matching the
+    words "...Home Away from Home" or ``Love Island`` matching an unrelated show's
+    episode title.  Movies retain the existing token/phrase + year matcher.
     """
     row=item if isinstance(item,dict) else {}
     title=str(row.get('title') or '').strip()
     if not title:
         return False
-    variants=_tv_title_search_variants(row) or [_indexer_search_title(title)]
-    year=row.get('year') if row.get('kind')=='movie' else None
-    if not any(_slug_match(str(release_title or ''),variant,year) for variant in variants):
-        return False
     if str(row.get('kind') or '')!='tv':
-        return True
+        return _slug_match(str(release_title or ''),title,row.get('year'))
 
-    release_tokens=_norm(release_title).split()
-    expected=_tv_item_country_tag(row)
-    if not release_tokens:
-        return True
+    prefix,has_marker=_tv_release_prefix_tokens(release_title)
+    if not prefix:
+        return False
+    allowed=_tv_allowed_series_prefixes(row)
+    if not allowed:
+        return False
 
-    # Inspect every exact occurrence of every permitted title variant. A later
-    # explicit conflicting edition in a path/release name must still win over a
-    # neutral parent-directory occurrence.
-    occurrences=[]
-    for variant in variants:
-        variant_tokens=_norm(variant).split()
-        if not variant_tokens:
-            continue
-        width=len(variant_tokens)
-        for start in range(0,max(0,len(release_tokens)-width+1)):
-            if release_tokens[start:start+width]==variant_tokens:
-                occurrences.append((start,width))
-    if not occurrences:
-        # Preserve the pre-existing acrostic/stylized-title fallback from _slug_match.
-        return True
+    # An optional matching premiere year immediately after the exact title is
+    # common for same-name series and remains safe because it is anchored here.
+    year=str(row.get('year') or '').strip()
+    for candidate in allowed:
+        if prefix==candidate:
+            return True
+        if year and prefix==candidate+[year]:
+            return True
 
-    saw_positive=False
-    saw_neutral=False
-    for start,width in sorted(set(occurrences)):
-        pos=start+width
-        if pos>=len(release_tokens):
-            saw_positive=True
-            continue
-        nxt=release_tokens[pos]
-        pair=' '.join(release_tokens[pos:pos+2])
-        # Sxx/Eyy/year/quality immediately after the title is ordinary release syntax.
-        if re.fullmatch(r's\d{1,2}(?:e\d{1,3})?',nxt) or re.fullmatch(r'\d{4}',nxt) or re.fullmatch(r'(?:2160|1080|720|576|480)p',nxt):
-            saw_positive=True
-            continue
-        pair_tag=_tv_country_tag(pair.upper())
-        release_tag=_tv_country_tag(nxt)
-        if pair_tag:
-            if expected and pair_tag!=expected:
-                return False
-            if not expected and bool(row.get('title_ambiguous')):
-                return False
-            saw_positive=True
-            continue
-        if release_tag:
-            if expected and release_tag!=expected:
-                return False
-            if not expected and bool(row.get('title_ambiguous')):
-                return False
-            saw_positive=True
-            continue
-        if nxt in _TV_EDITION_MARKERS or pair in _TV_EDITION_MARKER_PAIRS:
-            return False
-        saw_neutral=True
-    return bool(saw_positive or saw_neutral)
+    # TV candidates without a season marker are never broadened to "contains".
+    # The caller may still reject them for missing Sxx/Eyy, but identity itself
+    # remains exact and cannot be satisfied by later episode-title words.
+    return False
 
 def _episode_token(season: int | None, episode: int | None) -> str:
     try:
@@ -565,6 +598,9 @@ class MediaAutomationEngine:
         self._downgrades_blocked = 0
         self._existing_quality_recovered = 0
         self._target_integrity_last_ts = 0.0
+        self._grab_reservations_pruned = 0
+        self._grab_reservation_invalid_pruned = 0
+        self._grab_reservation_cleanup_last_ts = 0.0
         # v3.6.38: for a short post-start window, persisted active-target hints
         # protect Automation while SAB queue/history ownership is reconstructed.
         self._automation_process_started_ts = time.time()
@@ -572,6 +608,10 @@ class MediaAutomationEngine:
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
+            pass
+        try:
+            self._prune_grab_reservations(force=True)
+        except Exception:
             pass
 
     def _note_target_integrity(self, field:str, amount:int=1) -> None:
@@ -594,6 +634,9 @@ class MediaAutomationEngine:
                 'scan_merge_conflicts':int(self._scan_merge_conflicts),
                 'downgrades_blocked':int(self._downgrades_blocked),
                 'existing_quality_recovered':int(self._existing_quality_recovered),
+                'grab_reservations_pruned':int(self._grab_reservations_pruned),
+                'grab_reservation_invalid_pruned':int(self._grab_reservation_invalid_pruned),
+                'grab_reservation_cleanup_last_ts':float(self._grab_reservation_cleanup_last_ts or 0),
                 'last_event_ts':float(self._target_integrity_last_ts or 0),
             }
 
@@ -694,6 +737,8 @@ class MediaAutomationEngine:
             x['automatic_library_scan_minutes']=30; changed=True
         if 'automatic_storage_reserve_gb' not in x:
             x['automatic_storage_reserve_gb']=5; changed=True
+        if 'automatic_storage_reserve_percent' not in x:
+            x['automatic_storage_reserve_percent']=5; changed=True
         if 'automatic_season_packs_enabled' not in x:
             x['automatic_season_packs_enabled']=True; changed=True
         continuous_defaults={
@@ -948,6 +993,49 @@ class MediaAutomationEngine:
             'target_key':key,'recovered_context':True,
         }
 
+    def _prune_grab_reservations(self, *, force:bool=False) -> dict[str,int]:
+        """Remove only expired/stale cross-process Grab reservation files.
+
+        Successful handoffs deliberately retain their claim for ~45 seconds so a
+        sibling runtime cannot submit the same target. Historically those expired
+        JSON files accumulated forever. v3.6.42 bounds the directory without ever
+        touching a reservation whose expiry is still live.
+        """
+        now=time.time()
+        with self._target_integrity_lock:
+            if not force and now-float(self._grab_reservation_cleanup_last_ts or 0)<600:
+                return {'pruned':0,'invalid_pruned':0}
+            self._grab_reservation_cleanup_last_ts=now
+        if not self.grab_reservation_dir.exists():
+            return {'pruned':0,'invalid_pruned':0}
+        pruned=0; invalid_pruned=0
+        try:
+            paths=list(self.grab_reservation_dir.glob('*.json'))[:10000]
+        except OSError:
+            return {'pruned':0,'invalid_pruned':0}
+        for path in paths:
+            remove=False; invalid=False
+            try:
+                value=_read(path,{})
+                if isinstance(value,dict) and str(value.get('target_key') or '').strip():
+                    expiry=float(value.get('expires_ts') or 0)
+                    remove=expiry<=now
+                else:
+                    invalid=True
+                    try: remove=path.stat().st_mtime<=now-300
+                    except OSError: remove=False
+                if remove:
+                    path.unlink(missing_ok=True); pruned+=1
+                    if invalid: invalid_pruned+=1
+            except (OSError,ValueError,TypeError):
+                continue
+        if pruned:
+            with self._target_integrity_lock:
+                self._grab_reservations_pruned+=pruned
+                self._grab_reservation_invalid_pruned+=invalid_pruned
+                self._target_integrity_last_ts=now
+        return {'pruned':pruned,'invalid_pruned':invalid_pruned}
+
     def _grab_reservation_path(self, target_key: str) -> Path:
         digest=hashlib.sha256(str(target_key or '').encode('utf-8')).hexdigest()[:32]
         return self.grab_reservation_dir / f'{digest}.json'
@@ -958,6 +1046,7 @@ class MediaAutomationEngine:
         if not key:
             return True,Path(),{}
         self.grab_reservation_dir.mkdir(parents=True,exist_ok=True)
+        self._prune_grab_reservations(force=False)
         path=self._grab_reservation_path(key)
         now=time.time()
         for _ in range(2):
@@ -2070,6 +2159,7 @@ class MediaAutomationEngine:
             'automatic_metadata_refresh_hours':max(1,min(48,int(c.get('automatic_metadata_refresh_hours',6) or 6))),
             'automatic_library_scan_minutes':max(5,min(360,int(c.get('automatic_library_scan_minutes',30) or 30))),
             'automatic_storage_reserve_gb':max(1,min(100,int(c.get('automatic_storage_reserve_gb',5) or 5))),
+            'automatic_storage_reserve_percent':max(0,min(25,int(c.get('automatic_storage_reserve_percent',5) or 0))),
             'automatic_movie_availability':str(c.get('automatic_movie_availability') or 'digital_physical') if str(c.get('automatic_movie_availability') or 'digital_physical') in {'digital_physical','theatrical'} else 'digital_physical',
             'automatic_enabled_at':str(c.get('automatic_enabled_at') or ''),
             'plex_organize_enabled':bool(c.get('plex_organize_enabled', True)),
@@ -2115,7 +2205,7 @@ class MediaAutomationEngine:
                 ('automatic_search_interval_minutes',5,180,15),('automatic_feed_interval_minutes',2,60,5),('automatic_retry_minutes',15,720,60),
                 ('automatic_release_delay_minutes',0,180,5),('automatic_queue_depth',1,100,25),
                 ('automatic_metadata_refresh_hours',1,48,6),('automatic_library_scan_minutes',5,360,30),
-                ('automatic_storage_reserve_gb',1,100,5)):
+                ('automatic_storage_reserve_gb',1,100,5),('automatic_storage_reserve_percent',0,25,5)):
                 if k in data:
                     try: c[k]=max(lo,min(hi,int(data.get(k) if data.get(k) is not None else default)))
                     except Exception: c[k]=default
@@ -3515,20 +3605,32 @@ class MediaAutomationEngine:
             pass
         return info
 
-    def _disk_free(self, path:Path|None) -> int:
-        if not path: return 0
+    def _disk_usage(self, path:Path|None):
+        if not path: return None
         try:
             probe=path
             while not probe.exists() and probe.parent!=probe: probe=probe.parent
-            return int(shutil.disk_usage(probe).free)
+            return shutil.disk_usage(probe)
         except OSError:
-            return 0
+            return None
 
-    def _storage_requirement(self, release_size:int, *, staging:bool=False) -> int:
-        size=max(0,int(release_size or 0)); reserve=max(1,int(self.public_config().get('automatic_storage_reserve_gb') or 5))*1024**3
+    def _disk_free(self, path:Path|None) -> int:
+        usage=self._disk_usage(path)
+        return int(usage.free) if usage is not None else 0
 
+    def _storage_reserve_bytes(self, path:Path|None) -> int:
+        """Return the larger of the configured absolute or percentage reserve."""
+        cfg=self.public_config()
+        absolute=max(1,int(cfg.get('automatic_storage_reserve_gb') or 5))*1024**3
+        percent=max(0,min(25,int(cfg.get('automatic_storage_reserve_percent',5) or 0)))
+        usage=self._disk_usage(path)
+        proportional=int(usage.total*percent/100.0) if usage is not None and percent>0 else 0
+        return max(absolute,proportional)
+
+    def _storage_requirement(self, release_size:int, *, staging:bool=False, path:Path|None=None) -> int:
+        size=max(0,int(release_size or 0))
         multiplier=2.20 if staging else 1.10
-        return reserve + int(size*multiplier)
+        return self._storage_reserve_bytes(path) + int(size*multiplier)
 
     def _existing_media_path(self,item:dict[str,Any]) -> Path|None:
         raw=''
@@ -3564,6 +3666,11 @@ class MediaAutomationEngine:
                         parent.resolve().relative_to(root.resolve())
                     except (OSError,ValueError):
                         continue
+                # Never let a stale cross-title episode record teach NewzDeck the
+                # wrong series directory. The persisted title/library-title identity
+                # must also match the candidate series folder itself.
+                if not _tv_release_identity_match(parent.name,item):
+                    continue
                 if parent.exists() and parent.is_dir(): candidates.append(parent)
         if not candidates: return None
         counts={}
@@ -3824,11 +3931,19 @@ class MediaAutomationEngine:
         return conflicts
 
     def library_integrity_audit(self) -> dict[str,Any]:
-        """Read-only audit for cross-target fingerprints and TV edition mismatches."""
+        """Read-only audit for cross-target fingerprints and TV identity drift.
+
+        v3.6.42 also revalidates the original NewzDeck release provenance retained
+        in the fingerprint quality cache.  This catches already-imported files whose
+        canonical renamed filename looks valid even though the downloaded release
+        belonged to another series.  The audit never deletes or rewrites media.
+        """
         with self.lock:
             lib=copy.deepcopy(self._library())
+        qcache=self._media_quality_cache()
         by_fp:dict[str,list[dict[str,Any]]]={}
         edition_mismatches=[]
+        identity_mismatches=[]
         file_records=0
         for item in lib:
             item_id=str(item.get('id') or '')
@@ -3847,7 +3962,20 @@ class MediaAutomationEngine:
                         if fp: by_fp.setdefault(fp,[]).append(rec)
                         observed=_release_tv_country_tag(Path(path).name,title)
                         if expected and observed and observed!=expected:
-                            edition_mismatches.append({**rec,'expected_country':expected,'observed_country':observed})
+                            edition_mismatches.append({**rec,'expected_country':expected,'observed_country':observed,'needs_review':True})
+
+                        quality_rec=qcache.get(fp) if fp and isinstance(qcache.get(fp),dict) else {}
+                        provenance=str((quality_rec or {}).get('release_title') or '').strip()
+                        identity_probe=provenance or Path(path).name
+                        if identity_probe and not _tv_release_identity_match(identity_probe,item):
+                            identity_mismatches.append({
+                                **rec,
+                                'identity_source':'release_provenance' if provenance else 'library_filename',
+                                'release_title':provenance,
+                                'identity_probe':identity_probe[:500],
+                                'needs_review':True,
+                                'reason':'Stored release/file identity does not strictly match this TV series prefix',
+                            })
             else:
                 mf=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else {}
                 if mf and str(mf.get('path') or '').strip():
@@ -3861,20 +3989,22 @@ class MediaAutomationEngine:
             if len(targets)<=1: continue
             distinct_paths={str(r.get('path') or '').casefold() for r in rows if str(r.get('path') or '').strip()}
             distinct_titles={str(r.get('item_id') or '') for r in rows if str(r.get('item_id') or '')}
-            entry={'fingerprint':fp,'targets':rows[:12],'target_count':len(targets),'distinct_path_count':len(distinct_paths),'distinct_title_count':len(distinct_titles)}
+            entry={'fingerprint':fp,'targets':rows[:12],'target_count':len(targets),'distinct_path_count':len(distinct_paths),'distinct_title_count':len(distinct_titles),'needs_review':len(distinct_titles)>1}
             duplicate.append(entry)
             if len(distinct_titles)>1:
                 cross_title.append(entry)
         duplicate.sort(key=lambda x:(-int(x.get('target_count') or 0),-int(x.get('distinct_path_count') or 0),str(x.get('fingerprint') or '')))
-        # Different physical paths sharing one fingerprint across different library
-        # items are the highest-risk corruption signal, so surface those examples
-        # before benign-ish duplicate references to the exact same physical path.
         cross_title.sort(key=lambda x:(-int(x.get('distinct_path_count') or 0),-int(x.get('target_count') or 0),str(x.get('fingerprint') or '')))
+        identity_mismatches.sort(key=lambda x:(str(x.get('title') or ''),int(x.get('season') or 0),int(x.get('episode') or 0)))
+        needs_review_count=len(identity_mismatches)+len(cross_title)+len(edition_mismatches)
         return {
             'ok':True,'read_only':True,'file_records':file_records,'fingerprints':len(by_fp),
             'duplicate_fingerprints':len(duplicate),'cross_title_duplicate_fingerprints':len(cross_title),
-            'edition_mismatches':len(edition_mismatches),'duplicates':duplicate[:50],
-            'cross_title_duplicates':cross_title[:50],'edition_mismatch_examples':edition_mismatches[:50],
+            'edition_mismatches':len(edition_mismatches),'identity_mismatches':len(identity_mismatches),
+            'needs_review_count':needs_review_count,'needs_review':bool(needs_review_count),
+            'duplicates':duplicate[:50],'cross_title_duplicates':cross_title[:50],
+            'edition_mismatch_examples':edition_mismatches[:50],
+            'identity_mismatch_examples':identity_mismatches[:100],
         }
 
     def scan_library(self, ident=''):
@@ -3906,7 +4036,30 @@ class MediaAutomationEngine:
 
         for item in targets:
             profile=profiles.get(str(item.get('quality_profile_id'))) or (profiles_list[0] if profiles_list else DEFAULT_PROFILES[0])
-            root=self._resolve_root(item); item_files=files_for(root)
+            root=self._resolve_root(item)
+            scan_root=root
+            if item.get('kind')=='tv' and root is not None and root.exists() and root.is_dir():
+                # Prefer the established/expected series directory. This avoids
+                # walking an entire multi-show root for every TV item and makes
+                # cross-title file ownership structurally impossible in the common
+                # case. A root-wide fallback remains for externally organized shows
+                # whose series directory has not yet been learned.
+                existing_series=self._existing_tv_series_folder(item,root)
+                if existing_series is not None:
+                    scan_root=existing_series
+                else:
+                    try:
+                        cfg_now=self._config()
+                        desired=self._tv_series_folder(item,root,cfg_now,{
+                            'title':str(item.get('title') or ''),
+                            'year':item.get('year') or '',
+                            'library_title':str(item.get('library_title') or self._tv_library_title(item) or ''),
+                        })
+                        if desired.exists() and desired.is_dir():
+                            scan_root=desired
+                    except Exception:
+                        pass
+            item_files=files_for(scan_root)
             if item_files is None:
                 prior=str(item.get('library_root_status') or '')
                 item['library_root_status']='offline'; item['library_scan_error']='Configured Root Folder is unavailable'; item['last_scan_at']=_now()
@@ -3925,7 +4078,7 @@ class MediaAutomationEngine:
                         ep.update({'has_file':False,'file_path':'','file_quality':'','file_size':0,'file_fingerprint':'','quality_source':'','media_info':{},'cutoff_met':False})
                 candidates={}
                 for f in item_files:
-                    if not _tv_release_identity_match(str(f.parent.parent)+' '+f.name,item): continue
+                    if not _tv_release_identity_match(f.name,item): continue
                     m=re.search(r'\bS(\d{1,2})E(\d{1,3})\b',f.name,re.I)
                     if not m: continue
                     key=(int(m.group(1)),int(m.group(2)))
@@ -4014,7 +4167,7 @@ class MediaAutomationEngine:
         online=[r for r in roots if r.exists() and r.is_dir()]
         if not online: return roots[0]
         if required_bytes>0:
-            eligible=[r for r in online if self._disk_free(r)>=int(required_bytes)]
+            eligible=[r for r in online if self._disk_free(r)>=int(required_bytes)+self._storage_reserve_bytes(r)]
             if eligible: return max(eligible,key=self._disk_free)
         return online[0]
 
@@ -4217,7 +4370,7 @@ class MediaAutomationEngine:
     def _commit_import_plan(self, entries:list[dict[str,Any]], root:Path, progress_callback:Callable[[float,str],None]|None=None) -> list[dict[str,Any]]:
         """Stage + verify every actionable file, then commit with rollback backups."""
         actionable=[e for e in entries if e.get('action') in {'IMPORT','UPGRADE'}]
-        reserve=max(1,int(self.public_config().get('automatic_storage_reserve_gb') or 5))*1024**3
+        reserve=self._storage_reserve_bytes(root)
         copy_required=0
         try: root_dev=root.stat().st_dev
         except OSError: root_dev=None
@@ -4373,7 +4526,8 @@ class MediaAutomationEngine:
             candidates=[]
             for f in root.rglob('*'):
                 if not f.is_file() or f.suffix.casefold() not in VIDEO_EXTS: continue
-                if not _tv_release_identity_match(str(f.parent)+' '+f.name,item): continue
+                identity_name=f.name if item.get('kind')=='tv' else str(f.parent)+' '+f.name
+                if not _tv_release_identity_match(identity_name,item): continue
                 candidates.append(f)
                 if len(candidates)>=5000: break
         except OSError:
@@ -4999,7 +5153,11 @@ class MediaAutomationEngine:
             health=self.automation_health()
         except Exception as exc:
             health={'error':str(exc),'roots':[],'blacklists':[]}
-        return {'library':lib,'config':config,'profiles':profiles,'indexers':idx,'wanted':wanted,'calendar':calendar,'activity':activity,'history':activity,'automatic':automatic,'health':health,'warnings':warnings,'counts':{'tv':sum(isinstance(x,dict) and x.get('kind')=='tv' for x in lib),'movies':sum(isinstance(x,dict) and x.get('kind')=='movie' for x in lib),'missing':len(wanted.get('missing') or []),'upgrades':len(wanted.get('upgrades') or []),'indexers':sum(isinstance(x,dict) and x.get('enabled',True) for x in idx)}}
+        try:
+            storage=self.storage_health_snapshot()
+        except Exception as exc:
+            storage={'roots':[],'low_roots':[],'error':str(exc)}
+        return {'library':lib,'config':config,'profiles':profiles,'indexers':idx,'wanted':wanted,'calendar':calendar,'activity':activity,'history':activity,'automatic':automatic,'health':health,'storage':storage,'warnings':warnings,'counts':{'tv':sum(isinstance(x,dict) and x.get('kind')=='tv' for x in lib),'movies':sum(isinstance(x,dict) and x.get('kind')=='movie' for x in lib),'missing':len(wanted.get('missing') or []),'upgrades':len(wanted.get('upgrades') or []),'indexers':sum(isinstance(x,dict) and x.get('enabled',True) for x in idx)}}
 
     def save_profile(self,data):
         with self.lock:
@@ -5306,14 +5464,40 @@ class MediaAutomationEngine:
         failed_releases=sorted(failed_releases,key=lambda x:float(x.get('failed_ts') or 0),reverse=True)[:12]
         return {'item':item,'profile':profile,'current_quality':current_quality,'target_key':target_key,'season_pack':season_pack,'pack_episode_numbers':pack_episode_numbers,'recommended_guid':str((recommended or {}).get('guid') or ''),'releases':releases[:300],'errors':errors,'searched_indexers':len(enabled),'blacklist_count':len(blacklisted),'failed_releases':failed_releases}
 
+    def storage_health_snapshot(self) -> dict[str,Any]:
+        """Read-only free-space status for configured Automation media roots."""
+        cfg=self.public_config(); rows=[]; seen=set()
+        for kind,key in (('tv','tv_roots'),('movie','movie_roots')):
+            for raw in cfg.get(key) or []:
+                path=Path(str(raw or '').strip()).expanduser()
+                token=str(path).casefold()
+                if not str(raw or '').strip() or (kind,token) in seen:
+                    continue
+                seen.add((kind,token))
+                usage=self._disk_usage(path)
+                reserve=self._storage_reserve_bytes(path)
+                rows.append({
+                    'kind':kind,'path':str(path),'online':bool(path.exists() and path.is_dir()),
+                    'total':int(usage.total) if usage is not None else 0,
+                    'free':int(usage.free) if usage is not None else 0,
+                    'reserve':int(reserve),'reserve_ok':bool(usage is not None and int(usage.free)>=int(reserve)),
+                    'free_percent':round((100.0*int(usage.free)/int(usage.total)),2) if usage is not None and int(usage.total)>0 else 0.0,
+                })
+        return {
+            'reserve_gb':int(cfg.get('automatic_storage_reserve_gb') or 5),
+            'reserve_percent':int(cfg.get('automatic_storage_reserve_percent',5) or 0),
+            'roots':rows,
+            'low_roots':[dict(x) for x in rows if x.get('online') and not x.get('reserve_ok')],
+        }
+
     def release_storage_plan(self,item:dict[str,Any],release_size:int) -> dict[str,Any]:
-        size=max(0,int(release_size or 0)); root_need=self._storage_requirement(size,staging=False); staging_need=self._storage_requirement(size,staging=True)
-        root=self._resolve_root(item,required_bytes=root_need)
-        root_free=self._disk_free(root); staging_path=None; staging_free=0
+        size=max(0,int(release_size or 0)); root_payload=int(size*1.10)
+        root=self._resolve_root(item,required_bytes=root_payload)
+        root_free=self._disk_free(root); root_need=self._storage_requirement(size,staging=False,path=root); staging_path=None; staging_free=0; staging_need=0
         try:
-            snap=self.download_manager.snapshot(); staging_path=Path(str(snap.get('folder') or '')).expanduser() if snap.get('folder') else None; staging_free=self._disk_free(staging_path)
+            snap=self.download_manager.snapshot(); staging_path=Path(str(snap.get('folder') or '')).expanduser() if snap.get('folder') else None; staging_free=self._disk_free(staging_path); staging_need=self._storage_requirement(size,staging=True,path=staging_path)
         except Exception: pass
-        return {'root':str(root or ''),'root_free':root_free,'root_required':root_need,'staging':str(staging_path or ''),'staging_free':staging_free,'staging_required':staging_need,'ok_root':bool(root and root.exists() and (not size or root_free>=root_need)),'ok_staging':bool(not size or not staging_path or staging_free>=staging_need)}
+        return {'root':str(root or ''),'root_free':root_free,'root_required':root_need,'root_reserve':self._storage_reserve_bytes(root),'staging':str(staging_path or ''),'staging_free':staging_free,'staging_required':staging_need,'staging_reserve':self._storage_reserve_bytes(staging_path) if staging_path else 0,'ok_root':bool(root and root.exists() and (not size or root_free>=root_need)),'ok_staging':bool(not size or not staging_path or staging_free>=staging_need)}
 
     def _target_current_quality(self,item:dict[str,Any],season=None,episode=None) -> str:
         if item.get('kind')=='movie': return str((item.get('movie_file') or {}).get('quality') or 'Unknown')

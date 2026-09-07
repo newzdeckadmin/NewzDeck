@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.41"
+ADAPTER_VERSION = "3.6.42"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -3287,6 +3287,26 @@ class SabDownloadManager:
         except Exception:
             return []
 
+    @staticmethod
+    def _provider_warning_relevant(text: Any) -> bool:
+        """Return True only for SAB warnings that plausibly describe NNTP/provider health."""
+        low = str(text or "").strip().casefold()
+        if not low:
+            return False
+        provider_terms = (
+            "news server", "usenet server", "nntp", "server connection",
+            "cannot connect to server", "failed to connect to server", "connection to server",
+            "too many connections", "authentication failed", "authentication error",
+            "invalid username", "invalid password", "server requires", "server is unavailable",
+            "server timed out", "server timeout", "server disconnected", "server inactive",
+        )
+        return any(term in low for term in provider_terms)
+
+    @staticmethod
+    def _disk_warning(text: Any) -> bool:
+        low = str(text or "").strip().casefold()
+        return any(term in low for term in ("disk error", "disk full", "no space left", "not enough space"))
+
     def _provider_health(self, *, force: bool = False, timeout: float = 2.0) -> dict[str, Any]:
         """Read configured + runtime SAB NNTP state and always explain zero-worker states."""
         now = time.time()
@@ -3358,7 +3378,10 @@ class SabDownloadManager:
             if not warning_text:
                 warning_text = self._active_warnings(timeout=1.2)
 
-            summary = errors[0] if errors else (warning_text[0] if warning_text else "")
+            provider_warnings = [x for x in warning_text if self._provider_warning_relevant(x)]
+            engine_warnings = [x for x in warning_text if x not in provider_warnings]
+            disk_error = next((x for x in warning_text if self._disk_warning(x)), "")
+            summary = errors[0] if errors else (provider_warnings[0] if provider_warnings else "")
             if not summary and enabled_expected and missing_config:
                 names = ", ".join(str(enabled_expected[x].get("display_name") or x) for x in missing_config[:2])
                 summary = f"SABnzbd does not have the NewzDeck provider configuration loaded ({names})."
@@ -3375,6 +3398,9 @@ class SabDownloadManager:
                 "servers": servers,
                 "errors": errors,
                 "warnings": warning_text,
+                "provider_warnings": provider_warnings,
+                "engine_warnings": engine_warnings,
+                "disk_error": disk_error,
                 "summary": summary,
                 "expected_servers": len(enabled_expected),
                 "configured_servers": len([x for x in enabled_expected if x in configured]),
@@ -3407,6 +3433,7 @@ class SabDownloadManager:
                     "active_connections": 0,
                     "capacity": sum(int(x.get("connections") or 0) for x in enabled_expected.values()),
                     "servers": [], "errors": [], "warnings": [],
+                    "provider_warnings": [], "engine_warnings": [], "disk_error": "",
                     "summary": "SAB status temporarily unavailable" if self._is_transient_control_error(exc) else str(exc),
                     "expected_servers": len(enabled_expected), "configured_servers": len(configured),
                     "runtime_servers": -1, "missing_config": [x for x in enabled_expected if x not in configured],
@@ -6063,9 +6090,11 @@ class SabDownloadManager:
             provider_health = self._provider_health(force=False)
         actual_active_connections = int(provider_health.get("active_connections", 0) or 0)
         provider_summary = str(provider_health.get("summary") or "").strip()
-        disk_fault = bool("disk error" in provider_summary.casefold())
+        engine_warning_summary = str((provider_health.get("engine_warnings") or [""])[0] or "").strip()
+        disk_error = str(provider_health.get("disk_error") or "").strip()
+        disk_fault = bool(disk_error)
         if disk_fault:
-            self._engine_fault = provider_summary
+            self._engine_fault = disk_error
             self._engine_fault_last_ts = now
             self._resume_intent_event.clear()
             engine_pause_mismatch = False
@@ -6555,6 +6584,10 @@ class SabDownloadManager:
                        "provider_zero_socket_seconds": float(provider_health.get("zero_socket_seconds", 0.0) or 0.0),
                        "provider_no_progress_seconds": float(provider_health.get("no_progress_seconds", 0.0) or 0.0),
                        "provider_summary": provider_summary,
+                       "engine_warning_summary": engine_warning_summary,
+                       "provider_warnings": list(provider_health.get("provider_warnings") or [])[:10],
+                       "engine_warnings": list(provider_health.get("engine_warnings") or [])[:10],
+                       "disk_error": disk_error,
                        "provider_test": dict(provider_health.get("provider_test") or {}),
                        "expected_servers": int(provider_health.get("expected_servers", 0) or 0),
                        "configured_servers": int(provider_health.get("configured_servers", 0) or 0),

@@ -137,6 +137,14 @@ jobs:
             }
           }
 
+          $launcher = Get-Content -LiteralPath 'src/windows/NewzDeckLauncher.go' -Raw
+          if (-not $launcher.Contains('[startup-v%s +%s]')) {
+            throw 'Launcher startup log identity is not dynamic.'
+          }
+          if ($launcher -match 'startup-v\d+\.\d+\.\d+') {
+            throw 'Launcher contains a stale hardcoded startup-version log marker.'
+          }
+
           $installer = Get-Content -LiteralPath 'release/windows/NewzDeck.iss' -Raw
           foreach ($required in @(
             "GetEnv('USERPROFILE')",
@@ -195,6 +203,7 @@ jobs:
             throw 'Legacy acceptance tray filename remains in the production builder.'
           }
 
+          python release/windows/validate-automation-identity.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.41** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.42** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.41_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.42_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,19 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.41 highlights
+## v3.6.42 highlights
 
-v3.6.41 keeps Downloads and diagnostics responsive when Automation or another legitimate operation is using the serialized private-SAB control path.
+v3.6.42 hardens TV release identity and long-running Automation reliability based on a completed v3.6.41 diagnostic review.
 
-- **Bounded live SAB access:** live Queue/History presentation reads no longer wait behind long-running serialized SAB control work.
-- **Bounded shared reader:** live callers can reuse recent coherent Queue/History state while authoritative Automation reconciliation owns the shared reader.
-- **No snapshot pile-up:** concurrent API callers can immediately reuse the last coherent presentation snapshot while another build is in progress.
-- **Authoritative safety preserved:** stale presentation data never drives queue cleanup, Pause recovery, terminal reconciliation, Automation admission, or Smart Import decisions.
-- **Better diagnostics:** snapshot-build, lock-contention, SAB transport-wait, and Queue/History busy telemetry is now exposed for future support captures.
-- **Installed status corrected:** Inno Setup's `unins000.exe` marker is now recognized as an installed NewzDeck runtime.
+- **Strict TV series prefix identity:** unrelated shows and episode-title text can no longer satisfy another show's Automation target.
+- **Library reconciliation safety:** TV scans prefer a proven series folder and reject stale cross-title folder ownership.
+- **Needs Review audit:** existing suspicious cross-title/edition/identity records are reported read-only; media is never automatically deleted or rewritten.
+- **Reservation hygiene:** only expired Automation Grab reservations are pruned, preserving active duplicate-Grab protection.
+- **Drive reserve protection:** Automation can preserve a configurable percentage of every media/staging drive in addition to the GB minimum.
+- **Cleaner diagnostics:** Win64 memory telemetry is fixed and generic SAB warnings no longer masquerade as provider failures.
+- **Permanent release guards:** launcher log identity is dynamic and production CI runs the strict TV identity regression suite.
 
-See [the full v3.6.41 release notes](release/RELEASE_NOTES_v3.6.41.md).
+See [the full v3.6.42 release notes](release/RELEASE_NOTES_v3.6.42.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.41_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.42_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

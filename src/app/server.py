@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.41"
+APP_VERSION = "3.6.42"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11696,7 +11696,12 @@ except Exception:
 AUTOMATION_MANAGER = AutomationManager()
 # v3.5.33: background managers start only after the HTTP listener has been created.
 
+_PROCESS_MEMORY_LAST_ERROR = ""
+
 def _process_memory_bytes() -> int:
+    """Return this backend's working set without silently truncating Win64 HANDLEs."""
+    global _PROCESS_MEMORY_LAST_ERROR
+    _PROCESS_MEMORY_LAST_ERROR = ""
     try:
         if sys.platform == "win32":
             class PMC(ctypes.Structure):
@@ -11705,16 +11710,25 @@ def _process_memory_bytes() -> int:
                             ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
                             ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
                             ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            kernel32.GetCurrentProcess.argtypes = []
+            kernel32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
+            get_memory = psapi.GetProcessMemoryInfo
+            get_memory.argtypes = [ctypes.wintypes.HANDLE, ctypes.POINTER(PMC), ctypes.wintypes.DWORD]
+            get_memory.restype = ctypes.wintypes.BOOL
             pmc = PMC(); pmc.cb = ctypes.sizeof(PMC)
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb): return int(pmc.WorkingSetSize)
-        else:
-            import resource
-            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            return int(rss * (1 if sys.platform == 'darwin' else 1024))
-    except Exception:
-        pass
-    return 0
+            handle = kernel32.GetCurrentProcess()
+            if get_memory(handle, ctypes.byref(pmc), pmc.cb):
+                return int(pmc.WorkingSetSize)
+            _PROCESS_MEMORY_LAST_ERROR = f"GetProcessMemoryInfo failed (WinError {ctypes.get_last_error()})"
+            return 0
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return int(rss * (1 if sys.platform == 'darwin' else 1024))
+    except Exception as exc:
+        _PROCESS_MEMORY_LAST_ERROR = f"{type(exc).__name__}: {exc}"[:300]
+        return 0
 
 def _dir_size(path: Path, pattern: str = '*') -> int:
     total = 0
@@ -11754,8 +11768,10 @@ def diagnostics_snapshot() -> dict[str, Any]:
     snap = DOWNLOAD_MANAGER.snapshot()
     if str((snap.get('engine') or {}).get('name') or '').casefold() == 'sabnzbd':
         pool_stats = snap.get('connections') or pool_stats
+    memory_bytes = _process_memory_bytes()
+    memory_error = str(_PROCESS_MEMORY_LAST_ERROR or '')
     return {
-        'version': APP_VERSION, 'uptime_seconds': int(time.time()-base.get('started',time.time())), 'memory_bytes': _process_memory_bytes(),
+        'version': APP_VERSION, 'uptime_seconds': int(time.time()-base.get('started',time.time())), 'memory_bytes': memory_bytes, 'memory_error': memory_error,
         'providers': providers, 'connections': pool_stats, 'downloads': {'counts': snap.get('counts',{}), 'speed_bps': snap.get('total_speed_bps',0), 'concurrent_downloads': snap.get('concurrent_downloads',0), 'telemetry': snap.get('telemetry',{}), 'statistics': snap.get('statistics',{}), 'collections': snap.get('collections',[]), 'engine': snap.get('engine',{})},
         'storage': {'disk': disk_info, 'thumbnail_cache': thumbnail_cache_stats(), 'preview_cache_bytes': _dir_size(CACHE_DIR), 'download_temp_bytes': _dir_size(DOWNLOAD_TEMP_DIR), 'data_bytes': _dir_size(DATA_DIR)},
         'thumbnail_decode': thumbnail_decode_stats(),
@@ -11765,10 +11781,13 @@ def diagnostics_snapshot() -> dict[str, Any]:
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
         'automation_target_integrity': MEDIA_AUTOMATION.target_integrity_telemetry() if 'MEDIA_AUTOMATION' in globals() else {'stale_auto_grabs_suppressed':0,'scan_merge_conflicts':0,'downgrades_blocked':0,'existing_quality_recovered':0,'last_event_ts':0},
+        'automation_storage': MEDIA_AUTOMATION.storage_health_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'roots':[],'low_roots':[]},
     }
 
 def diagnostics_report() -> str:
-    d = diagnostics_snapshot(); lines = [f"NewzDeck Diagnostics v{APP_VERSION}", f"Generated: {datetime.now().isoformat(timespec='seconds')}", f"Uptime: {d['uptime_seconds']}s", f"Memory: {d['memory_bytes']} bytes"]
+    d = diagnostics_snapshot()
+    memory_line = f"Memory: {d['memory_bytes']} bytes" if int(d.get('memory_bytes',0) or 0) > 0 else f"Memory: unavailable ({d.get('memory_error') or 'unknown error'})"
+    lines = [f"NewzDeck Diagnostics v{APP_VERSION}", f"Generated: {datetime.now().isoformat(timespec='seconds')}", f"Uptime: {d['uptime_seconds']}s", memory_line]
     disk=d['storage']['disk']; lines.append(f"Download disk free: {disk.get('free',0)} / {disk.get('total',0)} bytes")
     td=d.get('thumbnail_decode') or {}; th=td.get('helper') or {}; tc=d.get('thumbnail_catalog') or {}; lines.append(f"Thumbnail decode: workers={td.get('workers',0)} active={td.get('active',0)} peak={td.get('peak',0)} runs={td.get('runs',0)} average_wait_ms={td.get('average_wait_ms',0)} physical_memory={td.get('physical_memory_bytes',0)} helper_jobs={th.get('jobs',0)} helper_starts={th.get('process_starts',0)} starts_avoided={th.get('process_launches_avoided',0)} catalog_entries={tc.get('entries',0)} catalog_hits={tc.get('hits',0)} catalog_fs_fallbacks={tc.get('filesystem_fallbacks',0)}")
     conn=d['connections']; engine=(d.get('downloads') or {}).get('engine') or {}
@@ -11875,14 +11894,22 @@ def diagnostics_report() -> str:
         f"last_event_ts={float(integrity.get('last_event_ts',0) or 0):.3f}"
     )
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")
+    storage_health=d.get('automation_storage') if isinstance(d.get('automation_storage'),dict) else {}
+    low_roots=list(storage_health.get('low_roots') or [])
+    lines.append(f"Automation storage health: roots={len(list(storage_health.get('roots') or []))}; below_reserve={len(low_roots)}")
+    for row in low_roots[:10]:
+        lines.append(f"- Storage below reserve: {row.get('path')}; free={int(row.get('free',0) or 0)}; total={int(row.get('total',0) or 0)}; reserve={int(row.get('reserve',0) or 0)}; free_pct={float(row.get('free_percent',0) or 0):.2f}")
     try:
         audit=MEDIA_AUTOMATION.library_integrity_audit()
-        lines.append(f"Library integrity audit: files={int(audit.get('file_records',0) or 0)}; duplicate_fingerprints={int(audit.get('duplicate_fingerprints',0) or 0)}; cross_title_duplicates={int(audit.get('cross_title_duplicate_fingerprints',0) or 0)}; edition_mismatches={int(audit.get('edition_mismatches',0) or 0)}; read_only=True")
+        lines.append(f"Library integrity audit: files={int(audit.get('file_records',0) or 0)}; duplicate_fingerprints={int(audit.get('duplicate_fingerprints',0) or 0)}; cross_title_duplicates={int(audit.get('cross_title_duplicate_fingerprints',0) or 0)}; edition_mismatches={int(audit.get('edition_mismatches',0) or 0)}; identity_mismatches={int(audit.get('identity_mismatches',0) or 0)}; needs_review={int(audit.get('needs_review_count',0) or 0)}; read_only=True")
         for row in list(audit.get('cross_title_duplicates') or [])[:10]:
             targets=' | '.join(f"{x.get('title')} S{int(x.get('season') or 0):02d}E{int(x.get('episode') or 0):02d} -> {x.get('path')}" if x.get('season') is not None else f"{x.get('title')} -> {x.get('path')}" for x in list(row.get('targets') or [])[:4])
             lines.append(f"- Integrity duplicate {row.get('fingerprint')}: {targets}")
         for row in list(audit.get('edition_mismatch_examples') or [])[:5]:
             lines.append(f"- Integrity edition mismatch: {row.get('title')} S{int(row.get('season') or 0):02d}E{int(row.get('episode') or 0):02d}; expected={row.get('expected_country')}; observed={row.get('observed_country')}; path={row.get('path')}")
+        for row in list(audit.get('identity_mismatch_examples') or [])[:10]:
+            episode = f" S{int(row.get('season') or 0):02d}E{int(row.get('episode') or 0):02d}" if row.get('season') is not None else ''
+            lines.append(f"- Integrity identity review: {row.get('title')}{episode}; release={row.get('release_title')}; path={row.get('path')}")
     except Exception as exc:
         lines.append(f"Library integrity audit: unavailable ({exc})")
     lines.append('Providers:')

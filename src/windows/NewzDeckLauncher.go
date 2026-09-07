@@ -360,7 +360,11 @@ func logLine(start time.Time, format string, args ...any) {
 	defer f.Close()
 	msg := fmt.Sprintf(format, args...)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	_, _ = fmt.Fprintf(f, "%s [startup-v3.6.40 +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), elapsed, msg)
+    version := localVersion()
+    if version == "" {
+        version = "unknown"
+    }
+    _, _ = fmt.Fprintf(f, "%s [startup-v%s +%s] %s\r\n", time.Now().Format("2006-01-02 15:04:05.000"), version, elapsed, msg)
 }
 
 func acquireStartupMutex() (uintptr, bool) {
