@@ -298,8 +298,12 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.40"
+APP_VERSION = "3.6.41"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
+
+def _is_installed_runtime() -> bool:
+    """Recognize both current Inno Setup installs and the retired legacy marker."""
+    return (APP_DIR / "unins000.exe").exists() or (APP_DIR / "Uninstall.exe").exists()
 DEFAULT_DOWNLOAD_DIR = Path(os.environ.get("NEWZDECK_DEFAULT_DOWNLOAD_DIR", "").strip() or (Path.home() / "Downloads" / "NewzDeck"))
 DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
 
@@ -12147,7 +12151,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 "par2_managed": bool(_managed_par2_path()), "par2_auto_install": sys.platform == "win32",
                 "par2_install_error": _par2_install_error,
                 "private_runtime": (APP_DIR / "runtime" / "python.exe").exists(),
-                "installed": (APP_DIR / "Uninstall.exe").exists(),
+                "installed": _is_installed_runtime(),
                 "download_engine": DOWNLOAD_MANAGER.engine_status() if hasattr(DOWNLOAD_MANAGER, "engine_status") else {"name":"NewzDeck Legacy","ready":True},
             })
             return self._json(200, base_health)
@@ -12164,7 +12168,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             online = online_update_status(force=force) if check_online else {"online_feed": True}
             return self._json(200, {
                 "version": APP_VERSION,
-                "installed": (APP_DIR / "Uninstall.exe").exists(),
+                "installed": _is_installed_runtime(),
                 "private_runtime": (APP_DIR / "runtime" / "python.exe").exists(),
                 "app_dir": str(APP_DIR),
                 "data_dir": str(USER_ROOT),

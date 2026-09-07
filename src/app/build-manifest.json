@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.40",
-  "base_version": "3.6.39",
-  "release": "Runtime Storage Cleanup & Hygiene",
-  "adapter_version": "3.6.40",
-  "name": "Runtime Storage Cleanup & Hygiene",
+  "version": "3.6.41",
+  "base_version": "3.6.40",
+  "release": "Downloads Snapshot Responsiveness",
+  "adapter_version": "3.6.41",
+  "name": "Downloads Snapshot Responsiveness",
   "changes": [
-    "Safely removes obsolete private SAB admin generations after the authoritative engine is healthy, but only when the directory is non-authoritative and every recorded localhost listener for that generation is proven free.",
-    "Normalizes an offline authoritative admin-vN generation back to the canonical sab-engine/admin folder when the old canonical generation is safely removable, preventing historical generation folders from accumulating after clean restarts.",
-    "Deletes the retained SABnzbd provisioning ZIP after successful provisioning and removes old v3.5 engine-state repair artifacts and abandoned extraction/download staging files once they are no longer needed.",
-    "Bounds sab-startup.log and backend-startup.log to the current file plus two rotated backups instead of allowing startup diagnostics to grow indefinitely.",
-    "Exposes cleanup counters in download-engine health telemetry while preserving incoming, incomplete, cache, job ledger, current engine identity, and all active/recoverable queue state."
+    "Bounds live Downloads Queue/History access to the serialized private-SAB transport so legitimate long-running control operations cannot make /api/downloads and diagnostics wait behind the control lock indefinitely.",
+    "Returns the last coherent presentation snapshot immediately to concurrent API callers while another snapshot build is in flight, with explicit stale-presentation markers and snapshot timing telemetry.",
+    "Uses short single-attempt budgets only for live presentation Queue/History reads while preserving the stronger existing retry/reconciliation behavior for authoritative non-live recovery and queue mutation paths.",
+    "Makes SAB transport telemetry observational instead of taking the control lock and adds transport wait/busy and snapshot build/lock telemetry for future diagnostics.",
+    "Recognizes Inno Setup's canonical unins000.exe as an installed runtime marker while retaining the legacy Uninstall.exe compatibility marker."
   ],
   "regression_guards": [
-    "The authoritative SAB admin directory is never deleted by cleanup, and an occupied historical localhost port always preserves its admin generation for stale-engine quarantine/recovery.",
-    "Canonical admin normalization runs only while the authoritative saved port is offline and while the launch lock is held; a live SAB process is never moved underneath itself.",
-    "incoming, incomplete, cache, newzdeck-jobs.json, engine.json, engine-identities.json, browser filename recovery state, and lock files are never targeted by runtime-storage cleanup.",
-    "v3.6.39 startup-reservation refinement and v3.6.38 crash-recovery/queue-admission protections remain unchanged.",
-    "Manual Search/Grab, Newznab behavior, Smart Import, no-downgrade protection, Downloads continuity, and Automation scheduling semantics are unchanged."
+    "The v3.6.20+ serialized SAB transport remains intact; v3.6.41 bounds only live presentation wait time and does not reintroduce overlapping localhost SAB control requests.",
+    "Stale presentation snapshots never drive tombstone cleanup, duplicate cleanup, Pause recovery, queue ownership, terminal-state reconciliation, Automation admission, or Smart Import decisions.",
+    "Non-live authoritative Queue/History refreshes and mutation/recovery paths retain their existing retry budgets and semantics.",
+    "v3.6.40 runtime-storage cleanup, v3.6.39 startup-reservation refinement, and v3.6.38 crash-recovery/queue-admission protections remain unchanged.",
+    "Manual Search/Grab, Newznab behavior, no-downgrade protection, Downloads continuity, Automation scheduling, installer upgrade behavior, and user-data locations are unchanged."
   ]
 }

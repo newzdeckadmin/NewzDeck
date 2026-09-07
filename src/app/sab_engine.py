@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.40"
+ADAPTER_VERSION = "3.6.41"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
 ENGINE_STATE_VERSION = 2
@@ -610,6 +610,13 @@ class SabDownloadManager:
         self._snapshot_lock = threading.Lock()
         self._snapshot_cache_seconds = 0.22
         self._snapshot_sequence = 0
+        # v3.6.41: foreground/API snapshot callers must never queue behind a long
+        # snapshot build once a coherent presentation snapshot already exists.
+        self._snapshot_lock_busy_returns = 0
+        self._snapshot_lock_busy_last_ts = 0.0
+        self._snapshot_last_build_ms = 0.0
+        self._snapshot_max_build_ms = 0.0
+        self._snapshot_slow_builds = 0
         # v3.6.20: all NewzDeck -> SAB HTTP requests share one transport lock.
         # The anonymized SAB log proved SAB itself stayed alive and downloaded while
         # NewzDeck saw WinError 10054 from overlapping localhost control requests.
@@ -636,6 +643,15 @@ class SabDownloadManager:
         self._sab_http_last_reset_ts = 0.0
         self._sab_http_last_reset_mode = ""
         self._sab_http_resets_by_mode: dict[str, int] = {}
+        # v3.6.41: live presentation reads get a bounded wait for the serialized
+        # SAB transport. Long-running control work may own the transport, but it
+        # must not make /api/downloads and diagnostics wait behind it indefinitely.
+        self._sab_transport_busy_timeouts = 0
+        self._sab_transport_busy_last_ts = 0.0
+        self._sab_transport_last_wait_ms = 0.0
+        self._sab_transport_max_wait_ms = 0.0
+        self._sab_transport_active_mode = ""
+        self._sab_transport_last_completed_mode = ""
         # v3.6.30: production v3.6.29 proved the persistent transport itself is
         # healthy (97%+ reuse and essentially zero Queue/History read resets), while
         # nearly every residual transport reset came from a redundant key-free SAB
@@ -654,6 +670,8 @@ class SabDownloadManager:
         # sessions should reuse the same connection continuously.
         self._sab_http_idle_reopen_seconds = 25.0
         self._queue_history_lock = threading.RLock()
+        self._queue_history_busy_fallbacks = 0
+        self._queue_history_busy_last_ts = 0.0
         self._last_good_queue_payload: dict[str, Any] | None = None
         self._last_good_queue_ts = 0.0
         self._last_good_history_payload: dict[str, Any] | None = None
@@ -2238,14 +2256,28 @@ class SabDownloadManager:
         return conn, reused
 
     def _sab_http_transport_telemetry(self) -> dict[str, Any]:
+        """Return transport diagnostics without waiting for the transport lock.
+
+        v3.6.41 deliberately treats these fields as observational telemetry. The
+        serialized SAB transport can be held by a legitimate long-running control
+        request, and diagnostics must never block behind that lock merely to report
+        connection counters. Scalar reads are safe as an approximate instantaneous
+        view and are preferable to making the Downloads presentation path stall.
+        """
         now = time.time()
         requests = int(self._sab_http_requests)
         reused = int(self._sab_http_connections_reused)
-        with self._sab_transport_lock:
-            active = bool(self._sab_http_connection is not None and self._sab_http_connection.sock is not None)
-            opened_ts = float(self._sab_http_opened_ts or 0.0)
-            last_request_ts = float(self._sab_http_last_request_ts or 0.0)
+        try:
+            conn = self._sab_http_connection
+            active = bool(conn is not None and conn.sock is not None)
+        except Exception:
+            active = False
+        opened_ts = float(self._sab_http_opened_ts or 0.0)
+        last_request_ts = float(self._sab_http_last_request_ts or 0.0)
+        try:
             by_mode = dict(sorted(self._sab_http_resets_by_mode.items()))
+        except RuntimeError:
+            by_mode = {}
         return {
             'sab_http_requests': requests,
             'sab_http_connections_opened': int(self._sab_http_connections_opened),
@@ -2261,6 +2293,14 @@ class SabDownloadManager:
             'sab_http_persistent_active': active,
             'sab_http_connection_age_seconds': max(0.0, now - opened_ts) if active and opened_ts > 0 else 0.0,
             'sab_http_idle_seconds': max(0.0, now - last_request_ts) if last_request_ts > 0 else 0.0,
+            'sab_transport_busy_timeouts': int(self._sab_transport_busy_timeouts),
+            'sab_transport_busy_last_ts': float(self._sab_transport_busy_last_ts or 0.0),
+            'sab_transport_last_wait_ms': round(float(self._sab_transport_last_wait_ms or 0.0), 3),
+            'sab_transport_max_wait_ms': round(float(self._sab_transport_max_wait_ms or 0.0), 3),
+            'sab_transport_active_mode': str(self._sab_transport_active_mode or ''),
+            'sab_transport_last_completed_mode': str(self._sab_transport_last_completed_mode or ''),
+            'queue_history_busy_fallbacks': int(self._queue_history_busy_fallbacks),
+            'queue_history_busy_last_ts': float(self._queue_history_busy_last_ts or 0.0),
             'sab_version_probes': int(self._sab_version_probes),
             'sab_version_probe_failures': int(self._sab_version_probe_failures),
             'sab_version_probe_last_ts': float(self._sab_version_probe_last_ts or 0.0),
@@ -2277,7 +2317,8 @@ class SabDownloadManager:
         }
 
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
-                 include_key: bool = True, **params: Any) -> dict[str, Any]:
+                 include_key: bool = True, transport_wait_timeout: float | None = None,
+                 **params: Any) -> dict[str, Any]:
         url = self._api_url(api_port, mode, api_key=api_key, include_key=include_key, **params)
         target = urllib.parse.urlsplit(url)
         request_target = target.path + (("?" + target.query) if target.query else "")
@@ -2287,9 +2328,27 @@ class SabDownloadManager:
             "Connection": "keep-alive",
         }
         # Preserve v3.6.20+'s single-filed control plane, but reuse the underlying
-        # HTTP/1.1 connection. Fully reading each response before the lock is
-        # released makes the socket safe for the next serialized request.
-        with self._sab_transport_lock:
+        # HTTP/1.1 connection. v3.6.41 lets live presentation reads specify a short
+        # transport wait budget so a legitimate long control request cannot stall
+        # /api/downloads or diagnostics for the full control-operation duration.
+        wait_started = time.monotonic()
+        if transport_wait_timeout is None:
+            acquired = self._sab_transport_lock.acquire()
+        else:
+            acquired = self._sab_transport_lock.acquire(
+                timeout=max(0.0, float(transport_wait_timeout))
+            )
+        wait_ms = max(0.0, (time.monotonic() - wait_started) * 1000.0)
+        self._sab_transport_last_wait_ms = wait_ms
+        self._sab_transport_max_wait_ms = max(self._sab_transport_max_wait_ms, wait_ms)
+        if not acquired:
+            self._sab_transport_busy_timeouts += 1
+            self._sab_transport_busy_last_ts = time.time()
+            raise TimeoutError(
+                f"Built-in SABnzbd control transport busy while reading {mode}"
+            )
+        self._sab_transport_active_mode = str(mode or "unknown")[:64]
+        try:
             self._sab_http_requests += 1
             try:
                 conn, _reused = self._sab_http_connection_locked(api_port, timeout)
@@ -2325,6 +2384,10 @@ class SabDownloadManager:
                     self._sab_http_resets_by_mode[key] = int(self._sab_http_resets_by_mode.get(key, 0)) + 1
                 self._close_sab_http_connection_locked()
                 raise
+        finally:
+            self._sab_transport_last_completed_mode = self._sab_transport_active_mode
+            self._sab_transport_active_mode = ""
+            self._sab_transport_lock.release()
         if isinstance(data, dict) and data.get("error"):
             raise RuntimeError(str(data.get("error")))
         return data
@@ -2439,19 +2502,26 @@ class SabDownloadManager:
         return False
 
 
-    def _api(self, mode: str, *, timeout: float = 4.0, include_key: bool = True, _retry_auth: bool = True, **params: Any) -> dict[str, Any]:
+    def _api(self, mode: str, *, timeout: float = 4.0, include_key: bool = True, _retry_auth: bool = True,
+             transport_wait_timeout: float | None = None, **params: Any) -> dict[str, Any]:
         ident = self._load_engine_identity()
         port = int(ident["port"])
         key = str(ident.get("api_key") or "")
         try:
-            result = self._raw_api(port, mode, timeout=timeout, api_key=key, include_key=include_key, **params)
+            result = self._raw_api(
+                port, mode, timeout=timeout, api_key=key, include_key=include_key,
+                transport_wait_timeout=transport_wait_timeout, **params
+            )
             self._last_api_success_ts = time.time()
             self._last_ready_ts = self._last_api_success_ts
             return result
         except urllib.error.HTTPError as exc:
             # A stale identity should heal itself instead of surfacing raw 403 errors.
             if exc.code in {401, 403} and include_key and _retry_auth and self._reconcile_live_identity(timeout=0.8):
-                return self._api(mode, timeout=timeout, include_key=include_key, _retry_auth=False, **params)
+                return self._api(
+                    mode, timeout=timeout, include_key=include_key, _retry_auth=False,
+                    transport_wait_timeout=transport_wait_timeout, **params
+                )
             body = ""
             try:
                 body = exc.read().decode("utf-8", errors="replace").strip()
@@ -2465,7 +2535,10 @@ class SabDownloadManager:
             # like an HTTP auth failure and reconcile historical identities once.
             message = str(exc)
             if include_key and _retry_auth and "api key" in message.casefold() and self._reconcile_live_identity(timeout=0.8):
-                return self._api(mode, timeout=timeout, include_key=include_key, _retry_auth=False, **params)
+                return self._api(
+                    mode, timeout=timeout, include_key=include_key, _retry_auth=False,
+                    transport_wait_timeout=transport_wait_timeout, **params
+                )
             raise
 
     def _runtime_ping(self, timeout: float = 0.8) -> bool:
@@ -3531,7 +3604,8 @@ class SabDownloadManager:
         base["_newzdeck_control_error"] = str(error or "")[:300]
         return base
 
-    def _read_api_retry(self, mode: str, *, attempts: int = 6, timeout: float = 4.0, **params: Any) -> dict[str, Any]:
+    def _read_api_retry(self, mode: str, *, attempts: int = 6, timeout: float = 4.0,
+                        transport_wait_timeout: float | None = None, **params: Any) -> dict[str, Any]:
         """Retry read-only SAB API calls through a serialized localhost transport.
 
         The r2 anonymized SAB log proved SAB stayed alive and its NNTP downloader was
@@ -3542,7 +3616,9 @@ class SabDownloadManager:
         last: Exception | None = None
         for attempt in range(max(1, int(attempts))):
             try:
-                return self._api(mode, timeout=timeout, **params)
+                return self._api(
+                    mode, timeout=timeout, transport_wait_timeout=transport_wait_timeout, **params
+                )
             except Exception as exc:
                 last = exc
                 if not self._is_transient_control_error(exc) or attempt + 1 >= attempts:
@@ -4933,8 +5009,35 @@ class SabDownloadManager:
         processed jobs while NewzDeck saw localhost 10054 errors. Serialize these
         reads, share recent results, and explicitly mark short cached fallbacks stale
         so they can never drive Pause recovery as if they were current engine truth.
+
+        v3.6.41 keeps authoritative/non-live callers fully serialized, but live UI
+        callers get a bounded wait. If Automation owns this reader for reconciliation,
+        the UI may reuse recent presentation data rather than queue behind it.
         """
-        with self._queue_history_lock:
+        if live:
+            acquired = self._queue_history_lock.acquire(timeout=0.12)
+        else:
+            acquired = self._queue_history_lock.acquire()
+        if not acquired:
+            now = time.time()
+            queue_age = now - float(self._last_good_queue_ts or 0.0)
+            if self._last_good_queue_payload is None or queue_age > 1.75:
+                raise TimeoutError("SAB Queue/History reader is busy")
+            self._queue_history_busy_fallbacks += 1
+            self._queue_history_busy_last_ts = now
+            self._sab_read_stale_uses += 1
+            queue_data = self._tag_sab_payload(
+                dict(self._last_good_queue_payload), "queue", fresh=False,
+                age=max(0.0, queue_age), error="Queue/History reader busy",
+            )
+            history_payload = self._last_good_history_payload or self._live_history_payload or {}
+            history_age = now - float(self._last_good_history_ts or 0.0) if self._last_good_history_ts else 0.0
+            history_data = self._tag_sab_payload(
+                dict(history_payload), "history", fresh=False,
+                age=max(0.0, history_age), error="Queue/History reader busy",
+            )
+            return queue_data, history_data
+        try:
             now = time.time()
             queue_fresh = True
             queue_error = ""
@@ -4946,7 +5049,8 @@ class SabDownloadManager:
                 else:
                     queue_data = self._read_api_retry(
                         "queue", start=0, limit=200,
-                        timeout=2.0 if live else 4.0, attempts=6,
+                        timeout=1.25 if live else 4.0, attempts=1 if live else 6,
+                        transport_wait_timeout=0.25 if live else None,
                     )
                     self._live_queue_payload = dict(queue_data)
                     self._live_queue_fetch_ts = time.time()
@@ -4992,7 +5096,8 @@ class SabDownloadManager:
                 try:
                     history_data = self._read_api_retry(
                         "history", start=0, limit=200,
-                        timeout=2.5 if live else 4.0, attempts=6,
+                        timeout=1.5 if live else 4.0, attempts=1 if live else 6,
+                        transport_wait_timeout=0.25 if live else None,
                     )
                     self._live_history_payload = dict(history_data)
                     self._live_history_fetch_ts = time.time()
@@ -5018,6 +5123,8 @@ class SabDownloadManager:
             if queue_fresh:
                 self._live_queue_ids = current_ids
             return queue_data, history_data
+        finally:
+            self._queue_history_lock.release()
 
     @staticmethod
     def _queue_slots(payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -5601,20 +5708,70 @@ class SabDownloadManager:
         now = time.time()
         if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
             return self._last_snapshot
-        with self._snapshot_lock:
+
+        # v3.6.41: once a coherent presentation exists, a second HTTP caller does
+        # not wait behind an in-flight snapshot build. This keeps diagnostics and
+        # /api/downloads responsive even when the builder is briefly waiting for
+        # serialized SAB control traffic. The returned copy is presentation-only;
+        # it never drives reconciliation or destructive queue decisions.
+        wait_started = time.monotonic()
+        if self._last_snapshot is not None:
+            acquired = self._snapshot_lock.acquire(timeout=0.08)
+        else:
+            acquired = self._snapshot_lock.acquire()
+        lock_wait_ms = max(0.0, (time.monotonic() - wait_started) * 1000.0)
+        if not acquired:
+            self._snapshot_lock_busy_returns += 1
+            self._snapshot_lock_busy_last_ts = time.time()
+            stale = dict(self._last_snapshot or {})
+            stale["snapshot_stale"] = True
+            stale["snapshot_stale_reason"] = "snapshot-build-in-progress"
+            stale["snapshot_stale_age_seconds"] = max(0.0, time.time() - float(self._last_snapshot_ts or 0.0))
+            telemetry = dict(stale.get("telemetry") or {})
+            telemetry.update({
+                "snapshot_lock_busy_returns": int(self._snapshot_lock_busy_returns),
+                "snapshot_lock_busy_last_ts": float(self._snapshot_lock_busy_last_ts or 0.0),
+                "snapshot_lock_wait_ms": round(lock_wait_ms, 3),
+                "snapshot_last_build_ms": round(float(self._snapshot_last_build_ms or 0.0), 3),
+                "snapshot_max_build_ms": round(float(self._snapshot_max_build_ms or 0.0), 3),
+                "snapshot_slow_builds": int(self._snapshot_slow_builds),
+            })
+            stale["telemetry"] = telemetry
+            return stale
+
+        try:
             now = time.time()
             if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
                 return self._last_snapshot
+            build_started = time.monotonic()
             result = self._snapshot_uncached()
+            build_ms = max(0.0, (time.monotonic() - build_started) * 1000.0)
+            self._snapshot_last_build_ms = build_ms
+            self._snapshot_max_build_ms = max(self._snapshot_max_build_ms, build_ms)
+            if build_ms >= 1000.0:
+                self._snapshot_slow_builds += 1
             # Sequence/timestamp let the browser reject genuinely older state even
             # if a slow HTTP response arrives after a newer request.
             decorated = dict(result)
             self._snapshot_sequence += 1
             decorated["snapshot_seq"] = self._snapshot_sequence
             decorated["snapshot_generated_ts"] = time.time()
+            decorated["snapshot_stale"] = False
+            telemetry = dict(decorated.get("telemetry") or {})
+            telemetry.update({
+                "snapshot_lock_busy_returns": int(self._snapshot_lock_busy_returns),
+                "snapshot_lock_busy_last_ts": float(self._snapshot_lock_busy_last_ts or 0.0),
+                "snapshot_lock_wait_ms": round(lock_wait_ms, 3),
+                "snapshot_last_build_ms": round(build_ms, 3),
+                "snapshot_max_build_ms": round(float(self._snapshot_max_build_ms or 0.0), 3),
+                "snapshot_slow_builds": int(self._snapshot_slow_builds),
+            })
+            decorated["telemetry"] = telemetry
             self._last_snapshot = decorated
             self._last_snapshot_ts = time.time()
             return decorated
+        finally:
+            self._snapshot_lock.release()
 
     def _offline_job_from_meta(self, nzo_id: str, meta: dict[str, Any], now: float) -> dict[str, Any]:
         """Reconstruct one persisted job while SAB is temporarily unavailable.

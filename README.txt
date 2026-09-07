@@ -1,18 +1,15 @@
-NewzDeck v3.6.40
-Runtime Storage Cleanup & Hygiene
+NewzDeck v3.6.41
+Downloads Snapshot Responsiveness
 
-Focused maintenance release for long-lived NewzDeck installations.
+Focused production reliability release based on a completed v3.6.40 Diagnostic Collector capture.
 
-WHAT'S NEW IN v3.6.40
+WHAT'S NEW IN v3.6.41
 
-- Safely removes obsolete private SAB admin/admin-vN generations after proving they are non-authoritative and their saved localhost listeners are no longer live.
-- Preserves any historical generation whose port is occupied or whose identity cannot be safely proven dead.
-- Normalizes an offline active admin-vN generation back to the canonical sab-engine\admin folder when it is safe to do so.
-- Deletes the retained SAB provisioning ZIP after successful provisioning.
-- Removes retired v3.5 engine-state repair artifacts and abandoned provisioning staging files.
-- Bounds sab-startup.log and backend-startup.log to the current file plus two rotated backups.
-- Exposes cleanup counters in download-engine health telemetry.
+- Live Downloads Queue/History reads now use a bounded wait for the serialized private-SAB control transport instead of waiting behind long-running control operations.
+- Once a coherent Downloads snapshot exists, concurrent API callers can immediately reuse it while a new snapshot is being built, preventing diagnostics and /api/downloads from lining up behind the same slow snapshot.
+- Live presentation reads use short single-attempt Queue/History budgets; authoritative non-live recovery, reconciliation, mutation, and crash-recovery paths keep their stronger existing retry behavior.
+- SAB transport telemetry is observational and no longer acquires the same control lock merely to report diagnostics.
+- New snapshot/transport telemetry records build duration, lock-busy fallbacks, transport wait time, active control mode, and busy timeouts for future Diagnostic Collector analysis.
+- Installed-runtime detection now recognizes Inno Setup's canonical unins000.exe marker while retaining compatibility with the retired Uninstall.exe marker.
 
-The cleanup never targets incoming, incomplete, active cache, newzdeck-jobs.json, engine.json, engine-identities.json, active lock files, or media/library data.
-
-v3.6.39 Automation startup reservation refinement and the complete v3.6.38 crash-recovery/queue-admission stack are preserved unchanged.
+This release does not weaken serialized SAB transport, queue ownership, destructive reconciliation guards, Automation admission, Smart Import, no-downgrade behavior, or the v3.6.38-v3.6.40 recovery and runtime-storage protections.
