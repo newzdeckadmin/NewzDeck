@@ -1,10 +1,11 @@
-NewzDeck v3.6.46
-Quality-Aware Release Selection
+NewzDeck v3.6.47
+PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring
 
-New in v3.6.46:
-- Quality Profile rank is authoritative for eligible Interactive Search and Automation candidates.
-- A valid 1080p WEB-DL can no longer be displaced by a 720p release solely because of indexer reliability history.
-- Same-tier file size is a bounded relative quality signal, favoring materially larger releases without making largest-file-wins absolute.
-- Indexer reliability remains a small 24-hour tie-breaker capped at 12 points instead of an 80-point quality override.
-- Why this release now exposes profile rank, size preference, reliability adjustment, and selection score.
-- v3.6.45 scan progress, v3.6.44 Library Integrity routing, strict TV identity, and Downloads/SAB safety are preserved.
+New in v3.6.47:
+- Adds Selected Episodes monitoring for TV shows: choose whole seasons or individual episodes, including old aired episodes, without monitoring other seasons. Explicit selections bypass the global old-backlog gate and partial selections cannot trigger whole-season packs.
+- Completed and Failed downloads retain SAB's observed Verify/PAR2/Repair outcome instead of reducing every terminal job to a generic status.
+- Download details distinguish unrecoverable article/recovery data from unpack, password, filesystem, post-processing-aborted, and other terminal failures when SAB reports that evidence.
+- PAR2 outcome, repair attempt, extra PAR2 fetch observation, post-processing time, and bounded SAB repair-history messages are visible and included in copied diagnostics.
+- Exact recovery-block counts are shown as Not reported by SAB when SAB History does not expose them; NewzDeck no longer implies a real zero.
+- The private embedded SABnzbd runtime is upgraded from 5.1.1 to pinned 5.1.2 with official SHA-256 validation and a graceful queue-preserving startup handoff.
+- v3.6.46 quality-aware release selection, v3.6.45 library-scan progress, Library Integrity, strict TV identity, and Downloads continuity are preserved.

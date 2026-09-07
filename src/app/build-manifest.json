@@ -1,22 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.46",
-  "base_version": "3.6.45",
-  "release": "Quality-Aware Release Selection",
-  "adapter_version": "3.6.46",
-  "name": "Quality-Aware Release Selection",
+  "version": "3.6.47",
+  "base_version": "3.6.46",
+  "release": "PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring",
+  "adapter_version": "3.6.47",
+  "name": "PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring",
+  "sab_version": "5.1.2",
   "changes": [
-    "Makes the configured Quality Profile rank the primary ordering key for safe/eligible Interactive Search and Continuous Automation candidates.",
-    "Uses a bounded 0-10 relative file-size preference only among accepted releases in the same quality tier for the same target, providing a conservative bitrate-quality signal.",
-    "Reduces the 24-hour indexer reliability adjustment from an 80-point cross-tier override to a maximum 12-point within-tier tie-breaker.",
-    "Shows profile rank, selection score, file-size bonus, and indexer reliability adjustment directly in Interactive Search and Why this release explanations.",
-    "Preserves all strict title/episode/edition safety checks, blacklist behavior, profile minimum/maximum size rejection rules, and v3.6.45 library-scan progress."
+    "Adds TV Selected Episodes monitoring so users can explicitly monitor whole seasons or individual episodes, including old aired episodes, without implicitly monitoring other seasons.",
+    "Explicit Selected Episodes are immediately eligible for Continuous Automation even when Search existing missing backlog is off; partial selections never trigger whole-season pack downloads.",
+    "Persists observable SAB Verify/PAR2/Repair evidence into NewzDeck Completed and Failed download records without changing SAB's repair/recoverability decisions.",
+    "Classifies terminal failures as unrecoverable-data, unpack, password, filesystem, post-processing-aborted, or other when SAB's own status/log/fail_message supports that distinction.",
+    "Shows PAR2 outcome, repair attempted, extra PAR2 fetch observation, post-processing time, and bounded SAB repair-history messages in Download details and copied diagnostics.",
+    "Stops presenting unavailable SAB recovery-block counts as real zeroes; the UI explicitly says Not reported by SAB when exact counts are unavailable.",
+    "Upgrades the private pinned SABnzbd runtime from 5.1.1 to 5.1.2 using the official win64 portable asset and SHA-256, with a graceful same-admin queue-preserving startup handoff and no force-kill path.",
+    "Preserves v3.6.46 quality-aware release selection, v3.6.45 scan progress, strict TV identity, Library Integrity, Smart Import, and Downloads continuity behavior."
   ],
   "regression_guards": [
-    "A valid 1080p WEB-DL ranks above a valid 720p WEB-DL in the 1080p Balanced profile even when the 1080p indexer has the maximum reliability penalty and the 720p release has a custom-format bonus.",
-    "Within the same profile tier and otherwise-equal scoring, a materially larger file receives a bounded size bonus and ranks above the smaller candidate.",
-    "Indexer reliability penalty is capped at 12 and cannot alter the higher-order Quality Profile rank.",
-    "The 30 strict TV identity cases, non-destructive Library Integrity review, diagnostics compaction, client-disconnect handling, and asynchronous library-scan guards remain mandatory.",
-    "v3.6.41 fail-soft Downloads snapshot and v3.6.20+ serialized private-SAB transport remain unchanged."
+    "Selected Episodes regression tests verify empty first-entry selection, Season 3-only monitoring, old-episode automatic eligibility, partial-selection pack suppression, and dormant selection restoration.",
+    "Synthetic SAB history verifies completed-with-repair, completed-after-verify, active PAR2 fetch, unrecoverable cannot-complete, password, unpack, and filesystem classifications.",
+    "Terminal repair telemetry is persisted with terminal NewzDeck job state so reconnect/restart cards retain the observed outcome.",
+    "Pinned SAB runtime must be 5.1.2 with official win64 URL and SHA-256 0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46.",
+    "The managed SAB upgrade path provisions before graceful shutdown, waits for authoritative port release, and contains no force-kill operation for an already-running prior SAB generation.",
+    "The 30 strict TV identity cases, Library Integrity safety, scan-progress guards, and v3.6.46 quality-selection guards remain mandatory."
   ]
 }

@@ -23,10 +23,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Callable
 
-SAB_VERSION = "5.1.1"
-ADAPTER_VERSION = "3.6.46"
-SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.1/SABnzbd-5.1.1-win64-bin.zip"
-SAB_WINDOWS_X64_SHA256 = "2991b7d7500fe85394417fc7e3c416ff72631528c10cabf8db00bd0e44ee42d6"
+SAB_VERSION = "5.1.2"
+ADAPTER_VERSION = "3.6.47"
+SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
+SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
 
@@ -121,6 +121,150 @@ def _sab_post_progress(slot: dict[str, Any], fallback_stage: str = "") -> tuple[
 
     message = raw or _sab_text(slot.get("stage_log")) or _sab_text(slot.get("status"))
     return stage, progress, known, message
+
+
+def _sab_stage_log_lines(value: Any, *, limit: int = 16) -> list[str]:
+    """Normalize SAB History ``stage_log`` into a small, durable text timeline."""
+    lines: list[str] = []
+
+    def add(item: Any) -> None:
+        if item is None:
+            return
+        if isinstance(item, str):
+            for raw in item.replace("\r", "\n").split("\n"):
+                text = re.sub(r"\s+", " ", raw).strip()
+                if text:
+                    lines.append(text[:500])
+            return
+        if isinstance(item, (list, tuple)):
+            for child in item:
+                add(child)
+            return
+        if isinstance(item, dict):
+            preferred = False
+            for key in ("text", "message", "detail", "status"):
+                if key in item:
+                    preferred = True
+                    add(item.get(key))
+            if not preferred:
+                for child in item.values():
+                    if isinstance(child, (str, list, tuple, dict)):
+                        add(child)
+            return
+        text = str(item).strip()
+        if text:
+            lines.append(text[:500])
+
+    add(value)
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        key = line.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+    return out[-max(1, int(limit)):]
+
+
+def _sab_repair_telemetry(slot: dict[str, Any]) -> dict[str, Any]:
+    """Describe what SAB actually reported about Verify/PAR2/Repair.
+
+    SAB remains the authority on recoverability. NewzDeck deliberately does not
+    invent recovery-block counts that SAB History does not expose reliably; this
+    helper persists only observable status/log/failure evidence.
+    """
+    status = str(slot.get("status") or "").strip()
+    low_status = status.casefold()
+    action = _sab_text(slot.get("action_line"))
+    fail_message = _sab_text(slot.get("fail_message"))
+    stage_lines = _sab_stage_log_lines(slot.get("stage_log"))
+    joined = " ".join([status, action, fail_message, *stage_lines]).casefold()
+
+    verification_observed = low_status in {"quickcheck", "verifying", "repairing", "fetching"} or any(
+        marker in joined for marker in (
+            "quick check", "quickcheck", "verifying", "verification", "par2", "par 2",
+            "all files are correct", "all files correct", "verified",
+        )
+    )
+    repair_attempted = low_status in {"repairing", "fetching"} or any(
+        marker in joined for marker in (
+            "repair is required", "repairing", "repair attempt", "starting repair",
+            "verification and repair", "par2 repair", "repaired", "repair successful",
+        )
+    )
+    par2_fetch_observed = low_status == "fetching" or any(
+        marker in joined for marker in (
+            "fetching par2", "fetching repair", "extra par2", "additional par2",
+            "recovery block", "recovery blocks", "par2 volume",
+        )
+    )
+
+    failure_class = ""
+    repair_outcome = "not_observed"
+    summary = "No PAR2 verification/repair activity was reported by SAB."
+
+    if low_status in {"quickcheck", "verifying"}:
+        repair_outcome = "verifying"
+        summary = "SAB is verifying the downloaded data."
+    elif low_status in {"repairing", "fetching"}:
+        repair_outcome = "repairing"
+        summary = "SAB is repairing the download" + (" and fetching additional PAR2 data." if par2_fetch_observed else ".")
+    elif low_status == "failed":
+        password_markers = ("password", "encrypted archive", "encrypted rar", "wrong password", "incorrect password")
+        filesystem_markers = ("disk full", "no space left", "not enough space", "access is denied", "permission denied", "write error", "cannot create", "could not move", "failed to move")
+        unpack_markers = ("unpack", "unrar", "7zip", "7-zip", "extract", "archive is corrupt", "crc failed")
+        unrecoverable_markers = (
+            "aborted, cannot be completed", "cannot be completed", "not enough repair",
+            "not enough recovery", "insufficient recovery", "repair is not possible",
+            "repair impossible", "unrepairable", "unrecoverable", "par2 repair failed",
+            "not enough blocks", "too many missing", "missing articles",
+        )
+        if any(marker in joined for marker in password_markers):
+            failure_class = "password"
+            repair_outcome = "failed_password"
+            summary = "The download failed because the archive requires or rejected a password; this is not a PAR2 recoverability failure."
+        elif any(marker in joined for marker in filesystem_markers):
+            failure_class = "filesystem"
+            repair_outcome = "failed_filesystem"
+            summary = "The download failed during filesystem/disk post-processing; this is not evidence that PAR2 recovery was insufficient."
+        elif any(marker in joined for marker in unpack_markers):
+            failure_class = "unpack"
+            repair_outcome = "failed_unpack"
+            summary = "The download failed during unpack/extraction; PAR2 may have completed or may not have been required."
+        elif any(marker in joined for marker in unrecoverable_markers):
+            failure_class = "unrecoverable"
+            repair_outcome = "unrecoverable"
+            summary = "SAB reported the download cannot be completed with the available article/recovery data."
+        elif "post-processing was aborted" in joined or "post processing was aborted" in joined:
+            failure_class = "post_processing_aborted"
+            repair_outcome = "post_processing_aborted"
+            summary = "SAB reported that post-processing was aborted."
+        else:
+            failure_class = "other"
+            repair_outcome = "failed_other"
+            summary = "SAB marked the download Failed, but did not report a PAR2-specific terminal reason."
+    elif low_status == "completed":
+        if repair_attempted:
+            repair_outcome = "repaired"
+            summary = "SAB completed the download after repair activity was observed."
+        elif verification_observed:
+            repair_outcome = "verified"
+            summary = "SAB verified the download and completed it without observed repair activity."
+
+    postproc_seconds = _duration_seconds(slot.get("postproc_time"))
+    return {
+        "verification_observed": bool(verification_observed),
+        "repair_attempted": bool(repair_attempted),
+        "par2_fetch_observed": bool(par2_fetch_observed),
+        "repair_outcome": repair_outcome,
+        "repair_summary": summary,
+        "failure_class": failure_class,
+        "sab_fail_message": fail_message,
+        "sab_stage_log": stage_lines,
+        "postproc_seconds": int(postproc_seconds),
+        "recovery_blocks_reported": False,
+    }
 
 def _is_smart_import_context(context: dict[str, Any] | None) -> bool:
     return isinstance(context, dict) and str(context.get("source") or "") in SMART_IMPORT_SOURCES
@@ -661,6 +805,12 @@ class SabDownloadManager:
         self._sab_version_probes = 0
         self._sab_version_probe_failures = 0
         self._sab_version_probe_last_ts = 0.0
+        self._running_sab_version = ""
+        self._sab_version_upgrade_next_ts = 0.0
+        self._sab_version_upgrade_attempts = 0
+        self._sab_version_upgrade_successes = 0
+        self._sab_version_upgrade_deferred = 0
+        self._sab_version_upgrade_last_from = ""
         self._sab_runtime_auth_probes = 0
         self._sab_runtime_auth_failures = 0
         self._sab_runtime_auth_last_ts = 0.0
@@ -2407,6 +2557,8 @@ class SabDownloadManager:
             version = str(data.get("version") or data.get("value") or "").strip()
             if not version:
                 self._sab_version_probe_failures += 1
+            else:
+                self._running_sab_version = version
             return version
         except Exception:
             self._sab_version_probe_failures += 1
@@ -2464,6 +2616,9 @@ class SabDownloadManager:
             return False
         version = self._probe_version(port, timeout=timeout)
         if not version:
+            return False
+        if version != SAB_VERSION:
+            self._last_error = f"Private SABnzbd {version} is awaiting NewzDeck's managed upgrade to {SAB_VERSION}"
             return False
 
         candidates = self._authoritative_identity_candidates()
@@ -2578,7 +2733,8 @@ class SabDownloadManager:
             ident = self._load_engine_identity()
             port = int(ident["port"])
             key = str(ident.get("api_key") or "")
-            if self._probe_version(port, timeout=timeout) and key and self._auth_kind(port, key, timeout=timeout) == "apikey":
+            version = self._probe_version(port, timeout=timeout)
+            if version == SAB_VERSION and key and self._auth_kind(port, key, timeout=timeout) == "apikey":
                 self._last_ready_ts = time.time()
                 self._last_error = ""
                 return True
@@ -2881,6 +3037,70 @@ class SabDownloadManager:
             cfg.write(f)
         self._bootstrap_misc_authoritative = True
 
+    def _upgrade_running_sab_if_needed(self) -> bool:
+        """Gracefully hand a live older private SAB generation to the pinned version.
+
+        Returns True only when the old listener was cleanly released and the caller
+        should immediately launch/adopt the target version. Queue/admin/incomplete
+        state stays in the same NewzDeck-owned directories; no process is force-killed.
+        """
+        now = time.time()
+        if now < float(self._sab_version_upgrade_next_ts or 0.0):
+            return False
+        try:
+            ident = self._load_engine_identity()
+            port = int(ident.get("port") or 0)
+            key = str(ident.get("api_key") or "")
+        except Exception:
+            return False
+        if port <= 0 or self._port_available(port):
+            return False
+        version = self._probe_version(port, timeout=0.8)
+        if not version or not key or self._auth_kind(port, key, timeout=0.8) != "apikey":
+            return False
+        self._running_sab_version = version
+        if version == SAB_VERSION:
+            return False
+
+        self._sab_version_upgrade_attempts += 1
+        self._sab_version_upgrade_last_from = version
+        self._event("warning", f"Upgrading private SABnzbd {version} to pinned {SAB_VERSION}", port=port)
+        try:
+            # Provision and SHA-256 verify the replacement before disturbing the
+            # currently working queue process.
+            self._provision_engine()
+        except Exception as exc:
+            self._sab_version_upgrade_deferred += 1
+            self._sab_version_upgrade_next_ts = time.time() + 60.0
+            self._event("warning", "Private SAB upgrade deferred because the replacement could not be provisioned", from_version=version, to_version=SAB_VERSION, error=str(exc))
+            return False
+
+        shutdown_error = ""
+        try:
+            self._api("shutdown", timeout=3.0)
+        except Exception as exc:
+            # A successful SAB shutdown commonly closes the HTTP connection before
+            # the response is completely read. Port release below is authoritative.
+            shutdown_error = str(exc)
+        self._close_sab_http_connection()
+        deadline = time.monotonic() + 12.0
+        while time.monotonic() < deadline and not self.shutdown_event.is_set():
+            if self._port_available(port):
+                self._last_api_success_ts = 0.0
+                self._last_ready_ts = 0.0
+                self._running_sab_version = ""
+                self._sab_version_upgrade_successes += 1
+                self._sab_version_upgrade_next_ts = 0.0
+                self._event("info", f"Private SABnzbd {version} stopped cleanly for managed {SAB_VERSION} upgrade", port=port, shutdown_warning=shutdown_error)
+                return True
+            time.sleep(0.2)
+
+        self._sab_version_upgrade_deferred += 1
+        self._sab_version_upgrade_next_ts = time.time() + 60.0
+        self._running_sab_version = version
+        self._event("warning", "Private SAB upgrade was deferred because the old localhost listener did not exit; queue process left intact", from_version=version, to_version=SAB_VERSION, port=port, shutdown_warning=shutdown_error)
+        return False
+
     def _launch(self) -> None:
         """Start/adopt the private SAB engine with one clean-generation recovery.
 
@@ -3108,6 +3328,12 @@ class SabDownloadManager:
         reused unless a fresh generation explicitly invalidated the sync signature.
         """
         now = time.time()
+        if self._upgrade_running_sab_if_needed():
+            self._launch()
+            self._last_api_success_ts = time.time()
+            self._ensure_probe_miss_since = 0.0
+            self._ensure_probe_miss_count = 0
+            return True
         if self._last_api_success_ts > 0 and now - self._last_api_success_ts <= 5.0:
             self._ensure_probe_miss_since = 0.0
             self._ensure_probe_miss_count = 0
@@ -4113,7 +4339,9 @@ class SabDownloadManager:
             config_name = ""
         result = {
             "name": "SABnzbd",
-            "version": SAB_VERSION,
+            "version": self._running_sab_version or SAB_VERSION,
+            "target_version": SAB_VERSION,
+            "upgrade_pending": bool(self._running_sab_version and self._running_sab_version != SAB_VERSION),
             "adapter_version": ADAPTER_VERSION,
             "mode": "built-in",
             "ready": ready,
@@ -4129,6 +4357,10 @@ class SabDownloadManager:
             "port": port,
             "config_generation": config_name,
             "official_sha256": SAB_WINDOWS_X64_SHA256,
+            "version_upgrade_attempts": int(self._sab_version_upgrade_attempts),
+            "version_upgrade_successes": int(self._sab_version_upgrade_successes),
+            "version_upgrade_deferred": int(self._sab_version_upgrade_deferred),
+            "version_upgrade_last_from": str(self._sab_version_upgrade_last_from or ""),
             "storage_cleanup_last_ts": float(self._runtime_storage_cleanup_last_ts or 0.0),
             "storage_cleanup_admin_dirs_removed": int(self._runtime_storage_admin_dirs_removed),
             "storage_cleanup_files_removed": int(self._runtime_storage_files_removed),
@@ -5598,6 +5830,17 @@ class SabDownloadManager:
             eta_seconds = int((expected - downloaded) / speed)
         flat_names = [Path(str(x)).name for x in (meta.get("browser_flattened_files") or []) if Path(str(x)).name]
         visible_filename = flat_names[0] if bool(meta.get("browser_flattened")) and len(flat_names) == 1 else str(slot.get("filename") or meta.get("name") or "NZB package")
+        repair = _sab_repair_telemetry(slot)
+        persisted_repair = meta.get("repair_telemetry") if isinstance(meta.get("repair_telemetry"), dict) else {}
+        if repair.get("repair_outcome") == "not_observed" and persisted_repair:
+            repair = dict(persisted_repair)
+        elif persisted_repair:
+            # Keep prior positive observations if a later SAB history view is terse.
+            repair["verification_observed"] = bool(repair.get("verification_observed") or persisted_repair.get("verification_observed"))
+            repair["repair_attempted"] = bool(repair.get("repair_attempted") or persisted_repair.get("repair_attempted"))
+            repair["par2_fetch_observed"] = bool(repair.get("par2_fetch_observed") or persisted_repair.get("par2_fetch_observed"))
+            if not repair.get("sab_stage_log"):
+                repair["sab_stage_log"] = list(persisted_repair.get("sab_stage_log") or [])
         return {
             "id": nzo_id, "identity": nzo_id, "collection_id": nzo_id, "collection_name": str(meta.get("name") or slot.get("filename") or "NZB"),
             "provider_id": str(meta.get("provider_id") or ""), "provider_name": "SABnzbd engine", "origin_provider_id": str(meta.get("provider_id") or ""),
@@ -5623,6 +5866,11 @@ class SabDownloadManager:
             "release_failure_reason": str(meta.get("failure_reason") or ""),
             "filename_recovery_source": str(meta.get("filename_recovery_source") or ""), "filename_recovery_exact": bool(meta.get("filename_recovery_exact")),
             "filename_recovery_hint": str(meta.get("filename_recovery_hint") or ""), "filename_recovery_hint_source": str(meta.get("filename_recovery_hint_source") or ""),
+            "verification_observed": bool(repair.get("verification_observed")), "repair_attempted": bool(repair.get("repair_attempted")),
+            "par2_fetch_observed": bool(repair.get("par2_fetch_observed")), "repair_outcome": str(repair.get("repair_outcome") or "not_observed"),
+            "repair_summary": str(repair.get("repair_summary") or ""), "failure_class": str(repair.get("failure_class") or ""),
+            "sab_fail_message": str(repair.get("sab_fail_message") or ""), "sab_stage_log": list(repair.get("sab_stage_log") or []),
+            "postproc_seconds": int(repair.get("postproc_seconds") or 0), "recovery_blocks_reported": bool(repair.get("recovery_blocks_reported")),
             "collection_role": "payload", "is_auxiliary": False, "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
         }
 
@@ -5660,8 +5908,14 @@ class SabDownloadManager:
             "import_stalled": bool(job.get("import_stalled")),
             "release_failure_recorded": bool(job.get("release_failure_recorded")),
             "release_failure_reason": str(job.get("release_failure_reason") or ""),
+            "verification_observed": bool(job.get("verification_observed")), "repair_attempted": bool(job.get("repair_attempted")),
+            "par2_fetch_observed": bool(job.get("par2_fetch_observed")), "repair_outcome": str(job.get("repair_outcome") or "not_observed"),
+            "repair_summary": str(job.get("repair_summary") or ""), "failure_class": str(job.get("failure_class") or ""),
+            "sab_fail_message": str(job.get("sab_fail_message") or ""), "sab_stage_log": list(job.get("sab_stage_log") or []),
+            "postproc_seconds": int(job.get("postproc_seconds") or 0), "recovery_blocks_reported": bool(job.get("recovery_blocks_reported")),
             "health": {"state": "needs_attention" if str(job.get("import_status") or "")=="failed" else ("healthy" if status not in {"failed"} else "incomplete"), "label": "Import needs attention" if str(job.get("import_status") or "")=="failed" else ("✓ HEALTHY" if status not in {"failed"} else "Needs attention"), "missing_articles": 0,
-                       "missing_bytes": 0, "recovery_blocks_available": 0, "recovery_blocks_queued": 0, "recovery_blocks_deferred": 0},
+                       "missing_bytes": 0, "recovery_blocks_available": None, "recovery_blocks_queued": None, "recovery_blocks_deferred": None,
+                       "recovery_blocks_reported": bool(job.get("recovery_blocks_reported")), "repair_outcome": str(job.get("repair_outcome") or "not_observed")},
             "created_ts": _num(job.get("created_ts"), time.time()), "started_ts": _num(job.get("started_ts"), 0), "completed_ts": _num(job.get("completed_ts"), 0),
             "history_rank": int(_num(job.get("history_rank"), 10**9)),
             "average_speed_bps": 0, "duration_seconds": 0, "folder": str(job.get("path") or self.download_dir_getter()),
@@ -6449,6 +6703,21 @@ class SabDownloadManager:
                         completed_value = _num(job.get("completed_ts"), 0)
                         if completed_value > 0 and _num(live_meta.get("completed_ts"), 0) <= 0:
                             live_meta["completed_ts"] = completed_value
+                            changed_terminal = True
+                        repair_telemetry = {
+                            "verification_observed": bool(job.get("verification_observed")),
+                            "repair_attempted": bool(job.get("repair_attempted")),
+                            "par2_fetch_observed": bool(job.get("par2_fetch_observed")),
+                            "repair_outcome": str(job.get("repair_outcome") or "not_observed"),
+                            "repair_summary": str(job.get("repair_summary") or ""),
+                            "failure_class": str(job.get("failure_class") or ""),
+                            "sab_fail_message": str(job.get("sab_fail_message") or ""),
+                            "sab_stage_log": list(job.get("sab_stage_log") or [])[-16:],
+                            "postproc_seconds": int(job.get("postproc_seconds") or 0),
+                            "recovery_blocks_reported": False,
+                        }
+                        if live_meta.get("repair_telemetry") != repair_telemetry:
+                            live_meta["repair_telemetry"] = repair_telemetry
                             changed_terminal = True
                         if changed_terminal:
                             self._touch_job_locked(live_meta)

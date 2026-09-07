@@ -1715,16 +1715,17 @@ class MediaAutomationEngine:
                             sn=int(epd.get('season') or 0); en=int(epd.get('number') or 0)
                             if sn<=0 or en<=0: continue
                             season=seasons.get(sn)
-                            if season is None: season={'season_number':sn,'name':f'Season {sn}','air_date':'','monitored':mode!='none','episodes':[]}; seasons[sn]=season
+                            if season is None: season={'season_number':sn,'name':f'Season {sn}','air_date':'','monitored':mode not in {'none','selected'},'episodes':[]}; seasons[sn]=season
                             eps={int(x.get('episode_number') or 0):x for x in season.get('episodes') or []}; air=_date(epd.get('airdate')); ep=eps.get(en)
                             if ep is None:
-                                monitored=False if mode=='none' else bool(air and air>=today) if mode=='future' else bool(season.get('monitored',True))
+                                monitored=(self._selected_episode_key(sn,en) in self._selected_episode_set(item)) if mode=='selected' else False if mode=='none' else bool(air and air>=today) if mode=='future' else bool(season.get('monitored',True))
                                 ep={'episode_number':en,'name':str(epd.get('name') or f'Episode {en}'),'air_date':air,'overview':self._strip_html(epd.get('summary')),'monitored':monitored,'has_file':False,'file_path':'','file_quality':'','cutoff_met':False,'tvmaze_episode_id':epd.get('id')}; season.setdefault('episodes',[]).append(ep)
                             else: ep.update({'name':str(epd.get('name') or ep.get('name') or f'Episode {en}'),'air_date':air or ep.get('air_date',''),'overview':self._strip_html(epd.get('summary')) or ep.get('overview',''),'tvmaze_episode_id':epd.get('id') or ep.get('tvmaze_episode_id')})
                         for season in seasons.values():
                             season['episodes']=sorted(season.get('episodes') or [],key=lambda e:int(e.get('episode_number') or 0)); dates=[str(e.get('air_date') or '') for e in season['episodes'] if e.get('air_date')]
                             if dates: season['air_date']=min(dates)
                         item['seasons']=sorted(seasons.values(),key=lambda x:int(x.get('season_number') or 0))
+                        if mode=='selected': self._sync_selected_episode_monitoring(item)
                     else:
                         movie=data.get('movie') or {}; release=_date(movie.get('release_date'))
                         item.update({'title':str(movie.get('title') or item.get('title') or ''),'overview':str(movie.get('overview') or item.get('overview') or ''),'release_date':release or item.get('release_date',''),'runtime':movie.get('runtime') or item.get('runtime'),'imdb_id':str(movie.get('imdb_id') or item.get('imdb_id') or ''),'wikipedia_title':str(movie.get('wikipedia_title') or item.get('wikipedia_title') or '')})
@@ -1769,6 +1770,7 @@ class MediaAutomationEngine:
         return True
 
     def _auto_backlog_eligible(self, row:dict[str,Any], item:dict[str,Any], cfg:dict[str,Any]) -> bool:
+        if item.get('kind')=='tv' and str(item.get('monitor_mode') or '')=='selected': return True
         if bool(cfg.get('automatic_backlog_enabled')): return True
         enabled=self._iso_epoch(cfg.get('automatic_enabled_at'))
         if enabled<=0: return False
@@ -1817,6 +1819,9 @@ class MediaAutomationEngine:
             season=next((x for x in (item or {}).get('seasons') or [] if int(x.get('season_number') or 0)==sn),None)
             eps=[x for x in (season or {}).get('episodes') or [] if bool(x.get('monitored',True)) and int(x.get('episode_number') or 0)>0]
             if len(eps)<2: continue
+            if str((item or {}).get('monitor_mode') or '')=='selected':
+                all_eps=[x for x in (season or {}).get('episodes') or [] if int(x.get('episode_number') or 0)>0]
+                if sorted(int(x.get('episode_number') or 0) for x in eps)!=sorted(int(x.get('episode_number') or 0) for x in all_eps): continue
             if any(not str(ep.get('air_date') or '') or str(ep.get('air_date') or '')>today for ep in eps): continue
             missing_nums=sorted({int(x.get('episode') or 0) for x in rows if int(x.get('episode') or 0)>0})
             known_nums=sorted(int(x.get('episode_number') or 0) for x in eps)
@@ -2700,7 +2705,8 @@ class MediaAutomationEngine:
             except Exception: sn=0
             if sn<=0: continue
             old_s=old_seasons.get(sn) or {}; old_eps={int(x.get('episode_number') or 0):x for x in old_s.get('episodes') or []}
-            season_monitored=bool(old_s.get('monitored',mode!='none'))
+            selected=self._selected_episode_set(item) if mode=='selected' else set()
+            season_monitored=bool(old_s.get('monitored',mode not in {'none','selected'}))
             eps=[]
             for epd in list(sd.get('episodes') or []):
                 try: en=int(epd.get('episode_number') or 0)
@@ -2709,13 +2715,13 @@ class MediaAutomationEngine:
                 old=old_eps.get(en)
                 air=_date(epd.get('air_date'))
                 if old is not None:
-                    ep=dict(old); monitored=bool(ep.get('monitored',season_monitored))
+                    ep=dict(old); monitored=(self._selected_episode_key(sn,en) in selected) if mode=='selected' else bool(ep.get('monitored',season_monitored))
                 else:
-                    monitored=False if mode=='none' else bool(air and air>=today) if mode=='future' else season_monitored
+                    monitored=False if mode in {'none','selected'} else bool(air and air>=today) if mode=='future' else season_monitored
                     ep={'has_file':False,'file_path':'','file_quality':'','cutoff_met':False,'monitored':monitored}
                 ep.update({'episode_number':en,'name':str(epd.get('name') or ep.get('name') or f'Episode {en}'),'air_date':air or ep.get('air_date',''),'overview':str(epd.get('overview') or ep.get('overview') or ''),'tmdb_episode_id':epd.get('tmdb_id') or ep.get('tmdb_episode_id'),'still_url':str(epd.get('still') or ep.get('still_url') or ''),'rating':epd.get('rating') if epd.get('rating') is not None else ep.get('rating'),'monitored':monitored})
                 eps.append(ep)
-            new_seasons.append({'season_number':sn,'name':str(sd.get('name') or old_s.get('name') or f'Season {sn}'),'air_date':_date(sd.get('air_date')) or old_s.get('air_date',''),'poster_url':str(sd.get('poster') or old_s.get('poster_url') or ''),'monitored':season_monitored,'episodes':sorted(eps,key=lambda e:int(e.get('episode_number') or 0))})
+            new_seasons.append({'season_number':sn,'name':str(sd.get('name') or old_s.get('name') or f'Season {sn}'),'air_date':_date(sd.get('air_date')) or old_s.get('air_date',''),'poster_url':str(sd.get('poster') or old_s.get('poster_url') or ''),'monitored':any(bool(e.get('monitored')) for e in eps) if mode=='selected' else season_monitored,'episodes':sorted(eps,key=lambda e:int(e.get('episode_number') or 0))})
         if new_seasons: item['seasons']=sorted(new_seasons,key=lambda x:int(x.get('season_number') or 0))
         return item
 
@@ -3473,6 +3479,47 @@ class MediaAutomationEngine:
     def _profile_id(self, pid=''):
         profiles=self._profiles(); ids={str(p.get('id')) for p in profiles}; return pid if pid in ids else str(profiles[0].get('id'))
 
+    @staticmethod
+    def _selected_episode_key(season:Any, episode:Any) -> str:
+        try:
+            sn,en=int(season or 0),int(episode or 0)
+        except Exception:
+            return ''
+        return f'{sn}:{en}' if sn>0 and en>0 else ''
+
+    def _selected_episode_set(self,item:dict[str,Any]) -> set[str]:
+        out:set[str]=set()
+        for raw in list(item.get('selected_episodes') or []):
+            key=''
+            if isinstance(raw,dict):
+                key=self._selected_episode_key(raw.get('season'),raw.get('episode'))
+            else:
+                m=re.fullmatch(r'\s*(\d+)\s*:\s*(\d+)\s*',str(raw or ''))
+                if m: key=self._selected_episode_key(m.group(1),m.group(2))
+            if key: out.add(key)
+        return out
+
+    def _store_selected_episode_set(self,item:dict[str,Any], selected:set[str]) -> None:
+        def sort_key(value:str):
+            try:
+                a,b=value.split(':',1); return (int(a),int(b))
+            except Exception:
+                return (999999,999999)
+        item['selected_episodes']=sorted({str(x) for x in selected if re.fullmatch(r'\d+:\d+',str(x))},key=sort_key)
+
+    def _sync_selected_episode_monitoring(self,item:dict[str,Any]) -> None:
+        selected=self._selected_episode_set(item)
+        for season in item.get('seasons') or []:
+            try: sn=int(season.get('season_number') or 0)
+            except Exception: sn=0
+            any_selected=False
+            for ep in season.get('episodes') or []:
+                key=self._selected_episode_key(sn,ep.get('episode_number'))
+                monitored=bool(key and key in selected)
+                ep['monitored']=monitored
+                any_selected=any_selected or monitored
+            season['monitored']=any_selected
+
     def add_media(self,data:dict[str,Any]):
         kind='tv' if str(data.get('kind')).lower()=='tv' else 'movie'
         provider=str(data.get('provider') or '').strip().lower()
@@ -3481,12 +3528,12 @@ class MediaAutomationEngine:
         if not provider and tmdb_id: provider='tmdb'; metadata_id=tmdb_id
         title=str(data.get('title') or '').strip(); year=data.get('year')
         default_mode='all' if kind=='tv' else 'movie'
-        allowed_modes={'all','future','missing','none'} if kind=='tv' else {'movie','missing','none'}
+        allowed_modes={'all','future','missing','selected','none'} if kind=='tv' else {'movie','missing','none'}
         monitor_mode=str(data.get('monitor_mode') or default_mode).strip().lower()
         if monitor_mode not in allowed_modes: monitor_mode=default_mode
         monitored=bool(data.get('monitored',monitor_mode!='none')) and monitor_mode!='none'
         requested_library_title=_safe_component(data.get('library_title'),'') if kind=='tv' and str(data.get('library_title') or '').strip() else ''
-        item={'id':secrets.token_hex(8),'kind':kind,'title':title or 'Untitled','year':int(year) if str(year or '').isdigit() else None,'metadata_provider':provider,'metadata_id':metadata_id or None,'tvmaze_id':int(metadata_id) if provider=='tvmaze' and metadata_id.isdigit() else None,'wikidata_id':metadata_id.upper() if provider=='wikidata' and re.fullmatch(r'Q\d+',metadata_id,re.I) else None,'tmdb_id':int(tmdb_id) if tmdb_id.isdigit() else None,'poster_url':str(data.get('poster_url') or ''),'overview':str(data.get('overview') or ''),'genres':list(data.get('genres') or []),'rating':data.get('rating'),'network':str(data.get('network') or ''),'status':str(data.get('status') or 'unknown'),'monitored':monitored,'monitor_mode':monitor_mode,'quality_profile_id':self._profile_id(str(data.get('quality_profile_id') or '')),'root_folder':str(data.get('root_folder') or ''),'added_at':_now(),'updated_at':_now(),'seasons':[],'movie_file':None}
+        item={'id':secrets.token_hex(8),'kind':kind,'title':title or 'Untitled','year':int(year) if str(year or '').isdigit() else None,'metadata_provider':provider,'metadata_id':metadata_id or None,'tvmaze_id':int(metadata_id) if provider=='tvmaze' and metadata_id.isdigit() else None,'wikidata_id':metadata_id.upper() if provider=='wikidata' and re.fullmatch(r'Q\d+',metadata_id,re.I) else None,'tmdb_id':int(tmdb_id) if tmdb_id.isdigit() else None,'poster_url':str(data.get('poster_url') or ''),'overview':str(data.get('overview') or ''),'genres':list(data.get('genres') or []),'rating':data.get('rating'),'network':str(data.get('network') or ''),'status':str(data.get('status') or 'unknown'),'monitored':monitored,'monitor_mode':monitor_mode,'selected_episodes':[] if kind=='tv' else None,'quality_profile_id':self._profile_id(str(data.get('quality_profile_id') or '')),'root_folder':str(data.get('root_folder') or ''),'added_at':_now(),'updated_at':_now(),'seasons':[],'movie_file':None}
         if requested_library_title:
             item['library_title']=requested_library_title; item['library_title_source']='manual'
 
@@ -3501,8 +3548,8 @@ class MediaAutomationEngine:
                 sn=int(ep.get('season') or 0); en=int(ep.get('number') or 0)
                 if sn<=0 or en<=0: continue
                 air=_date(ep.get('airdate'))
-                seasons_by.setdefault(sn,[]).append({'episode_number':en,'name':str(ep.get('name') or f'Episode {en}'),'air_date':air,'overview':self._strip_html(ep.get('summary')),'monitored':True,'has_file':False,'file_path':'','file_quality':'','cutoff_met':False,'tvmaze_episode_id':ep.get('id')})
-            item['seasons']=[{'season_number':sn,'name':f'Season {sn}','air_date':min([e.get('air_date') for e in eps if e.get('air_date')] or ['']),'monitored':True,'episodes':sorted(eps,key=lambda e:int(e.get('episode_number') or 0))} for sn,eps in sorted(seasons_by.items())]
+                seasons_by.setdefault(sn,[]).append({'episode_number':en,'name':str(ep.get('name') or f'Episode {en}'),'air_date':air,'overview':self._strip_html(ep.get('summary')),'monitored':False if monitor_mode in {'none','selected'} else bool(air and air>=datetime.now().date().isoformat()) if monitor_mode=='future' else True,'has_file':False,'file_path':'','file_quality':'','cutoff_met':False,'tvmaze_episode_id':ep.get('id')})
+            item['seasons']=[{'season_number':sn,'name':f'Season {sn}','air_date':min([e.get('air_date') for e in eps if e.get('air_date')] or ['']),'monitored':any(bool(e.get('monitored')) for e in eps),'episodes':sorted(eps,key=lambda e:int(e.get('episode_number') or 0))} for sn,eps in sorted(seasons_by.items())]
 
         elif provider=='wikidata' and item.get('wikidata_id'):
             d=self._movie_from_entity(self._wikidata_movie_entity(str(item['wikidata_id'])),True)
@@ -3543,8 +3590,9 @@ class MediaAutomationEngine:
                     item['library_title']=_safe_component(requested,str(item.get('title') or 'TV Show')); item['library_title_source']='manual'
                 else:
                     item.pop('library_title',None); item['library_title_source']='auto'; self._refresh_tv_library_identity(item,allow_network=False)
+            previous_monitor_mode=str(item.get('monitor_mode') or ('all' if item.get('kind')=='tv' else 'movie'))
             if 'monitor_mode' in data:
-                kind='tv' if item.get('kind')=='tv' else 'movie'; default_mode='all' if kind=='tv' else 'movie'; allowed={'all','future','missing','none'} if kind=='tv' else {'movie','missing','none'}
+                kind='tv' if item.get('kind')=='tv' else 'movie'; default_mode='all' if kind=='tv' else 'movie'; allowed={'all','future','missing','selected','none'} if kind=='tv' else {'movie','missing','none'}
                 mode=str(data.get('monitor_mode') or default_mode).strip().lower(); mode=mode if mode in allowed else default_mode; item['monitor_mode']=mode
                 if 'monitored' not in data: item['monitored']=mode!='none'
                 if mode=='none': item['monitored']=False
@@ -3553,22 +3601,40 @@ class MediaAutomationEngine:
                 today=datetime.now().date().isoformat()
                 for season in item.get('seasons') or []:
                     for ep in season.get('episodes') or []:
-                        if mode=='none': ep['monitored']=False
+                        if mode=='selected':
+                            if previous_monitor_mode!='selected' and 'selected_episodes' not in item: item['selected_episodes']=[]
+                            ep['monitored']=self._selected_episode_key(season.get('season_number'),ep.get('episode_number')) in self._selected_episode_set(item)
+                        elif mode=='none': ep['monitored']=False
                         elif mode=='future': ep['monitored']=bool(ep.get('air_date') and str(ep.get('air_date'))>=today)
                         elif mode=='missing': ep['monitored']=not bool(ep.get('has_file'))
                         else: ep['monitored']=True
-                    season['monitored']=any(bool(ep.get('monitored',True)) for ep in season.get('episodes') or []) if season.get('episodes') else mode!='none'
+                    season['monitored']=any(bool(ep.get('monitored',True)) for ep in season.get('episodes') or []) if season.get('episodes') else mode not in {'none','selected'}
             if 'season_number' in data:
                 sn=int(data.get('season_number') or 0)
                 s=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0))==sn),None)
                 if s and 'season_monitored' in data:
-                    s['monitored']=bool(data['season_monitored'])
-                    for ep in s.get('episodes',[]): ep['monitored']=bool(data['season_monitored'])
+                    if str(item.get('monitor_mode') or '')=='selected':
+                        selected=self._selected_episode_set(item); enabled=bool(data['season_monitored'])
+                        for ep in s.get('episodes',[]):
+                            key=self._selected_episode_key(sn,ep.get('episode_number'))
+                            if not key: continue
+                            if enabled: selected.add(key)
+                            else: selected.discard(key)
+                        self._store_selected_episode_set(item,selected); self._sync_selected_episode_monitoring(item)
+                    else:
+                        s['monitored']=bool(data['season_monitored'])
+                        for ep in s.get('episodes',[]): ep['monitored']=bool(data['season_monitored'])
             if 'episode_number' in data and 'season_number' in data:
                 sn,en=int(data.get('season_number') or 0),int(data.get('episode_number') or 0)
                 s=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0))==sn),None)
                 ep=next((x for x in (s or {}).get('episodes',[]) if int(x.get('episode_number',0))==en),None)
-                if ep and 'episode_monitored' in data: ep['monitored']=bool(data['episode_monitored'])
+                if ep and 'episode_monitored' in data:
+                    if str(item.get('monitor_mode') or '')=='selected':
+                        selected=self._selected_episode_set(item); key=self._selected_episode_key(sn,en)
+                        if bool(data['episode_monitored']): selected.add(key)
+                        else: selected.discard(key)
+                        self._store_selected_episode_set(item,selected); self._sync_selected_episode_monitoring(item)
+                    else: ep['monitored']=bool(data['episode_monitored'])
             item['updated_at']=_now(); self._save_library(lib); return item
 
     def media_location(self,ident:str) -> str:
@@ -5347,7 +5413,8 @@ class MediaAutomationEngine:
                     if not season.get('monitored',True): continue
                     for ep in season.get('episodes') or []:
                         if not ep.get('monitored',True) or not self._aired(str(ep.get('air_date') or '')): continue
-                        row={'item_id':item['id'],'kind':'tv','title':item['title'],'season':season.get('season_number'),'episode':ep.get('episode_number'),'episode_name':ep.get('name'),'date':ep.get('air_date'),'label':f"{item['title']} S{int(season.get('season_number',0)):02d}E{int(ep.get('episode_number',0)):02d}",'cutoff':cutoff,'reason_code':'missing' if not ep.get('has_file') else 'upgrade','reason_label':'Missing episode' if not ep.get('has_file') else 'Quality below cutoff','reason_detail':'Released monitored episode has no library file.' if not ep.get('has_file') else f"Current {ep.get('file_quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}
+                        selected_mode=str(item.get('monitor_mode') or 'all')=='selected'
+                        row={'item_id':item['id'],'kind':'tv','title':item['title'],'season':season.get('season_number'),'episode':ep.get('episode_number'),'episode_name':ep.get('name'),'date':ep.get('air_date'),'label':f"{item['title']} S{int(season.get('season_number',0)):02d}E{int(ep.get('episode_number',0)):02d}",'cutoff':cutoff,'selected_monitoring':selected_mode,'reason_code':'missing' if not ep.get('has_file') else 'upgrade','reason_label':'Selected episode missing' if selected_mode and not ep.get('has_file') else 'Missing episode' if not ep.get('has_file') else 'Selected episode below cutoff' if selected_mode else 'Quality below cutoff','reason_detail':'Explicitly selected episode has no library file.' if selected_mode and not ep.get('has_file') else 'Released monitored episode has no library file.' if not ep.get('has_file') else f"Current {ep.get('file_quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}
                         row['target_key']=self._auto_target_key(row=row)
                         if not ep.get('has_file'):
                             row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)

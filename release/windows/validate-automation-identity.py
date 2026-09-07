@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
     media_dir = data_dir / "TV" / "Show" / "Season 1"
     media_dir.mkdir(parents=True)
     media_file = media_dir / "Show - S01E01 - Wrong.mkv"
-    media_file.write_bytes(b"NewzDeck v3.6.46 non-destructive review guard")
+    media_file.write_bytes(b"NewzDeck v3.6.47 non-destructive review guard")
     library = [{
         "id":"guard-show","kind":"tv","title":"Show","library_title":"Show",
         "seasons":[{"season_number":1,"episodes":[{
@@ -116,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
         }]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.46")
+    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.47")
     result = engine.library_integrity_mark_missing("guard-show",1,1,str(media_file))
     after = json.loads((data_dir / "media-library.json").read_text(encoding="utf-8"))
     episode = after[0]["seasons"][0]["episodes"][0]
@@ -187,7 +187,7 @@ for required_dom in ('id="automationScanProgress"','id="automationScanProgressFi
         raise SystemExit(f"Library scan progress DOM is missing marker: {required_dom}")
 
 with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
-    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.46")
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.47")
     job=engine.start_library_scan("")
     if not job.get("job_id"):
         raise SystemExit("Library scan start did not return a job ID.")
@@ -204,7 +204,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
 # and custom-format score, while materially larger same-tier releases receive a
 # bounded preference rather than an unconditional largest-file rule.
 with tempfile.TemporaryDirectory(prefix="newzdeck-v3646-ranking-") as td:
-    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.46")
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.47")
     profile=module.DEFAULT_PROFILES[1]
     item={"kind":"tv","title":"Love Island","library_title":"Love Island (UK)","country_codes":["GB"],"title_ambiguous":True,"year":2015}
     now=__import__('time').time()
@@ -262,4 +262,125 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3646-ranking-") as td:
     if next((i for i,x in enumerate(ranked) if str(x.get("guid") or "")=="720"),-1)<2:
         raise SystemExit("Interactive Search integration path still allowed 720p to outrank a safe 1080p tier.")
 
-print(f"TV identity/reliability regression guard passed ({len(CASES)} TV cases + integrity/diagnostics/library-scan/quality-selection guards).")
+
+
+# v3.6.47: Selected Episodes monitoring must keep explicit old episode choices
+# authoritative without implicitly monitoring other seasons or requiring backlog mode.
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3647-selected-") as td:
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.47")
+    item={"id":"selected-show","kind":"tv","title":"Selected Show","monitored":True,"monitor_mode":"all","quality_profile_id":"quality-1080p","seasons":[]}
+    for sn in range(1,5):
+        item["seasons"].append({"season_number":sn,"monitored":True,"episodes":[
+            {"episode_number":1,"air_date":"2020-01-01","monitored":True,"has_file":False,"cutoff_met":False},
+            {"episode_number":2,"air_date":"2020-01-02","monitored":True,"has_file":False,"cutoff_met":False},
+        ]})
+    library=[item]
+    engine._library=lambda:library
+    engine._save_library=lambda _value:None
+    engine._profiles=lambda:[module.DEFAULT_PROFILES[1]]
+    engine.public_config=lambda:{"automatic_grab_enabled":True,"automatic_upgrades_enabled":True,"automatic_backlog_enabled":False,"automatic_enabled_at":__import__('time').time()}
+
+    # First entry into Selected Episodes starts from an empty explicit selection,
+    # never from the previous All/Future/Missing derived monitoring state.
+    engine.update_media({"id":"selected-show","monitor_mode":"selected","monitored":True})
+    if item.get("selected_episodes") != [] or any(ep.get("monitored") for season in item["seasons"] for ep in season["episodes"]):
+        raise SystemExit("Selected Episodes did not begin with an empty explicit selection.")
+
+    # Selecting Season 3 must select only that season, even though the episodes are old.
+    engine.update_media({"id":"selected-show","season_number":3,"season_monitored":True})
+    if item.get("selected_episodes") != ["3:1","3:2"]:
+        raise SystemExit(f"Selected season keys were not persisted correctly: {item.get('selected_episodes')}")
+    if not all(ep.get("monitored") for ep in item["seasons"][2]["episodes"]):
+        raise SystemExit("Selected Season 3 episodes were not monitored.")
+    if any(ep.get("monitored") for season in item["seasons"][:2]+item["seasons"][3:] for ep in season["episodes"]):
+        raise SystemExit("Selected Season 3 implicitly monitored another season.")
+
+    wanted=engine.wanted()
+    selected_missing=[(int(x.get("season") or 0),int(x.get("episode") or 0),str((x.get("automation_policy") or {}).get("status") or "")) for x in wanted.get("missing") or []]
+    if selected_missing != [(3,1,"eligible"),(3,2,"eligible")]:
+        raise SystemExit(f"Explicit old Selected Episodes were not immediately Automation-eligible: {selected_missing}")
+
+    # A full selected season may use the conservative season-pack fallback.
+    packs=engine._season_pack_rows([dict(x,auto_type="missing") for x in wanted.get("missing") or []],{"selected-show":item})
+    if len(packs)!=1 or int(packs[0].get("season") or 0)!=3:
+        raise SystemExit(f"Fully selected Season 3 did not preserve safe season-pack fallback: {packs}")
+
+    # A partial selection must never escalate into downloading the whole season pack.
+    engine.update_media({"id":"selected-show","season_number":3,"episode_number":2,"episode_monitored":False})
+    wanted=engine.wanted()
+    remaining=[(int(x.get("season") or 0),int(x.get("episode") or 0)) for x in wanted.get("missing") or []]
+    if remaining != [(3,1)]:
+        raise SystemExit(f"Individual Selected Episode filtering failed: {remaining}")
+    if engine._season_pack_rows([dict(x,auto_type="missing") for x in wanted.get("missing") or []],{"selected-show":item}):
+        raise SystemExit("Partial Selected Episodes incorrectly allowed a whole-season pack.")
+
+    # The dormant explicit selection survives another monitoring mode and is restored
+    # when the user returns to Selected Episodes.
+    engine.update_media({"id":"selected-show","monitor_mode":"all","monitored":True})
+    engine.update_media({"id":"selected-show","monitor_mode":"selected","monitored":True})
+    if item.get("selected_episodes") != ["3:1"] or not item["seasons"][2]["episodes"][0].get("monitored") or item["seasons"][2]["episodes"][1].get("monitored"):
+        raise SystemExit("Selected Episode choices were not restored after switching monitoring modes.")
+
+app_selected_source = (ROOT / "src" / "app" / "static" / "app.js").read_text(encoding="utf-8")
+for marker in ("value:'selected'","label:'Selected episodes'","syncSelectedEpisodeSelectionUi","Click Save first; then choose seasons or episodes below"):
+    if marker not in app_selected_source:
+        raise SystemExit(f"Missing Selected Episodes UI marker: {marker}")
+
+
+
+# v3.6.47: SAB remains authoritative for repair; NewzDeck must persist and classify
+# only observable Verify/PAR2/Repair evidence and must not invent recovery-block counts.
+SAB_PATH = ROOT / "src" / "app" / "sab_engine.py"
+sab_source = SAB_PATH.read_text(encoding="utf-8")
+sab_tree = ast.parse(sab_source)
+repair_nodes = [node for node in sab_tree.body if isinstance(node, ast.FunctionDef) and node.name in {"_sab_text","_duration_seconds","_sab_stage_log_lines","_sab_repair_telemetry"}]
+if {node.name for node in repair_nodes} != {"_sab_text","_duration_seconds","_sab_stage_log_lines","_sab_repair_telemetry"}:
+    raise SystemExit("Missing v3.6.47 SAB repair telemetry helpers.")
+sab_ns = {"Any": typing.Any, "re": __import__('re')}
+exec(compile(ast.Module(body=repair_nodes, type_ignores=[]), str(SAB_PATH), "exec"), sab_ns)
+repair = sab_ns["_sab_repair_telemetry"]
+repair_cases = [
+    ({"status":"Completed","stage_log":["Verifying: 10/10","All files are correct"]}, "verified", ""),
+    ({"status":"Completed","stage_log":["Repair is required","Repairing: 10/10","Repair successful"]}, "repaired", ""),
+    ({"status":"Fetching","action_line":"Fetching: additional PAR2 recovery blocks"}, "repairing", ""),
+    ({"status":"Failed","fail_message":"Aborted, cannot be completed - https://sabnzbd.org/not-complete"}, "unrecoverable", "unrecoverable"),
+    ({"status":"Failed","fail_message":"Unpacking failed: incorrect password"}, "failed_password", "password"),
+    ({"status":"Failed","fail_message":"Unpacking failed: archive is corrupt"}, "failed_unpack", "unpack"),
+    ({"status":"Failed","fail_message":"Post-processing failed: disk full / no space left"}, "failed_filesystem", "filesystem"),
+]
+for slot, expected_outcome, expected_class in repair_cases:
+    row = repair(slot)
+    if row.get("repair_outcome") != expected_outcome or row.get("failure_class") != expected_class:
+        raise SystemExit(f"SAB repair classification failed for {slot}: {row}")
+if not repair(repair_cases[2][0]).get("par2_fetch_observed"):
+    raise SystemExit("SAB Fetching state did not record PAR2/recovery fetch observation.")
+for slot, _outcome, _cls in repair_cases:
+    if repair(slot).get("recovery_blocks_reported") is not False:
+        raise SystemExit("SAB repair telemetry invented recovery-block count availability.")
+
+for marker in (
+    'SAB_VERSION = "5.1.2"',
+    'ADAPTER_VERSION = "3.6.47"',
+    'SABnzbd-5.1.2-win64-bin.zip',
+    '0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46',
+    'def _upgrade_running_sab_if_needed(',
+    'self._api("shutdown", timeout=3.0)',
+    'repair_telemetry',
+    'recovery_blocks_reported',
+):
+    if marker not in sab_source:
+        raise SystemExit(f"Missing v3.6.47 SAB/repair production marker: {marker}")
+upgrade_start = sab_source.find('    def _upgrade_running_sab_if_needed(')
+upgrade_end = sab_source.find('    def _launch(self)', upgrade_start)
+upgrade_block = sab_source[upgrade_start:upgrade_end]
+if '.kill(' in upgrade_block or '.terminate(' in upgrade_block:
+    raise SystemExit("Managed SAB version-upgrade path contains a force terminate/kill operation.")
+if upgrade_block.find('self._provision_engine()') > upgrade_block.find('self._api("shutdown", timeout=3.0)'):
+    raise SystemExit("Managed SAB upgrade does not provision/verify the replacement before graceful shutdown.")
+
+app_source = (ROOT / "src" / "app" / "static" / "app.js").read_text(encoding="utf-8")
+for marker in ("PAR2 REPAIRED","PAR2 UNRECOVERABLE","SAB repair history","Not reported by SAB","repair_outcome","failure_class"):
+    if marker not in app_source:
+        raise SystemExit(f"Missing v3.6.47 Downloads repair-visibility UI marker: {marker}")
+
+print(f"TV identity/reliability regression guard passed ({len(CASES)} TV cases + integrity/diagnostics/library-scan/quality-selection/selected-episodes/PAR2-repair guards).")
