@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.43** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.44** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.43_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.44_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.43 highlights
+## v3.6.44 highlights
 
-v3.6.43 refines the strict v3.6.42 TV identity model and adds a safe workflow for reviewing historical library assignments exposed by the new audit.
+v3.6.44 is a focused hotfix for the Library Integrity Review introduced in v3.6.43.
 
-- **Safe release-name compatibility:** exact TV prefixes may carry bounded year-only decorations, and full-token stylizations such as PLUR1BUS are supported without substring matching.
-- **Cross-series safety preserved:** Debrief/Romania/Bradshaw/Morning Show/episode-title and conflicting-edition matches remain rejected.
-- **Library Integrity review:** Automation Setup can audit suspicious provenance and duplicate fingerprints, open the associated folder, and explicitly Mark Missing without deleting media.
-- **Reviewed-file protection:** the exact old file fingerprint is excluded from immediate scan re-attachment while a genuinely different replacement remains eligible.
-- **Smaller diagnostics:** /api/diagnostics keeps engine/telemetry/statistics but no longer duplicates the entire Downloads history already available from /api/downloads.
-- **Cleaner localhost logging:** proven browser/client disconnects during response delivery no longer masquerade as Automation calculation failures.
+- **Integrity Review fixed:** Run integrity review now reaches the read-only audit endpoint instead of returning HTTP 404.
+- **Correct API contract:** `/api/automation/library/integrity-audit` is GET-only/read-only, while Open Folder and Mark Missing remain explicit POST actions.
+- **Non-destructive behavior preserved:** Mark Missing still leaves the physical media file untouched and retains fingerprint-specific reviewed-file protection.
+- **No unrelated changes:** v3.6.43 TV identity compatibility, diagnostics compaction, client-disconnect cleanup, Automation behavior, and Downloads/SAB reliability are otherwise unchanged.
 
-See [the full v3.6.43 release notes](release/RELEASE_NOTES_v3.6.43.md).
+See [the full v3.6.44 release notes](release/RELEASE_NOTES_v3.6.44.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +65,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.43_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.44_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

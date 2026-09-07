@@ -88,11 +88,11 @@ required = [
 ]
 for marker in required:
     if marker not in source:
-        raise SystemExit(f"Missing v3.6.43 production guard marker: {marker}")
+        raise SystemExit(f"Missing v3.6.44 production guard marker: {marker}")
 
 
 
-# v3.6.43: Mark Missing must never remove the reviewed physical file.
+# v3.6.44: Mark Missing must never remove the reviewed physical file.
 class _DummyDownloadManager:
     pass
 
@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
     media_dir = data_dir / "TV" / "Show" / "Season 1"
     media_dir.mkdir(parents=True)
     media_file = media_dir / "Show - S01E01 - Wrong.mkv"
-    media_file.write_bytes(b"NewzDeck v3.6.43 non-destructive review guard")
+    media_file.write_bytes(b"NewzDeck v3.6.44 non-destructive review guard")
     library = [{
         "id":"guard-show","kind":"tv","title":"Show","library_title":"Show",
         "seasons":[{"season_number":1,"episodes":[{
@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
         }]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.43")
+    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.44")
     result = engine.library_integrity_mark_missing("guard-show",1,1,str(media_file))
     after = json.loads((data_dir / "media-library.json").read_text(encoding="utf-8"))
     episode = after[0]["seasons"][0]["episodes"][0]
@@ -122,13 +122,30 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
     if episode.get("integrity_excluded_fingerprint") != "guard-fingerprint":
         raise SystemExit("Integrity review guard did not preserve the reviewed fingerprint exclusion.")
 
-# v3.6.43: execute the diagnostics compaction helper without importing server.py,
+# v3.6.44: execute the diagnostics compaction helper without importing server.py,
 # whose module-level runtime initialization is intentionally not a unit-test API.
 server_source = SERVER_PATH.read_text(encoding="utf-8")
+# v3.6.44: the read-only integrity audit must be routed through GET, while
+# explicit review actions remain POST-only. This catches the v3.6.43 404 regression.
+route = '"/api/automation/library/integrity-audit"'
+get_pos = server_source.find("    def do_GET(self):")
+post_pos = server_source.find("    def do_POST(self):")
+if get_pos < 0 or post_pos < 0 or post_pos <= get_pos:
+    raise SystemExit("Could not isolate NewzDeck GET/POST handlers for integrity-route validation.")
+get_block = server_source[get_pos:post_pos]
+post_block = server_source[post_pos:]
+if route not in get_block:
+    raise SystemExit("Library Integrity audit endpoint is not registered in the GET handler.")
+if route in post_block:
+    raise SystemExit("Library Integrity audit endpoint is incorrectly registered in the POST handler.")
+for action_route in ('"/api/automation/library/integrity/open-folder"','"/api/automation/library/integrity/mark-missing"'):
+    if action_route not in post_block:
+        raise SystemExit(f"Library Integrity action route is no longer POST-only/present: {action_route}")
+
 server_tree = ast.parse(server_source)
 helper_nodes = [node for node in server_tree.body if isinstance(node, ast.FunctionDef) and node.name in {"_diagnostic_downloads_snapshot","_client_disconnected"}]
 if {node.name for node in helper_nodes} != {"_diagnostic_downloads_snapshot","_client_disconnected"}:
-    raise SystemExit("Missing v3.6.43 diagnostics/client-disconnect helper.")
+    raise SystemExit("Missing v3.6.44 diagnostics/client-disconnect helper.")
 helper_ns = {
     "Any": typing.Any,
     "BrokenPipeError": BrokenPipeError,

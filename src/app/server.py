@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.43"
+APP_VERSION = "3.6.44"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -12252,6 +12252,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._json(200, {"providers": [public_provider(p) for p in get_providers()]})
         if parsed.path == "/api/downloads":
             return self._json(200, DOWNLOAD_MANAGER.snapshot())
+        if parsed.path == "/api/automation/library/integrity-audit":
+            return self._json(200, MEDIA_AUTOMATION.library_integrity_audit())
         if parsed.path == "/api/automation/sidebar-counts":
             try:
                 counts = dict(MEDIA_AUTOMATION.sidebar_counts() or {})
@@ -12501,8 +12503,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._json(200, DOWNLOAD_MANAGER.retry_automation_import(str(data.get("collection_id") or "")))
             if parsed.path == "/api/automation/library/scan":
                 return self._json(200, MEDIA_AUTOMATION.scan_library(str(data.get("id") or "")))
-            if parsed.path == "/api/automation/library/integrity-audit":
-                return self._json(200, MEDIA_AUTOMATION.library_integrity_audit())
             if parsed.path == "/api/automation/library/integrity/open-folder":
                 rec=MEDIA_AUTOMATION.library_integrity_location(str(data.get('item_id') or ''),data.get('season'),data.get('episode'),data.get('path'))
                 location=str(rec.get('folder') or '')

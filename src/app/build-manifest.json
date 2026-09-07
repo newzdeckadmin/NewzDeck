@@ -1,25 +1,20 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.43",
-  "base_version": "3.6.42",
-  "release": "TV Identity Compatibility & Library Integrity Review",
-  "adapter_version": "3.6.43",
-  "name": "TV Identity Compatibility & Library Integrity Review",
+  "version": "3.6.44",
+  "base_version": "3.6.43",
+  "release": "Library Integrity Audit Route Hotfix",
+  "adapter_version": "3.6.44",
+  "name": "Library Integrity Audit Route Hotfix",
   "changes": [
-    "Keeps v3.6.42 exact TV series-prefix anchoring but accepts one or two year-only decorations between an already-exact title and Sxx/Eyy, covering diagnostic-proven Reacher/Beast Games/FROM/Dark Matter release naming without reopening cross-series matches.",
-    "Adds bounded full-token stylization compatibility such as PLUR1BUS -> Pluribus while retaining exact-prefix semantics and rejecting arbitrary intervening words.",
-    "Adds an on-demand Library Integrity Needs Review interface with provenance, current path, cross-title duplicate evidence, Open Folder, and explicit Mark Missing actions; no media is deleted or moved automatically.",
-    "Mark Missing persists an exact reviewed path/fingerprint exclusion so periodic scans cannot immediately reattach the same known-bad file; a genuinely different replacement remains eligible.",
-    "Reduces /api/diagnostics payload duplication by returning full Downloads telemetry/statistics/engine state plus bounded compact collection evidence instead of the entire Downloads history.",
-    "Suppresses only proven localhost client-disconnect write exceptions so browser reloads do not get mislabeled as Automation sidebar/summary failures."
+    "Registers the read-only /api/automation/library/integrity-audit endpoint in the HTTP GET handler so the v3.6.43 Library Integrity Review UI and Diagnostic Collector can retrieve the audit instead of receiving HTTP 404.",
+    "Keeps Library Integrity Open Folder and Mark Missing actions POST-only; Mark Missing remains non-destructive and never deletes, moves, renames, or overwrites media.",
+    "Adds a production regression guard that fails if the integrity-audit route is missing from GET or is accidentally reintroduced into POST."
   ],
   "regression_guards": [
-    "The strict pre-Sxx/Eyy series identity boundary remains mandatory; The Morning Show/Love Island, Bradshaw, Debrief, Romania, cross-edition, and FROM episode-title collision cases stay rejected.",
-    "Year compatibility permits only one or two 19xx/20xx tokens after an exact allowed series prefix; arbitrary words remain rejected.",
-    "Integrity review mutations alter NewzDeck library association state only and never delete, move, rename, or overwrite the reviewed media file.",
-    "Reviewed-file scan exclusion is fingerprint-specific so a newly replaced physical file at the same path can be reconciled normally.",
-    "The full /api/downloads endpoint remains authoritative and unchanged; only /api/diagnostics duplicates less historical presentation data.",
-    "v3.6.42 storage-reserve, reservation hygiene, strict library scan ownership, Win64 memory telemetry and SAB warning classification remain intact.",
-    "v3.6.41 fail-soft Downloads snapshot behavior and the v3.6.20+ serialized SAB control transport remain intact."
+    "All v3.6.43 TV identity compatibility, strict cross-series rejection, reviewed-fingerprint protection, diagnostics compaction, and client-disconnect behavior remain unchanged.",
+    "The integrity audit remains read-only; only explicit user actions use POST.",
+    "The existing 30-case TV identity/reliability regression suite remains mandatory in the canonical GitHub release workflow.",
+    "v3.6.42 storage reserve/reservation hygiene and v3.6.41 fail-soft Downloads snapshot behavior remain intact.",
+    "The v3.6.20+ serialized private-SAB transport remains intact."
   ]
 }

@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.43
+## Current release: v3.6.44
 
-**v3.6.43 is the current stable production release.**
+**v3.6.44 is the current stable production release.**
 
-The `v3.6.43` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.44` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.44 - Library Integrity Audit Route Hotfix.** Moves the read-only Library Integrity audit route into the GET handler so the v3.6.43 Needs Review UI and diagnostic collector no longer receive HTTP 404, while keeping Open Folder/Mark Missing POST-only and preserving all v3.6.43 identity/review behavior.
 
 - **v3.6.43 - TV Identity Compatibility & Library Integrity Review.** Preserves strict pre-Sxx/Eyy TV identity anchoring while accepting bounded year-only decorations and safe full-token stylizations, adds a non-destructive Needs Review workflow with fingerprint-specific Mark Missing exclusions, compacts duplicated Downloads history out of /api/diagnostics, and prevents proven localhost client disconnects from being mislabeled as Automation calculation failures.
 
