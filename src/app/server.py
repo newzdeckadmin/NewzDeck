@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.48"
+APP_VERSION = "3.6.49"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11806,6 +11806,29 @@ def diagnostics_snapshot() -> dict[str, Any]:
     snap = DOWNLOAD_MANAGER.snapshot()
     if str((snap.get('engine') or {}).get('name') or '').casefold() == 'sabnzbd':
         pool_stats = snap.get('connections') or pool_stats
+        # v3.6.49: SAB is the authoritative transfer engine, so provider health in
+        # Diagnostics must not say "standby / 0 connections" while SAB is actively
+        # downloading on that exact managed server. Preserve native provider probe
+        # statistics, but overlay runtime worker/socket state from SAB.
+        sab_servers=[x for x in (pool_stats.get('servers') or []) if isinstance(x,dict)]
+        by_host={str(x.get('host') or '').casefold():x for x in sab_servers if str(x.get('host') or '').strip()}
+        for provider in providers:
+            runtime=by_host.get(str(provider.get('host') or '').casefold())
+            if not isinstance(runtime,dict):
+                continue
+            active=int(runtime.get('active_connections') or 0)
+            capacity=int(runtime.get('capacity') or 0)
+            server_active=bool(runtime.get('server_active',True))
+            error=str(runtime.get('error') or '')
+            provider['status']='error' if error or not server_active else 'connected'
+            provider['runtime_active']=bool(active>0)
+            provider['runtime_state']='active' if active>0 else ('connected-idle' if server_active else 'inactive')
+            provider['runtime_source']='sabnzbd'
+            provider['runtime_active_connections']=active
+            provider['runtime_capacity']=capacity
+            provider['pool']={**dict(provider.get('pool') or {}),'active':active,'open':active,'capacity':capacity}
+            if error and not provider.get('last_error'):
+                provider['last_error']=error
     memory_bytes = _process_memory_bytes()
     memory_error = str(_PROCESS_MEMORY_LAST_ERROR or '')
     return {
@@ -12146,10 +12169,20 @@ class AppHandler(SimpleHTTPRequestHandler):
             return False
 
     def _json(self, status: int, payload: Any):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        serialize_started=time.monotonic()
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        serialize_ms=max(0.0,(time.monotonic()-serialize_started)*1000.0)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        try:
+            request_path=urllib.parse.urlparse(str(getattr(self,"path","") or "")).path
+        except Exception:
+            request_path=""
+        if request_path=="/api/downloads":
+            self.send_header("X-NewzDeck-JSON-Bytes",str(len(body)))
+            self.send_header("X-NewzDeck-JSON-Serialize-Ms",f"{serialize_ms:.3f}")
+            self.send_header("Server-Timing",f"json;dur={serialize_ms:.3f}")
         self.send_header("Cache-Control", "no-store")
         # v3.5.18 cache recovery: v3.5.17 changed the backend's default port
         # without rebuilding the native desktop bootstrapper, which broke
@@ -12251,7 +12284,24 @@ class AppHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/providers":
             return self._json(200, {"providers": [public_provider(p) for p in get_providers()]})
         if parsed.path == "/api/downloads":
-            return self._json(200, DOWNLOAD_MANAGER.snapshot())
+            query=urllib.parse.parse_qs(parsed.query or "")
+            scope=str((query.get("scope") or ["all"])[0] or "all").casefold()
+            try: limit=max(1,min(500,int((query.get("limit") or [50])[0] or 50)))
+            except Exception: limit=50
+            try: offset=max(0,int((query.get("offset") or [0])[0] or 0))
+            except Exception: offset=0
+            started=time.monotonic()
+            if hasattr(DOWNLOAD_MANAGER,"snapshot_view"):
+                payload=DOWNLOAD_MANAGER.snapshot_view(scope,limit=limit,offset=offset)
+            else:
+                payload=DOWNLOAD_MANAGER.snapshot()
+            if isinstance(payload,dict):
+                payload=dict(payload)
+                telemetry=dict(payload.get("telemetry") or {})
+                telemetry["downloads_api_prepare_ms"]=round(max(0.0,(time.monotonic()-started)*1000.0),3)
+                telemetry["downloads_api_scope"]=scope
+                payload["telemetry"]=telemetry
+            return self._json(200,payload)
         if parsed.path == "/api/automation/library/integrity-audit":
             return self._json(200, MEDIA_AUTOMATION.library_integrity_audit())
         if parsed.path == "/api/automation/sidebar-counts":

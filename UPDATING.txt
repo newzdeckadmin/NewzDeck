@@ -1,5 +1,5 @@
-NewzDeck v3.6.48
-Library Integrity & Downloads Runtime Hardening
+NewzDeck v3.6.49
+Downloads Data-Plane & Runtime Efficiency
 Updating
 
 INSTALLED NEWZDECK
@@ -16,9 +16,14 @@ The installer-owned update lifecycle remains authoritative:
   7. Restore the tray.
   8. Finish Setup and relaunch NewzDeck automatically for /update installs.
 
-v3.6.48 hardens Library Integrity and reduces Downloads control-plane pressure while
-preserving the v3.6.47 Selected Episodes, SAB 5.1.2, PAR2/repair visibility, strict
-TV identity, Automation, Smart Import, and authoritative background-runtime behavior.
+v3.6.49 reduces routine Downloads payload/serialization work, moves provider-health
+reads off the foreground snapshot path, adds latency percentiles, compacts terminal
+legacy native-engine segment history, caches unchanged Library Integrity audits, and
+hardens Smart Import output ownership against stale cross-job SAB paths.
+
+It preserves v3.6.48 Library Integrity, v3.6.47 Selected Episodes, SAB 5.1.2,
+PAR2/repair visibility, strict TV identity, quality-aware selection, Automation,
+Smart Import, and authoritative background-runtime behavior.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder.
 Existing settings, provider configuration, Automation data, history, queue state, and

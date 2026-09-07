@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.48"
+ADAPTER_VERSION = "3.6.49"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -689,6 +689,48 @@ class SabDownloadManager:
         self.legacy_statistics_file = legacy_statistics_file
         legacy_raw = _json_read(legacy_statistics_file, {}) if legacy_statistics_file else {}
         self.legacy_statistics = dict(legacy_raw.get("statistics") or {}) if isinstance(legacy_raw, dict) and isinstance(legacy_raw.get("statistics"), dict) else {}
+        # v3.6.49: downloads.json is the retired native-engine ledger when SAB is
+        # authoritative. Completed legacy jobs can retain tens of thousands of raw
+        # article segment dictionaries that are no longer needed for resume/retry.
+        # Strip only those terminal per-article details; keep job identity, timing,
+        # statistics, paths and all non-terminal records intact.
+        self._legacy_compaction_jobs = 0
+        self._legacy_compaction_segments = 0
+        self._legacy_compaction_bytes_before = 0
+        self._legacy_compaction_bytes_after = 0
+        if legacy_statistics_file and isinstance(legacy_raw, dict):
+            try:
+                self._legacy_compaction_bytes_before = int(Path(legacy_statistics_file).stat().st_size)
+            except OSError:
+                self._legacy_compaction_bytes_before = 0
+            changed = False
+            for legacy_job in list(legacy_raw.get("jobs") or []):
+                if not isinstance(legacy_job, dict) or str(legacy_job.get("status") or "").casefold() not in {"completed", "failed", "cancelled", "canceled"}:
+                    continue
+                segments = legacy_job.get("segments") if isinstance(legacy_job.get("segments"), list) else []
+                if segments:
+                    count = len(segments)
+                    legacy_job["segments"] = []
+                    legacy_job["legacy_segments_compacted"] = count
+                    self._legacy_compaction_jobs += 1
+                    self._legacy_compaction_segments += count
+                    changed = True
+                if legacy_job.get("segment_errors"):
+                    legacy_job["legacy_segment_error_count"] = len(legacy_job.get("segment_errors") or [])
+                    legacy_job["segment_errors"] = []
+                    changed = True
+                if legacy_job.get("recovery_sources"):
+                    legacy_job["legacy_recovery_source_count"] = len(legacy_job.get("recovery_sources") or {})
+                    legacy_job["recovery_sources"] = {}
+                    changed = True
+            if changed:
+                legacy_raw["legacy_terminal_segments_compacted_by"] = "3.6.49"
+                legacy_raw["legacy_terminal_segments_compacted_ts"] = time.time()
+                try:
+                    _atomic_json_write(Path(legacy_statistics_file), legacy_raw)
+                    self._legacy_compaction_bytes_after = int(Path(legacy_statistics_file).stat().st_size)
+                except OSError:
+                    self._legacy_compaction_bytes_after = 0
         self.keep_engine_running = keep_engine_running or (lambda: False)
         self.process_launcher = process_launcher
 
@@ -762,6 +804,10 @@ class SabDownloadManager:
         self._snapshot_last_build_ms = 0.0
         self._snapshot_max_build_ms = 0.0
         self._snapshot_slow_builds = 0
+        # v3.6.49: keep a bounded rolling latency sample so diagnostics can report
+        # p50/p90/p95/p99 instead of interpreting cumulative slow-build counts.
+        self._snapshot_build_samples_ms: list[float] = []
+        self._snapshot_sample_limit = 256
         # v3.6.48: split slow snapshot time into the two bounded external/recovery
         # phases that diagnostics can act on. The remaining time is presentation/
         # reconciliation work inside NewzDeck and is derived from total minus these.
@@ -980,6 +1026,10 @@ class SabDownloadManager:
         self._provider_health_cache: dict[str, Any] = {}
         self._provider_health_ts = 0.0
         self._provider_health_success_ts = 0.0
+        # v3.6.49 snapshots consume the most recent provider-health proof without
+        # synchronously reading SAB config/status/warnings on the HTTP request path.
+        # The engine worker refreshes this cache independently every few seconds.
+        self._provider_health_background_last_ts = 0.0
         self._provider_unblock_after: dict[str, float] = {}
         self._zero_socket_since = 0.0
         self._last_stall_repair_ts = 0.0
@@ -3541,6 +3591,41 @@ class SabDownloadManager:
         low = str(text or "").strip().casefold()
         return any(term in low for term in ("disk error", "disk full", "no space left", "not enough space"))
 
+    @staticmethod
+    def _engine_warning_informational(text: Any) -> bool:
+        low=str(text or "").strip().casefold()
+        return any(marker in low for marker in (
+            "direct unpack was automatically enabled",
+            "direct unpack automatically enabled",
+        ))
+
+    def _provider_health_cached_snapshot(self) -> dict[str, Any]:
+        now=time.time()
+        if self._provider_health_cache:
+            result=dict(self._provider_health_cache)
+            age=max(0.0,now-float(self._provider_health_ts or 0.0))
+            result["cache_age_seconds"]=age
+            result["cache_source"]="background"
+            if age>15.0:
+                # Do not let an old positive socket count suppress real stall recovery
+                # indefinitely if the independent health worker stopped refreshing.
+                result["runtime_state_known"]=False
+                result["active_connections"]=0
+                result["control_degraded"]=True
+                result["control_error"]="Provider-health cache is stale"
+            return result
+        expectations=self._managed_server_expectations()
+        enabled={name:value for name,value in expectations.items() if value.get("enabled")}
+        return {
+            "available":False,"runtime_state_known":False,"active_connections":0,
+            "capacity":sum(int(x.get("connections") or 0) for x in enabled.values()),
+            "servers":[],"errors":[],"warnings":[],"provider_warnings":[],
+            "engine_warnings":[],"engine_notices":[],"disk_error":"","summary":"",
+            "expected_servers":len(enabled),"configured_servers":0,"runtime_servers":-1,
+            "missing_config":[],"missing_runtime":[],"control_degraded":False,"control_error":"",
+            "cache_age_seconds":0.0,"cache_source":"not-yet-refreshed",
+        }
+
     def _provider_health(self, *, force: bool = False, timeout: float = 2.0) -> dict[str, Any]:
         """Read configured + runtime SAB NNTP state and always explain zero-worker states."""
         now = time.time()
@@ -3613,7 +3698,8 @@ class SabDownloadManager:
                 warning_text = self._active_warnings(timeout=1.2)
 
             provider_warnings = [x for x in warning_text if self._provider_warning_relevant(x)]
-            engine_warnings = [x for x in warning_text if x not in provider_warnings]
+            engine_notices = [x for x in warning_text if x not in provider_warnings and self._engine_warning_informational(x)]
+            engine_warnings = [x for x in warning_text if x not in provider_warnings and x not in engine_notices]
             disk_error = next((x for x in warning_text if self._disk_warning(x)), "")
             summary = errors[0] if errors else (provider_warnings[0] if provider_warnings else "")
             if not summary and enabled_expected and missing_config:
@@ -3634,6 +3720,7 @@ class SabDownloadManager:
                 "warnings": warning_text,
                 "provider_warnings": provider_warnings,
                 "engine_warnings": engine_warnings,
+                "engine_notices": engine_notices,
                 "disk_error": disk_error,
                 "summary": summary,
                 "expected_servers": len(enabled_expected),
@@ -3667,7 +3754,7 @@ class SabDownloadManager:
                     "active_connections": 0,
                     "capacity": sum(int(x.get("connections") or 0) for x in enabled_expected.values()),
                     "servers": [], "errors": [], "warnings": [],
-                    "provider_warnings": [], "engine_warnings": [], "disk_error": "",
+                    "provider_warnings": [], "engine_warnings": [], "engine_notices": [], "disk_error": "",
                     "summary": "SAB status temporarily unavailable" if self._is_transient_control_error(exc) else str(exc),
                     "expected_servers": len(enabled_expected), "configured_servers": len(configured),
                     "runtime_servers": -1, "missing_config": [x for x in enabled_expected if x not in configured],
@@ -4138,7 +4225,7 @@ class SabDownloadManager:
         ))
 
     def _recover_zero_socket_transfer(self, *, queue_active: bool, queue_paused: bool, total_speed: int,
-                                      remaining_bytes: int = 0) -> dict[str, Any]:
+                                      remaining_bytes: int = 0, health: dict[str,Any] | None = None) -> dict[str, Any]:
         """Recover only a *sustained no-progress* SAB stall.
 
         SAB normally reconnects individual NNTP sockets itself. Short zero-socket
@@ -4149,7 +4236,7 @@ class SabDownloadManager:
         intervenes after the queue has made no progress for a meaningful interval.
         """
         now = time.time()
-        health = self._provider_health(force=False)
+        health = dict(health or self._provider_health_cached_snapshot())
         active_connections = int(health.get("active_connections", 0) or 0)
         remaining = max(0, int(remaining_bytes or 0))
 
@@ -4284,6 +4371,14 @@ class SabDownloadManager:
             try:
                 self.ensure_running(blocking=True)
                 self._sync_configuration()
+                # v3.6.49: refresh expensive provider config/status/warning evidence
+                # here, outside the Downloads HTTP request path. Snapshots consume
+                # this proven cache and only force new reads during real stall recovery.
+                try:
+                    self._provider_health(force=False)
+                    self._provider_health_background_last_ts=time.time()
+                except Exception:
+                    pass
                 self._quarantine_stale_private_engines()
                 if self._resume_intent_event.is_set():
                     self._resume_intent_event.clear()
@@ -4374,6 +4469,10 @@ class SabDownloadManager:
             "storage_cleanup_files_removed": int(self._runtime_storage_files_removed),
             "storage_cleanup_bytes_removed": int(self._runtime_storage_bytes_removed),
             "storage_cleanup_summary": str(self._runtime_storage_last_summary or ""),
+            "legacy_compaction_jobs": int(self._legacy_compaction_jobs),
+            "legacy_compaction_segments": int(self._legacy_compaction_segments),
+            "legacy_compaction_bytes_before": int(self._legacy_compaction_bytes_before),
+            "legacy_compaction_bytes_after": int(self._legacy_compaction_bytes_after),
         }
         self._engine_status_cache = dict(result)
         self._engine_status_ts = now
@@ -5993,6 +6092,24 @@ class SabDownloadManager:
         terminal_hint = max(started, created)
         return (1, 2, -terminal_hint, -created, str(item.get("id") or ""))
 
+    def _record_snapshot_build_sample(self, value_ms: float) -> None:
+        self._snapshot_build_samples_ms.append(max(0.0, float(value_ms or 0.0)))
+        if len(self._snapshot_build_samples_ms) > self._snapshot_sample_limit:
+            del self._snapshot_build_samples_ms[:-self._snapshot_sample_limit]
+
+    def _snapshot_percentile_telemetry(self) -> dict[str, Any]:
+        rows=sorted(self._snapshot_build_samples_ms)
+        if not rows:
+            return {"snapshot_sample_count":0,"snapshot_p50_ms":0.0,"snapshot_p90_ms":0.0,"snapshot_p95_ms":0.0,"snapshot_p99_ms":0.0}
+        def pct(q: float) -> float:
+            index=max(0,min(len(rows)-1,int(round((len(rows)-1)*q))))
+            return round(float(rows[index]),3)
+        return {
+            "snapshot_sample_count":len(rows),
+            "snapshot_p50_ms":pct(0.50),"snapshot_p90_ms":pct(0.90),
+            "snapshot_p95_ms":pct(0.95),"snapshot_p99_ms":pct(0.99),
+        }
+
     def snapshot(self) -> dict[str, Any]:
         now = time.time()
         if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
@@ -6025,6 +6142,7 @@ class SabDownloadManager:
                 "snapshot_max_build_ms": round(float(self._snapshot_max_build_ms or 0.0), 3),
                 "snapshot_slow_builds": int(self._snapshot_slow_builds),
                 "snapshot_cache_seconds": round(float(self._snapshot_cache_seconds or 0.0), 3),
+                **self._snapshot_percentile_telemetry(),
                 "snapshot_sab_reconcile_last_ms": round(float(self._snapshot_sab_reconcile_last_ms or 0.0), 3),
                 "snapshot_sab_reconcile_max_ms": round(float(self._snapshot_sab_reconcile_max_ms or 0.0), 3),
                 "snapshot_provider_health_last_ms": round(float(self._snapshot_provider_health_last_ms or 0.0), 3),
@@ -6043,6 +6161,7 @@ class SabDownloadManager:
             build_ms = max(0.0, (time.monotonic() - build_started) * 1000.0)
             self._snapshot_last_build_ms = build_ms
             self._snapshot_max_build_ms = max(self._snapshot_max_build_ms, build_ms)
+            self._record_snapshot_build_sample(build_ms)
             if build_ms >= 1000.0:
                 self._snapshot_slow_builds += 1
             # Sequence/timestamp let the browser reject genuinely older state even
@@ -6061,6 +6180,7 @@ class SabDownloadManager:
                 "snapshot_max_build_ms": round(float(self._snapshot_max_build_ms or 0.0), 3),
                 "snapshot_slow_builds": int(self._snapshot_slow_builds),
                 "snapshot_cache_seconds": round(float(self._snapshot_cache_seconds or 0.0), 3),
+                **self._snapshot_percentile_telemetry(),
                 "snapshot_sab_reconcile_last_ms": round(float(self._snapshot_sab_reconcile_last_ms or 0.0), 3),
                 "snapshot_sab_reconcile_max_ms": round(float(self._snapshot_sab_reconcile_max_ms or 0.0), 3),
                 "snapshot_provider_health_last_ms": round(float(self._snapshot_provider_health_last_ms or 0.0), 3),
@@ -6073,6 +6193,46 @@ class SabDownloadManager:
             return decorated
         finally:
             self._snapshot_lock.release()
+
+    def snapshot_view(self, scope: str = "all", *, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        """Return a bounded Downloads presentation while preserving global counts.
+
+        v3.6.49 keeps ``snapshot()`` as the full compatibility/diagnostic contract,
+        but the desktop polls this view so hundreds of terminal jobs are not serialized
+        and parsed on every live refresh. Completed/Failed pages remain accessible in
+        deterministic chunks without changing queue authority or reconciliation.
+        """
+        snap=self.snapshot()
+        mode=str(scope or "all").strip().casefold()
+        if mode in {"all","full"}:
+            result=dict(snap)
+            result["view"]={"scope":"all","offset":0,"limit":len(snap.get("jobs") or []),"total":len(snap.get("jobs") or []),"has_more":False}
+            return result
+        jobs=list(snap.get("jobs") or [])
+        active_post={"queued","waiting","verifying","repairing","extracting","importing","needs_password","needs_tool","needs_attention","blocked","failed","cancelled"}
+        def include(job: dict[str,Any]) -> bool:
+            status=str(job.get("status") or "").casefold()
+            post=str(job.get("post_status") or "").casefold()
+            if mode=="live":
+                return status in {"queued","downloading","retry_wait","cancelling"} or (status not in {"failed","cancelled"} and post in active_post)
+            if mode=="completed":
+                return status=="completed" and post in {"","completed","not_needed","disabled"}
+            if mode=="failed":
+                return status in {"failed","cancelled"} or post in {"failed","needs_attention","needs_tool","blocked","cancelled"}
+            return True
+        selected=[job for job in jobs if include(job)]
+        total=len(selected)
+        start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
+        page=selected[start:start+size]
+        ids={str(job.get("id") or "") for job in page}
+        collection_ids={str(job.get("collection_id") or "") for job in page if str(job.get("collection_id") or "")}
+        collections=[row for row in list(snap.get("collections") or []) if str(row.get("id") or "") in ids or str(row.get("id") or "") in collection_ids]
+        result=dict(snap)
+        result["jobs"]=page
+        result["collections"]=collections
+        result["view"]={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":total,"has_more":start+len(page)<total,
+                        "matching_ids":[str(job.get("id") or "") for job in selected if str(job.get("id") or "")]}
+        return result
 
     def _offline_job_from_meta(self, nzo_id: str, meta: dict[str, Any], now: float) -> dict[str, Any]:
         """Reconstruct one persisted job while SAB is temporarily unavailable.
@@ -6370,15 +6530,15 @@ class SabDownloadManager:
             qroot, now, has_transfer_work=has_engine_transfer_work,
         )
         provider_health_started = time.monotonic()
+        provider_health = self._provider_health_cached_snapshot()
         if queue_read_fresh:
             provider_health = self._recover_zero_socket_transfer(
                 queue_active=queue_active_signal, queue_paused=queue_paused, total_speed=total_speed,
-                remaining_bytes=queue_remaining_hint,
+                remaining_bytes=queue_remaining_hint, health=provider_health,
             )
-        else:
-            # A cached Queue sample cannot prove a provider stall. Read cached health
-            # only and wait for fresh Queue truth before any recovery decision.
-            provider_health = self._provider_health(force=False)
+        # A cached Queue sample cannot prove a provider stall. The background
+        # provider-health proof above is presentation-only until fresh Queue truth
+        # permits the existing bounded recovery state machine to act.
         provider_health_ms = max(0.0, (time.monotonic() - provider_health_started) * 1000.0)
         self._snapshot_provider_health_last_ms = provider_health_ms
         self._snapshot_provider_health_max_ms = max(self._snapshot_provider_health_max_ms, provider_health_ms)
@@ -6896,6 +7056,9 @@ class SabDownloadManager:
                        "engine_warning_summary": engine_warning_summary,
                        "provider_warnings": list(provider_health.get("provider_warnings") or [])[:10],
                        "engine_warnings": list(provider_health.get("engine_warnings") or [])[:10],
+                       "engine_notices": list(provider_health.get("engine_notices") or [])[:10],
+                       "provider_health_cache_age_seconds": float(provider_health.get("cache_age_seconds", 0.0) or 0.0),
+                       "provider_health_cache_source": str(provider_health.get("cache_source") or ""),
                        "disk_error": disk_error,
                        "provider_test": dict(provider_health.get("provider_test") or {}),
                        "expected_servers": int(provider_health.get("expected_servers", 0) or 0),
@@ -7605,6 +7768,16 @@ class SabDownloadManager:
         return "".join(ch.casefold() for ch in name if ch.isalnum())
 
     @staticmethod
+    def _automation_output_identity_alias(value: Any) -> str:
+        text=str(value or "").strip().replace("\\","/").rstrip("/")
+        if not text:
+            return ""
+        name=text.rsplit("/",1)[-1]
+        # SAB uses these bounded staging prefixes around the same release identity.
+        name=re.sub(r"(?i)^(?:_?UNPACK_|_?FAILED_|_?ADMIN_)+", "", name)
+        return SabDownloadManager._output_alias(name)
+
+    @staticmethod
     def _media_under(path: Path, *, max_depth: int = 4, max_files: int = 800) -> list[Path]:
         """Return media under one candidate SAB output without wandering the drive."""
         try:
@@ -7653,11 +7826,11 @@ class SabDownloadManager:
         context = dict(meta.get("automation_context") or {})
         raw_paths = [slot.get("storage"), slot.get("path"), meta.get("output_hint")]
         aliases = {
-            self._output_alias(x) for x in (
-                meta.get("name"), meta.get("source_name"), meta.get("output_hint"),
+            self._automation_output_identity_alias(x) for x in (
+                meta.get("name"), meta.get("source_name"),
                 slot.get("filename"), slot.get("name"), slot.get("nzb_name"),
-                slot.get("storage"), slot.get("path"), context.get("release_title"),
-            ) if self._output_alias(x)
+                context.get("release_title"),
+            ) if self._automation_output_identity_alias(x)
         }
 
         explicit: list[Path] = []
@@ -7676,6 +7849,18 @@ class SabDownloadManager:
             files = self._media_under(p)
             if files:
                 stage = p if p.is_dir() else p.parent
+                # v3.6.49: SAB history.storage is useful but not sufficient proof of
+                # Automation ownership because an old/stale history path can name a
+                # different completed job. Require the top-level output identity to
+                # agree with the tracked job/release (allowing SAB _UNPACK_/_FAILED_
+                # decoration) before Smart Import may consume it.
+                stage_alias=self._automation_output_identity_alias(stage)
+                file_alias=self._automation_output_identity_alias(p) if p.is_file() else ""
+                if aliases and stage_alias not in aliases and file_alias not in aliases:
+                    self._unsafe_output_fallback_rejections += 1
+                    self._event("warning", "Rejected SAB completed path whose identity belongs to another Automation job",
+                                nzo_id=nzo_id, path=str(p), output_alias=stage_alias, expected_aliases=sorted(aliases)[:8])
+                    continue
                 return files, stage, f"SAB history/output path: {p}"
 
         # SAB may sanitize/drop an extension when turning the NZB job name into its
@@ -7684,7 +7869,7 @@ class SabDownloadManager:
         try:
             if complete.is_dir():
                 for child in complete.iterdir():
-                    if self._output_alias(child.name) not in aliases:
+                    if self._automation_output_identity_alias(child.name) not in aliases:
                         continue
                     media = self._media_under(child)
                     if media:

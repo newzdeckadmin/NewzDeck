@@ -110,6 +110,22 @@ def _write(path: Path, value):
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
+
+def _write_compact(path: Path, value):
+    """Atomically write hot JSON state without pretty-print amplification."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _json_io_lock(path):
+        tmp = path.with_name(path.name + f'.{os.getpid()}.{threading.get_ident()}.tmp')
+        try:
+            with tmp.open('w', encoding='utf-8') as f:
+                json.dump(value, f, ensure_ascii=False, separators=(',', ':'))
+                f.flush()
+            _replace_json_with_retry(tmp, path)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
@@ -585,6 +601,14 @@ class MediaAutomationEngine:
         self.library_scan_jobs: dict[str,dict[str,Any]] = {}
         self.library_scan_latest_id = ''
         self.library_scan_run_lock = threading.Lock()
+        # v3.6.49: Library Integrity reads only persisted library/provenance state.
+        # Cache an audit until either input file changes so opening Needs Review does
+        # not repeatedly walk thousands of episode records with identical inputs.
+        self.library_integrity_cache_lock = threading.RLock()
+        self.library_integrity_cache_signature: tuple[int,int,int,int]|None = None
+        self.library_integrity_cache_result: dict[str,Any]|None = None
+        self.library_integrity_cache_hits = 0
+        self.library_integrity_cache_misses = 0
         self.reconcile_lock = threading.Lock()
         self.reconcile_thread = None
         self.metadata_refresh_run_lock = threading.Lock()
@@ -825,7 +849,10 @@ class MediaAutomationEngine:
                 stamp=max(float(rec.get('last_search_ts') or 0),float(rec.get('last_grab_ts') or 0),float(rec.get('updated_ts') or 0))
                 if stamp<=0 or stamp>=cutoff: cleaned[str(key)]=rec
             value['targets']=cleaned
-            _write(self.automation_runtime_file,value)
+            # v3.6.49: this file can contain thousands of targets and is rewritten
+            # frequently. Compact JSON preserves identical data while reducing write
+            # amplification and disk/cache pressure by roughly the pretty-print gap.
+            _write_compact(self.automation_runtime_file,value)
 
     @staticmethod
     def _runtime_target_stamp(rec:dict[str,Any]|None) -> float:
@@ -2222,6 +2249,12 @@ class MediaAutomationEngine:
         success=float(cloud.get('last_success_ts') or 0); error_ts=float(cloud.get('last_error_ts') or 0)
         circuit_open,circuit_remaining,circuit_reason=self._metadata_circuit_state()
         upstream_status=str(cloud.get('tmdb_status') or 'unknown').lower()
+        tmdb_last_success=float(cloud.get('tmdb_last_success_ts') or 0)
+        tmdb_probe_state=('not_probed_this_runtime' if upstream_status=='unknown' else 'reported')
+        tmdb_status_detail=(
+            ('TMDB has not been probed by this runtime' + (f'; last successful TMDB request was {int(max(0,now-tmdb_last_success))}s ago' if tmdb_last_success else ''))
+            if upstream_status=='unknown' else f'TMDB status reported as {upstream_status}'
+        )
         if circuit_open or upstream_status in {'degraded','offline'}:
             status='degraded'
         elif error_ts > success:
@@ -2240,7 +2273,7 @@ class MediaAutomationEngine:
             'installation_id':installation_id,'server_version':str(cloud.get('server_version') or ''),'api_version':int(cloud.get('api_version') or 0),
             'min_client_version':minimum,'compatible':compatible,'last_success_ts':success,'last_error_ts':error_ts,'last_error':str(cloud.get('last_error') or ''),
             'cached_fallbacks':int(cloud.get('cached_fallbacks') or 0),'last_cached_fallback_ts':float(cloud.get('last_cached_fallback_ts') or 0),
-            'tmdb_status':upstream_status,'tmdb_last_success_ts':float(cloud.get('tmdb_last_success_ts') or 0),
+            'tmdb_status':upstream_status,'tmdb_probe_state':tmdb_probe_state,'tmdb_status_detail':tmdb_status_detail,'tmdb_last_success_ts':tmdb_last_success,
             'tmdb_last_error_ts':float(cloud.get('tmdb_last_error_ts') or 0),'tmdb_last_error':str(cloud.get('tmdb_last_error') or ''),
             'tmdb_stale_fallbacks':int(cloud.get('tmdb_stale_fallbacks') or 0),
             'circuit_open':circuit_open,'circuit_retry_seconds':int(circuit_remaining+0.999) if circuit_open else 0,'circuit_reason':circuit_reason,
@@ -4115,6 +4148,18 @@ class MediaAutomationEngine:
                     else: ep.pop(key,None)
         return conflicts
 
+    @staticmethod
+    def _file_signature(path: Path) -> tuple[int,int]:
+        try:
+            st=path.stat(); return int(st.st_mtime_ns),int(st.st_size)
+        except OSError:
+            return 0,0
+
+    def _library_integrity_signature(self) -> tuple[int,int,int,int]:
+        lib_mtime,lib_size=self._file_signature(self.library_file)
+        quality_mtime,quality_size=self._file_signature(self.media_quality_cache_file)
+        return lib_mtime,lib_size,quality_mtime,quality_size
+
     def library_integrity_audit(self) -> dict[str,Any]:
         """Read-only audit for cross-target fingerprints and TV identity drift.
 
@@ -4123,8 +4168,30 @@ class MediaAutomationEngine:
         canonical renamed filename looks valid even though the downloaded release
         belonged to another series.  The audit never deletes or rewrites media.
         """
+        signature=self._library_integrity_signature()
+        with self.library_integrity_cache_lock:
+            if self.library_integrity_cache_signature==signature and isinstance(self.library_integrity_cache_result,dict):
+                self.library_integrity_cache_hits+=1
+                cached=copy.deepcopy(self.library_integrity_cache_result)
+                cached['cache_hit']=True
+                cached['cache_hits']=int(self.library_integrity_cache_hits)
+                cached['cache_misses']=int(self.library_integrity_cache_misses)
+                return cached
         with self.lock:
             lib=copy.deepcopy(self._library())
+        # _library() can perform a one-time schema normalization/write. Anchor the
+        # cache to the post-normalization persisted bytes so the very next audit can
+        # reuse this result rather than paying for a second full traversal.
+        signature=self._library_integrity_signature()
+        with self.library_integrity_cache_lock:
+            if self.library_integrity_cache_signature==signature and isinstance(self.library_integrity_cache_result,dict):
+                self.library_integrity_cache_hits+=1
+                cached=copy.deepcopy(self.library_integrity_cache_result)
+                cached['cache_hit']=True
+                cached['cache_hits']=int(self.library_integrity_cache_hits)
+                cached['cache_misses']=int(self.library_integrity_cache_misses)
+                return cached
+            self.library_integrity_cache_misses+=1
         qcache=self._media_quality_cache()
         by_fp:dict[str,list[dict[str,Any]]]={}
         edition_mismatches=[]
@@ -4206,7 +4273,7 @@ class MediaAutomationEngine:
         cross_episode.sort(key=lambda x:(-int(x.get('distinct_path_count') or 0),-int(x.get('target_count') or 0),str(x.get('fingerprint') or '')))
         identity_mismatches.sort(key=lambda x:(str(x.get('title') or ''),int(x.get('season') or 0),int(x.get('episode') or 0)))
         needs_review_count=len(identity_mismatches)+len(cross_title)+len(cross_episode)+len(edition_mismatches)
-        return {
+        result={
             'ok':True,'read_only':True,'file_records':file_records,'fingerprints':len(by_fp),
             'duplicate_fingerprints':len(duplicate),'cross_title_duplicate_fingerprints':len(cross_title),
             'same_title_cross_episode_duplicate_fingerprints':len(cross_episode),
@@ -4216,7 +4283,16 @@ class MediaAutomationEngine:
             'same_title_cross_episode_duplicates':cross_episode[:50],
             'edition_mismatch_examples':edition_mismatches[:50],
             'identity_mismatch_examples':identity_mismatches[:100],
+            'cache_hit':False,'cache_hits':int(self.library_integrity_cache_hits),'cache_misses':int(self.library_integrity_cache_misses),
         }
+        with self.library_integrity_cache_lock:
+            # Re-check after the scan so a concurrent Smart Import/scan cannot publish
+            # an audit for inputs that changed while it was being computed.
+            final_signature=self._library_integrity_signature()
+            if final_signature==signature:
+                self.library_integrity_cache_signature=signature
+                self.library_integrity_cache_result=copy.deepcopy(result)
+        return result
 
     @staticmethod
     def _same_library_path(left: Any, right: Any) -> bool:

@@ -1,26 +1,31 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.48",
-  "base_version": "3.6.47",
-  "release": "Library Integrity & Downloads Runtime Hardening",
-  "adapter_version": "3.6.48",
-  "name": "Library Integrity & Downloads Runtime Hardening",
+  "version": "3.6.49",
+  "base_version": "3.6.48",
+  "release": "Downloads Data-Plane & Runtime Efficiency",
+  "adapter_version": "3.6.49",
+  "name": "Downloads Data-Plane & Runtime Efficiency",
   "sab_version": "5.1.2",
   "changes": [
-    "Flags identical media fingerprints assigned to different episodes of the same TV title when they are separate physical files, while leaving one shared multi-episode file informational.",
-    "Adds a production regression guard built from 29 exact historical false-positive TV releases retained in v3.6.47 diagnostics, plus the Love Island: All Stars companion-show identity pattern.",
-    "Reduces Downloads polling pressure from 4 Hz to 2 Hz while queue/post-processing work is active, 0.8 Hz when the Downloads page is idle, and about 0.67 Hz outside the visible Downloads page.",
-    "Widens the coherent Downloads snapshot cache from 0.22s to 0.40s so nearby UI/diagnostic callers reuse one authoritative presentation instead of forcing redundant rebuilds.",
-    "Adds split snapshot telemetry for SAB/reconciliation time, provider-health time, and derived remaining NewzDeck presentation time so future slow-build diagnostics identify the real phase.",
-    "Clears the transient SAB Queue/History reader-busy last_error after a fresh Queue+History pair succeeds, while retaining existing contention counters/telemetry.",
-    "Refreshes UPDATING.txt so newly built packages no longer ship the stale v3.6.20 update description.",
-    "Preserves v3.6.47 Selected Episodes, PAR2/repair visibility, SABnzbd 5.1.2, v3.6.46 quality-aware selection, scan progress, Smart Import, and strict TV identity behavior."
+    "Adds a bounded Downloads API view used by the desktop so routine live polling no longer serializes the entire Completed/Failed history; terminal tabs load deterministic 50-item chunks with Load More while global counts remain authoritative.",
+    "Moves expensive SAB provider configuration/status/warning refreshes off the foreground Downloads snapshot path and into the existing background engine worker; real stall recovery still forces fresh provider checks at the established bounded thresholds.",
+    "Adds rolling p50/p90/p95/p99 snapshot-build telemetry plus Downloads API preparation/JSON serialization timing headers for direct performance attribution.",
+    "Overlays Diagnostics provider status with authoritative SAB runtime worker/socket state so an actively transferring provider no longer appears as standby simply because the retired native provider pool is idle.",
+    "Classifies SAB's normal Direct Unpack auto-enable message as an informational engine notice instead of an engine warning.",
+    "Compacts only terminal per-article segment/error/recovery detail from the retired native downloads.json ledger while preserving job identity, paths, timing, status and statistics; non-terminal legacy jobs are never compacted.",
+    "Writes hot automation-runtime.json in compact JSON form and continues the existing 45-day target retention to reduce repeated multi-megabyte write amplification without changing its data model.",
+    "Caches Library Integrity audit results until media-library.json or media-quality-cache.json actually changes, with cache hit/miss telemetry and a post-audit signature recheck to avoid publishing stale concurrent results.",
+    "Rejects explicit SAB completed-output paths whose normalized job identity belongs to a different Automation release, including the historical Big Brother Canada context pointed at a Love Island _UNPACK_ folder; bounded SAB staging prefixes remain supported.",
+    "Clarifies TMDB unknown status as not-probed-this-runtime and exposes the last successful TMDB age instead of presenting an ambiguous unknown state.",
+    "Preserves v3.6.48 Library Integrity hardening, v3.6.47 Selected Episodes/PAR2 repair visibility, SABnzbd 5.1.2, quality-aware selection, scan progress, strict TV identity, Smart Import and Downloads continuity safeguards."
   ],
   "regression_guards": [
-    "The existing production identity/Library Integrity/scan/quality/Selected Episodes/PAR2 repair guard remains mandatory and is updated only for the 3.6.48 adapter/runtime identity.",
-    "A new v3.6.48 regression guard rejects 29 exact historical false positives from the 2026-09-07 diagnostics and a representative Love Island: All Stars / The Morning After mismatch.",
-    "Synthetic Library Integrity coverage requires separate same-title cross-episode duplicate files to need review and requires one shared multi-episode file path to remain informational.",
-    "Downloads runtime source guards require the adaptive polling cadence, 0.40-second coherent cache, split snapshot phase telemetry, and recovered reader-busy last_error semantics.",
-    "The GitHub release workflow runs both the established validator and the v3.6.48 supplemental regression validator before building release artifacts."
+    "The established production automation identity/Library Integrity/scan/quality/Selected Episodes/PAR2 validator remains mandatory.",
+    "The supplemental production validator continues to reject the exact historical TV false-positive corpus recovered from v3.6.47 diagnostics, including Love Island companion shows and Dark Matter title collisions.",
+    "Synthetic tests require Library Integrity cache reuse only while both persisted audit inputs are unchanged and require invalidation after a library mutation.",
+    "Synthetic Smart Import output tests require a valid _UNPACK_ folder for the tracked release to resolve and a stale cross-job _UNPACK_ folder to be rejected even when SAB history.storage points to it explicitly.",
+    "Synthetic legacy-state tests require only terminal segment payloads to be compacted and require non-terminal resume data to remain intact.",
+    "Downloads source guards require scoped live/terminal API views, 50-item terminal history loading, snapshot latency percentiles, background provider-health caching and authoritative SAB provider diagnostics.",
+    "The release publisher validates every v3.6.49 application marker plus the tray fallback version before source commit, then pushes the release trigger as a separate commit referencing that exact remote-verified source SHA."
   ]
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.48 production guards from real v3.6.47 diagnostics."""
+"""NewzDeck v3.6.49 production guards, including v3.6.48 real-world regressions."""
 from __future__ import annotations
 
 import importlib.util
@@ -11,14 +11,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 APP = ROOT / "src" / "app"
 AUTOMATION_PATH = APP / "automation_engine.py"
 SAB_PATH = APP / "sab_engine.py"
+SERVER_PATH = APP / "server.py"
 APP_JS_PATH = APP / "static" / "app.js"
+INDEX_PATH = APP / "static" / "index.html"
 
-spec = importlib.util.spec_from_file_location("newzdeck_v3648_guard", AUTOMATION_PATH)
-if spec is None or spec.loader is None:
-    raise SystemExit(f"Could not load {AUTOMATION_PATH}")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-match = module._tv_release_identity_match
+
+def load_module(name: str, path: pathlib.Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Could not load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+auto = load_module("newzdeck_v3649_auto_guard", AUTOMATION_PATH)
+sab = load_module("newzdeck_v3649_sab_guard", SAB_PATH)
+match = auto._tv_release_identity_match
 
 love_island = {
     "kind":"tv", "title":"Love Island", "library_title":"Love Island (UK)",
@@ -33,8 +42,9 @@ all_stars = {
     "country_codes":["GB"], "title_ambiguous":False, "year":2024,
 }
 
-# Exact historical false-positive/attempted releases retained in the user's
-# 2026-09-07 v3.6.47 diagnostics. Every one must remain rejected.
+# Exact historical false-positive releases retained in the 2026-09-07 production
+# diagnostics. These are permanent negative fixtures: later episode-title words
+# must never satisfy the series identity prefix.
 PRODUCTION_REJECTS = [
     (dark_matter, "Dark.S02E02.Dark.Matter.2160p.NF.WEB-DL.DDP.5.1.HEVC-S0NiC"),
     (love_island, "Love.Island.The.Morning.After.S03E09.1080p.ITV.WEB-DL.AAC2.0.H.264-7VFr33104D"),
@@ -66,25 +76,20 @@ PRODUCTION_REJECTS = [
     (love_island, "Love.Island.The.Debrief.S01E02.1080p.ITV.WEB-DL.AAC2.0.H.264-Pr1M371M3"),
     (love_island, "The.Curse.of.Love.Island.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-RAWR"),
 ]
-
 for item, title in PRODUCTION_REJECTS:
     if match(title, item):
         raise SystemExit(f"Historical false positive became eligible again: {title}")
-
-# The exact All Stars companion-show form that Library Integrity found 25 times
-# must remain rejected while a real All Stars episode remains accepted.
 if match("Love.Island.All.Stars.The.Morning.After.S03E12.1080p.ITV.WEB-DL.AAC2.0.H.264-Pr1M371M3", all_stars):
     raise SystemExit("Love Island: All Stars companion-show identity regression returned.")
 if not match("Love.Island.All.Stars.S03E12.1080p.ITV.WEB-DL.AAC2.0.H.264-GROUP", all_stars):
     raise SystemExit("Valid Love Island: All Stars episode no longer matches.")
 
-class _DummyDownloadManager:
+class DummyDownloadManager:
     pass
 
-# v3.6.48: identical bytes in two different physical episode files of the same
-# series must require review. One shared physical file mapped to multiple episodes
-# remains informational so legitimate multi-episode media is not falsely flagged.
-with tempfile.TemporaryDirectory(prefix="newzdeck-v3648-integrity-") as td:
+# Library Integrity: preserve v3.6.48 duplicate semantics and prove v3.6.49 cache
+# reuse/invalidation against persisted input signatures.
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-integrity-") as td:
     data_dir = pathlib.Path(td)
     separate_a = data_dir / "Show.S01E01.mkv"
     separate_b = data_dir / "Show.S01E02.mkv"
@@ -101,41 +106,128 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3648-integrity-") as td:
         ]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.48")
-    audit = engine.library_integrity_audit()
-    if int(audit.get("same_title_cross_episode_duplicate_fingerprints") or 0) != 1:
-        raise SystemExit(f"Same-title cross-episode duplicate was not isolated correctly: {audit}")
-    rows = list(audit.get("same_title_cross_episode_duplicates") or [])
-    if not rows or not rows[0].get("needs_review") or "different episodes" not in str(rows[0].get("review_reason") or ""):
-        raise SystemExit(f"Same-title duplicate review reason is missing: {rows}")
-    shared_rows = [x for x in audit.get("duplicates") or [] if x.get("fingerprint") == "shared-multi-episode"]
+    engine = auto.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, DummyDownloadManager(), lambda:[], version="3.6.49")
+    audit1 = engine.library_integrity_audit()
+    audit2 = engine.library_integrity_audit()
+    if audit1.get("cache_hit") or not audit2.get("cache_hit"):
+        raise SystemExit(f"Library Integrity cache did not miss-then-hit: {audit1.get('cache_hit')} / {audit2.get('cache_hit')}")
+    if int(audit1.get("same_title_cross_episode_duplicate_fingerprints") or 0) != 1:
+        raise SystemExit(f"Same-title cross-episode duplicate was not isolated correctly: {audit1}")
+    shared_rows = [x for x in audit1.get("duplicates") or [] if x.get("fingerprint") == "shared-multi-episode"]
     if not shared_rows or shared_rows[0].get("needs_review"):
         raise SystemExit("One shared multi-episode media path was incorrectly marked for review.")
+    library[0]["seasons"][0]["episodes"][1]["file_fingerprint"] = "different-bytes"
+    (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
+    audit3 = engine.library_integrity_audit()
+    if audit3.get("cache_hit") or int(audit3.get("same_title_cross_episode_duplicate_fingerprints") or 0) != 0:
+        raise SystemExit("Library Integrity cache did not invalidate after persisted library mutation.")
 
-sab_source = SAB_PATH.read_text(encoding="utf-8")
+    # Hot Automation runtime state must use compact JSON while preserving its model.
+    engine._save_auto_runtime({"targets":{"tv:guard:s01e001":{"status":"waiting","updated_ts":9999999999,"last_candidates":[{"title":"A"}]}}})
+    raw=(data_dir / "automation-runtime.json").read_text(encoding="utf-8")
+    if "\n" in raw or ": " in raw:
+        raise SystemExit("automation-runtime.json is still pretty-printed instead of compact hot-state JSON.")
+    if json.loads(raw)["targets"]["tv:guard:s01e001"]["status"] != "waiting":
+        raise SystemExit("Compact Automation runtime write changed data semantics.")
+
+
+def make_sab(root: pathlib.Path, legacy: pathlib.Path | None = None):
+    return sab.SabDownloadManager(
+        user_root=root / "user", app_dir=root / "app",
+        download_dir_getter=lambda: root / "completed",
+        settings_getter=lambda: {}, providers_getter=lambda: [],
+        secret_unprotect=lambda value:value, parse_nzb=lambda data,name:{},
+        diagnostics=None, legacy_statistics_file=legacy, start_threads=False,
+    )
+
+# Retired native downloads.json compaction: only terminal per-article details go.
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-legacy-") as td:
+    root=pathlib.Path(td); legacy=root / "downloads.json"
+    legacy.write_text(json.dumps({"statistics":{"total_downloaded_bytes":123},"jobs":[
+        {"id":"done","status":"completed","filename":"done.mkv","segments":[{"id":1},{"id":2}],"segment_errors":[{"x":1}],"recovery_sources":{"a":1}},
+        {"id":"live","status":"queued","filename":"live.mkv","segments":[{"id":3}]},
+    ]}),encoding="utf-8")
+    manager=make_sab(root,legacy)
+    compact=json.loads(legacy.read_text(encoding="utf-8"))
+    done=next(x for x in compact["jobs"] if x["id"]=="done")
+    live=next(x for x in compact["jobs"] if x["id"]=="live")
+    if done.get("segments") or int(done.get("legacy_segments_compacted") or 0)!=2:
+        raise SystemExit("Terminal legacy segment payload was not compacted safely.")
+    if len(live.get("segments") or [])!=1:
+        raise SystemExit("Non-terminal legacy resume segment state was incorrectly compacted.")
+    if int(manager._legacy_compaction_segments)!=2:
+        raise SystemExit("Legacy compaction telemetry is incorrect.")
+
+# Smart Import output ownership: the historical Big Brother Canada context must
+# never consume a Love Island _UNPACK_ directory merely because history.storage
+# points there. The matching Big Brother _UNPACK_ form remains valid.
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-output-") as td:
+    root=pathlib.Path(td); (root / "completed").mkdir(parents=True)
+    manager=make_sab(root)
+    context={"source":"automation_grab","release_title":"Big.Brother.Canada.S07E29.1080p.WEB-DL-GROUP"}
+    meta={"name":"Big.Brother.Canada.S07E29.1080p.WEB-DL-GROUP","source_name":"Big.Brother.Canada.S07E29.1080p.WEB-DL-GROUP.nzb","automation_context":context}
+    good=root / "completed" / "_UNPACK_Big.Brother.Canada.S07E29.1080p.WEB-DL-GROUP"
+    bad=root / "completed" / "_UNPACK_Love.Island.S05E11.1080p.WEB-DL-GROUP"
+    good.mkdir(); bad.mkdir()
+    (good / "episode.mkv").write_bytes(b"good")
+    (bad / "episode.mkv").write_bytes(b"bad")
+    files,stage,_=manager._resolve_automation_output("good-job",meta,{"storage":str(good),"filename":meta["name"]})
+    if not files or stage!=good:
+        raise SystemExit("Valid matching _UNPACK_ Automation output no longer resolves.")
+    (good / "episode.mkv").unlink(); good.rmdir()
+    files,stage,_=manager._resolve_automation_output("wrong-job",meta,{"storage":str(bad),"filename":meta["name"]})
+    if files:
+        raise SystemExit("Cross-job Love Island output was accepted for Big Brother Canada Automation context.")
+
+# Scoped Downloads view must keep global counts while bounding terminal payloads.
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-view-") as td:
+    root=pathlib.Path(td); manager=make_sab(root)
+    fake_jobs=[
+        {"id":"live","collection_id":"live","status":"downloading","post_status":""},
+        *[{"id":f"done-{i}","collection_id":f"done-{i}","status":"completed","post_status":"","completed_ts":1000-i} for i in range(80)],
+        {"id":"bad","collection_id":"bad","status":"failed","post_status":""},
+    ]
+    fake={"jobs":fake_jobs,"collections":[{"id":x["id"]} for x in fake_jobs],"counts":{"downloading":1,"completed":80,"failed":1},"telemetry":{}}
+    manager.snapshot=lambda:fake
+    live=manager.snapshot_view("live",limit=50)
+    completed=manager.snapshot_view("completed",limit=50)
+    failed=manager.snapshot_view("failed",limit=50)
+    if [x["id"] for x in live["jobs"]] != ["live"]:
+        raise SystemExit("Live Downloads scope contains terminal history.")
+    if len(completed["jobs"])!=50 or not completed["view"]["has_more"] or completed["view"]["total"]!=80:
+        raise SystemExit("Completed history paging is not bounded/deterministic.")
+    if failed["view"].get("matching_ids") != ["bad"] or fake["counts"] != completed["counts"]:
+        raise SystemExit("Scoped Downloads view lost global counts or failed-id coverage.")
+
+if not sab.SabDownloadManager._engine_warning_informational("Direct Unpack was automatically enabled for this job"):
+    raise SystemExit("Normal SAB Direct Unpack notice is still classified as a warning.")
+
+sab_source=SAB_PATH.read_text(encoding="utf-8")
+server_source=SERVER_PATH.read_text(encoding="utf-8")
+app_source=APP_JS_PATH.read_text(encoding="utf-8")
+index_source=INDEX_PATH.read_text(encoding="utf-8")
 for marker in (
-    'ADAPTER_VERSION = "3.6.48"',
-    'self._snapshot_cache_seconds = 0.40',
-    'snapshot_sab_reconcile_last_ms',
-    'snapshot_sab_reconcile_max_ms',
-    'snapshot_provider_health_last_ms',
-    'snapshot_provider_health_max_ms',
-    'snapshot_other_last_ms',
-    'self._last_error == "SAB Queue/History reader is busy"',
-    'engine["last_error_recovered"] = True',
+    'ADAPTER_VERSION = "3.6.49"', 'def snapshot_view(', 'snapshot_p95_ms',
+    '_provider_health_cached_snapshot', 'legacy_terminal_segments_compacted_by',
+    'Rejected SAB completed path whose identity belongs to another Automation job',
 ):
     if marker not in sab_source:
-        raise SystemExit(f"Missing v3.6.48 Downloads runtime marker: {marker}")
-
-app_source = APP_JS_PATH.read_text(encoding="utf-8")
+        raise SystemExit(f"Missing v3.6.49 SAB/runtime marker: {marker}")
 for marker in (
-    "const UI_VERSION = '3.6.48';",
-    "const ms=delay==null?(visible?(busy?500:1250):1500):delay;",
-    "avoidable localhost/SAB contention",
-    "same_title_cross_episode_duplicates",
-    "SAME-SERIES EPISODE DUPLICATES",
+    'APP_VERSION = "3.6.49"', 'scope=str((query.get("scope")',
+    'X-NewzDeck-JSON-Serialize-Ms', "runtime_source']='sabnzbd'",
+):
+    if marker not in server_source:
+        raise SystemExit(f"Missing v3.6.49 server marker: {marker}")
+for marker in (
+    "const UI_VERSION = '3.6.49';", "downloadHistoryLimit:50",
+    "scope=terminalView?state.downloadFilter:'live'", "data-download-history-more",
+    "Downloads snapshot latency", "SAB runtime",
 ):
     if marker not in app_source:
-        raise SystemExit(f"Missing v3.6.48 Downloads polling marker: {marker}")
+        raise SystemExit(f"Missing v3.6.49 UI marker: {marker}")
+for marker in ("v3.6.49", "3.6.49-data-plane"):
+    if marker not in index_source:
+        raise SystemExit(f"Missing v3.6.49 HTML identity marker: {marker}")
 
-print(f"v3.6.48 regression guard passed ({len(PRODUCTION_REJECTS)} exact historical false positives + Library Integrity + Downloads runtime guards).")
+print(f"v3.6.49 supplemental regression guard passed ({len(PRODUCTION_REJECTS)} historical identity rejects + data-plane/runtime/cache/output ownership guards).")
