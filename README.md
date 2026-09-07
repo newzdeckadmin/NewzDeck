@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.45** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.46** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.45_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.46_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.45 highlights
+## v3.6.46 highlights
 
-v3.6.45 makes long Automation library scans observable without weakening library reconciliation or media safety.
+v3.6.46 makes the configured Quality Profile authoritative when NewzDeck ranks safe release candidates.
 
-- **Real scan progress:** Scan library and per-title Scan files now show live backend-measured progress instead of one long opaque request.
-- **Useful phases and counts:** NewzDeck reports discovery, matching, metadata reading, reconciliation, saving, current title/root, file/title counts, matches, changes, and offline roots.
-- **Measured ETA:** once enough determinate work has completed, NewzDeck estimates time remaining from actual scan progress; directory discovery stays honestly indeterminate.
-- **Persistent visibility:** scan status survives normal Automation redraws and reopening an item while the scan continues.
-- **No overlapping library walks:** manual and scheduled reconciliation share one scan execution lock, preventing two expensive scans from walking the same library at once.
-- **Existing safety preserved:** strict TV identity, reviewed-fingerprint exclusions, quality reconciliation, merge-conflict protection, Library Integrity behavior, and Downloads/SAB reliability are unchanged.
+- **Quality tier first:** a valid higher profile tier such as 1080p WEB-DL stays above a valid lower tier such as 720p WEB-DL.
+- **Bounded size preference:** materially larger files receive up to +10 only against comparable candidates in the same quality tier for the same target.
+- **Small reliability tie-breaker:** recent indexer failures can contribute at most -12 and can no longer override the selected media-quality tier.
+- **Clearer explanations:** Interactive Search shows profile rank, selection score, size preference, and indexer reliability adjustment, with the same details under Why this release.
+- **Safety preserved:** strict title/episode/edition identity, blacklists, profile size limits, Smart Import, Library Integrity, v3.6.45 scan progress, and Downloads/SAB reliability are unchanged.
 
-See [the full v3.6.45 release notes](release/RELEASE_NOTES_v3.6.45.md).
+See [the full v3.6.46 release notes](release/RELEASE_NOTES_v3.6.46.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.45_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.46_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

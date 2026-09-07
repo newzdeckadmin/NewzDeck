@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.45
+## Current release: v3.6.46
 
-**v3.6.45 is the current stable production release.**
+**v3.6.46 is the current stable production release.**
 
-The `v3.6.45` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.46` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.46 - Quality-Aware Release Selection.** Makes the Quality Profile rank authoritative for safe Interactive Search/Automation candidates, adds bounded same-tier relative file-size preference, caps indexer reliability at a small within-tier adjustment, and exposes the ranking components while preserving strict identity, Library Integrity, scan progress, and Downloads/SAB safety.
 
 - **v3.6.45 - Library Scan Progress & Visibility.** Moves user-initiated Automation scans to an observable background-job/status contract with real phases, file/title counts, measured percentage/ETA, persistent UI progress, and one serialized execution lock shared with scheduled reconciliation while preserving the existing synchronous compatibility route and all library safety semantics.
 

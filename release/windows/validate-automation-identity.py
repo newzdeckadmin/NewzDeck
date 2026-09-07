@@ -93,7 +93,7 @@ required = [
 ]
 for marker in required:
     if marker not in source:
-        raise SystemExit(f"Missing v3.6.45 production guard marker: {marker}")
+        raise SystemExit(f"Missing v3.6.46 production guard marker: {marker}")
 
 
 
@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
     media_dir = data_dir / "TV" / "Show" / "Season 1"
     media_dir.mkdir(parents=True)
     media_file = media_dir / "Show - S01E01 - Wrong.mkv"
-    media_file.write_bytes(b"NewzDeck v3.6.45 non-destructive review guard")
+    media_file.write_bytes(b"NewzDeck v3.6.46 non-destructive review guard")
     library = [{
         "id":"guard-show","kind":"tv","title":"Show","library_title":"Show",
         "seasons":[{"season_number":1,"episodes":[{
@@ -116,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
         }]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.45")
+    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.46")
     result = engine.library_integrity_mark_missing("guard-show",1,1,str(media_file))
     after = json.loads((data_dir / "media-library.json").read_text(encoding="utf-8"))
     episode = after[0]["seasons"][0]["episodes"][0]
@@ -168,7 +168,7 @@ if len(json.dumps(compact).encode("utf-8")) >= len(json.dumps(sample).encode("ut
 if not helper_ns["_client_disconnected"](BrokenPipeError()) or helper_ns["_client_disconnected"](ValueError("application failure")):
     raise SystemExit("Client-disconnect classifier is too broad or failed to recognize BrokenPipeError.")
 
-# v3.6.45: real Automation scan progress must use an async start/status contract while
+# v3.6.46: real Automation scan progress must use an async start/status contract while
 # preserving the synchronous compatibility route.
 scan_start='"/api/automation/library/scan/start"'
 scan_progress='"/api/automation/library/scan/progress"'
@@ -187,7 +187,7 @@ for required_dom in ('id="automationScanProgress"','id="automationScanProgressFi
         raise SystemExit(f"Library scan progress DOM is missing marker: {required_dom}")
 
 with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
-    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.45")
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.46")
     job=engine.start_library_scan("")
     if not job.get("job_id"):
         raise SystemExit("Library scan start did not return a job ID.")
@@ -200,4 +200,66 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
     if current.get("status")!="completed" or int(current.get("progress_percent") or 0)!=100:
         raise SystemExit(f"Library scan progress smoke test did not complete cleanly: {current}")
 
-print(f"TV identity/reliability regression guard passed ({len(CASES)} TV cases + integrity/diagnostics/library-scan guards).")
+# v3.6.46: Quality Profile rank must be authoritative over indexer reliability
+# and custom-format score, while materially larger same-tier releases receive a
+# bounded preference rather than an unconditional largest-file rule.
+with tempfile.TemporaryDirectory(prefix="newzdeck-v3646-ranking-") as td:
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.46")
+    profile=module.DEFAULT_PROFILES[1]
+    item={"kind":"tv","title":"Love Island","library_title":"Love Island (UK)","country_codes":["GB"],"title_ambiguous":True,"year":2015}
+    now=__import__('time').time()
+    runtime={"indexer_health":{
+        "nzbgeek":{"name":"NZBGeek","failures":[],"successes":[now]},
+        "nzbfinder":{"name":"NZBFinder","failures":[now]*20,"successes":[]},
+    }}
+    rows=[]
+    samples=[
+        ("Love.Island.S03E01.720p.WEB.x265-FAST",int(6.0*1024**3),"NZBGeek"),
+        ("Love.Island.S03E01.1080p.WEB-DL.H264-SMALL",int(2.0*1024**3),"NZBFinder"),
+        ("Love.Island.S03E01.1080p.WEB-DL.H264-LARGE",int(5.0*1024**3),"NZBFinder"),
+    ]
+    for title,size,indexer in samples:
+        row={"title":title,"size":size,"indexer":indexer,"published":int(now)}
+        row.update(engine._evaluate_release(title,size,profile,item=item,season=3,episode=1,current_quality="Unknown"))
+        row["automatic_eligible"]=bool(row.get("accepted"))
+        rows.append(row)
+    engine._apply_release_selection_preferences(rows,profile,runtime,now=now)
+    ordered=sorted(rows,key=lambda x:engine._release_selection_sort_key(x,profile),reverse=True)
+    if not str((ordered[0].get("parsed") or {}).get("quality") or "").startswith("1080p"):
+        raise SystemExit(f"Quality Profile rank was overridden by lower-tier scoring/reliability: {[(x.get('title'),x.get('profile_quality_rank'),x.get('selection_score')) for x in ordered]}")
+    rank720=next(i for i,x in enumerate(ordered) if str((x.get("parsed") or {}).get("quality") or "").startswith("720p"))
+    if rank720<2:
+        raise SystemExit("720p release ranked above a valid 1080p WEB-DL in the 1080p Balanced profile.")
+    small=next(x for x in rows if "SMALL" in str(x.get("title")))
+    large=next(x for x in rows if "LARGE" in str(x.get("title")))
+    if int(large.get("selection_size_bonus") or 0)<=int(small.get("selection_size_bonus") or 0) or int(large.get("selection_score") or 0)<=int(small.get("selection_score") or 0):
+        raise SystemExit("Same-tier file-size preference did not favor the materially larger otherwise-comparable release.")
+    if max(int(x.get("selection_size_bonus") or 0) for x in rows)>10:
+        raise SystemExit("File-size preference exceeded its bounded 10-point ceiling.")
+    if engine._indexer_penalty(runtime,"NZBFinder",now)>12:
+        raise SystemExit("Indexer reliability penalty exceeded the v3.6.46 12-point ceiling.")
+
+    # Exercise the public Interactive Search ranking path as well as the helper.
+    library_item={**item,"id":"love-island-uk","quality_profile_id":"quality-1080p","seasons":[{"season_number":3,"episodes":[{"episode_number":1,"name":"Episode 1","monitored":True,"has_file":False}]}]}
+    engine._library=lambda:[library_item]
+    engine._profiles=lambda:[profile]
+    engine._indexers=lambda:[{"name":"NZBGeek","enabled":True},{"name":"NZBFinder","enabled":True}]
+    engine._auto_runtime=lambda:runtime
+    engine._sync_automatic_failures=lambda _rt:False
+    def _fake_search(indexer,_item,_season,_episode):
+        name=str(indexer.get("name") or "")
+        if name=="NZBGeek":
+            return [{"title":"Love.Island.S03E01.720p.WEB.x265-FAST","size":int(6.0*1024**3),"indexer":name,"guid":"720","published":int(now)}]
+        return [
+            {"title":"Love.Island.S03E01.1080p.WEB-DL.H264-SMALL","size":int(2.0*1024**3),"indexer":name,"guid":"1080-small","published":int(now)},
+            {"title":"Love.Island.S03E01.1080p.WEB-DL.H264-LARGE","size":int(5.0*1024**3),"indexer":name,"guid":"1080-large","published":int(now)},
+        ]
+    engine._search_indexer=_fake_search
+    search=engine.search_releases("love-island-uk",3,1)
+    ranked=list(search.get("releases") or [])
+    if not ranked or str(ranked[0].get("guid") or "")!="1080-large" or not ranked[0].get("recommended"):
+        raise SystemExit(f"Interactive Search did not recommend the larger 1080p WEB-DL: {[(x.get('guid'),x.get('profile_quality_rank'),x.get('selection_score')) for x in ranked]}")
+    if next((i for i,x in enumerate(ranked) if str(x.get("guid") or "")=="720"),-1)<2:
+        raise SystemExit("Interactive Search integration path still allowed 720p to outrank a safe 1080p tier.")
+
+print(f"TV identity/reliability regression guard passed ({len(CASES)} TV cases + integrity/diagnostics/library-scan/quality-selection guards).")

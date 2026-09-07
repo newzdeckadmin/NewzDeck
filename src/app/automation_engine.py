@@ -1318,13 +1318,91 @@ class MediaAutomationEngine:
         return not already
 
     def _indexer_penalty(self, rt:dict[str,Any], name:str, now:float|None=None) -> int:
-        """Small, decaying penalty so indexers returning bad NZBs are temporarily deprioritized, never disabled."""
+        """Small, decaying within-tier reliability tie-breaker, never a quality override.
+
+        v3.6.46 deliberately caps this at 12 points. The quality profile rank is
+        selected independently and before this score, so a run of dead NZBs from
+        one indexer can prefer another 1080p WEB-DL but can never demote that tier
+        below a valid 720p release.
+        """
         now=float(now or time.time()); key=str(name or '').strip().casefold()
         health=rt.get('indexer_health') if isinstance(rt.get('indexer_health'),dict) else {}
         rec=health.get(key) if isinstance(health.get(key),dict) else {}
         failures=[float(x) for x in rec.get('failures') or [] if now-float(x)<24*3600]
         successes=[float(x) for x in rec.get('successes') or [] if now-float(x)<24*3600]
-        return max(0,min(80,len(failures)*18-len(successes)*6))
+        return max(0,min(12,len(failures)*4-len(successes)*2))
+
+    def _release_quality_rank(self, release:dict[str,Any], profile:dict[str,Any]) -> int:
+        parsed=release.get('parsed') if isinstance(release.get('parsed'),dict) else parse_release(str(release.get('title') or ''))
+        return self._quality_rank(str(parsed.get('quality') or ''),profile)
+
+    def _apply_release_selection_preferences(self, releases:list[dict[str,Any]], profile:dict[str,Any], rt:dict[str,Any], *, now:float|None=None) -> list[dict[str,Any]]:
+        """Decorate comparable candidates with bounded size/reliability preferences.
+
+        Quality rank is intentionally *not* folded into this preference score. It is
+        a higher-order sort key. Size is relative only to other accepted releases in
+        the same profile tier for this exact target, which makes it a useful bitrate
+        proxy without assuming that the biggest file in a different resolution is
+        automatically better. Reliability is a small tie-breaker inside that tier.
+        """
+        now=float(now or time.time()); rows=list(releases or []); groups:dict[int,list[dict[str,Any]]]={}
+        for rel in rows:
+            rank=self._release_quality_rank(rel,profile)
+            rel['profile_quality_rank']=int(rank+1) if rank<999 else 0
+            rel['selection_size_bonus']=0
+            rel['selection_indexer_penalty']=0
+            rel['selection_score']=int(rel.get('score') or 0)
+            # Make the helper idempotent when the same candidate list is reused by
+            # Interactive Search and the automatic scheduler.
+            rel['score_components']=[c for c in list(rel.get('score_components') or []) if str((c or {}).get('label') or '') not in {'Larger file within quality tier','Indexer reliability'}]
+            rel['reasons']=[x for x in list(rel.get('reasons') or []) if not str(x).startswith(('Larger file within profile tier','Indexer reliability adjustment'))]
+            if bool(rel.get('accepted')) and rank<999 and int(rel.get('size') or 0)>0:
+                groups.setdefault(rank,[]).append(rel)
+
+        for _rank, group in groups.items():
+            sizes=[int(x.get('size') or 0) for x in group if int(x.get('size') or 0)>0]
+            if len(sizes)<2:
+                continue
+            smallest=min(sizes); largest=max(sizes)
+            # Ignore tiny differences caused by indexer rounding. A 15% spread is
+            # large enough to be a meaningful same-title/same-tier bitrate signal.
+            if smallest<=0 or largest<=smallest or (largest/smallest)<1.15:
+                continue
+            spread=max(1,largest-smallest)
+            for rel in group:
+                size=int(rel.get('size') or 0)
+                rel['selection_size_bonus']=max(0,min(10,round(10*(size-smallest)/spread)))
+
+        for rel in rows:
+            bonus=int(rel.get('selection_size_bonus') or 0)
+            penalty=self._indexer_penalty(rt,str(rel.get('indexer') or ''),now) if bool(rel.get('accepted')) else 0
+            selection=int(rel.get('score') or 0)+bonus-penalty
+            rel['selection_indexer_penalty']=penalty
+            rel['selection_score']=selection
+            # Backward-compatible names used by the UI/runtime history.
+            rel['effective_score']=selection
+            rel['automation_indexer_penalty']=penalty
+            rel['automation_effective_score']=selection
+            if bonus:
+                rel['score_components'].append({'label':'Larger file within quality tier','score':bonus})
+                rel['reasons'].append(f'Larger file within profile tier {bonus:+d}')
+            if penalty:
+                rel['score_components'].append({'label':'Indexer reliability','score':-penalty})
+                rel['reasons'].append(f'Indexer reliability adjustment -{penalty}')
+        return rows
+
+    def _release_selection_sort_key(self, release:dict[str,Any], profile:dict[str,Any]) -> tuple:
+        """Authoritative candidate ordering: safety, profile tier, then preferences."""
+        rank=self._release_quality_rank(release,profile)
+        rank_key=-rank if rank<999 else -9999
+        return (
+            bool(release.get('automatic_eligible')),
+            bool(release.get('accepted')),
+            rank_key,
+            int(release.get('selection_score',release.get('effective_score',release.get('score',-9999))) or -9999),
+            int(release.get('size') or 0),
+            int(float(release.get('published') or 0)),
+        )
 
     def _record_indexer_outcome(self, rt:dict[str,Any], name:str, *, success:bool, ts:float|None=None):
         key=str(name or '').strip().casefold()
@@ -1881,7 +1959,7 @@ class MediaAutomationEngine:
                     try:
                         result=self.search_releases(str(row.get('item_id') or ''),row.get('season'),row.get('episode'))
                         profile=result.get('profile') if isinstance(result.get('profile'),dict) else profile
-                        rec['last_candidates']=[{'title':str(x.get('title') or ''),'score':int(x.get('effective_score') or x.get('score') or 0),'decision':str(x.get('decision') or ''),'quality':str((x.get('parsed') or {}).get('quality') or ''),'indexer':str(x.get('indexer') or '')} for x in (result.get('releases') or [])[:8]]
+                        rec['last_candidates']=[{'title':str(x.get('title') or ''),'score':int(x.get('selection_score') or x.get('effective_score') or x.get('score') or 0),'profile_rank':int(x.get('profile_quality_rank') or x.get('quality_rank') or 0),'size_bonus':int(x.get('selection_size_bonus') or 0),'indexer_penalty':int(x.get('selection_indexer_penalty') or 0),'decision':str(x.get('decision') or ''),'quality':str((x.get('parsed') or {}).get('quality') or ''),'indexer':str(x.get('indexer') or '')} for x in (result.get('releases') or [])[:8]]
                         attempted=[x for x in rec.get('attempted_releases') or [] if isinstance(x,dict) and now-float(x.get('ts') or 0)<12*3600]
                         attempted_guids={str(x.get('guid') or '').casefold() for x in attempted if x.get('guid')}
                         blacklist=[x for x in rec.get('blacklist') or [] if isinstance(x,dict)]
@@ -1894,8 +1972,8 @@ class MediaAutomationEngine:
                             published=float(rel.get('published') or 0)
                             if release_delay and published>0 and now-published<release_delay: continue
                             if self._auto_release_matches(item,row,rel,profile,upgrade=row.get('auto_type')=='upgrade'):
-                                penalty=self._indexer_penalty(rt,str(rel.get('indexer') or ''),now); rel=dict(rel); rel['automation_indexer_penalty']=penalty; rel['automation_effective_score']=int(rel.get('score') or 0)-penalty; candidates.append(rel)
-                        candidates.sort(key=lambda x:(int(x.get('automation_effective_score') or -99999),int(x.get('published') or 0)),reverse=True)
+                                rel=dict(rel); rel['automation_indexer_penalty']=int(rel.get('selection_indexer_penalty') or 0); rel['automation_effective_score']=int(rel.get('selection_score') or rel.get('effective_score') or rel.get('score') or 0); candidates.append(rel)
+                        candidates.sort(key=lambda x:self._release_selection_sort_key(x,profile),reverse=True)
                     except Exception as exc:
                         msg=str(exc); errors.append(f"{row.get('label')}: {msg}"); rec.update({'status':'error','message':msg,'next_search_ts':now+min(max(15,int(cfg.get('automatic_retry_minutes') or 60))*60,30*60)}); continue
 
@@ -3904,7 +3982,7 @@ class MediaAutomationEngine:
                     delta=min(18,max(4,(cur-rank)*4)); score+=delta; components.append({'label':f'Upgrade over {current_quality}','score':delta}); reasons.append(f'Improves current quality {current_quality}')
                 else: rejects.append(f"Not an upgrade over current quality {current_quality}")
         accepted=not rejects; decision='ELIGIBLE' if accepted else 'REJECTED'
-        return {'score':int(score),'parsed':info,'reasons':reasons,'score_components':components,'rejections':rejects,'accepted':accepted,'decision':decision}
+        return {'score':int(score),'quality_rank':int(rank+1) if rank<999 else 0,'parsed':info,'reasons':reasons,'score_components':components,'rejections':rejects,'accepted':accepted,'decision':decision}
 
     def _score_release(self,title:str,size:int,profile:dict[str,Any]):
         ev=self._evaluate_release(title,size,profile)
@@ -5633,10 +5711,10 @@ class MediaAutomationEngine:
             rel=dict(base)
             rel.update(self._evaluate_release(title,int(rel.get('size') or 0),profile,item=item,season=row.get('season'),episode=row.get('episode'),current_quality=current))
             if not self._auto_release_matches(item,row,rel,profile,upgrade=row.get('auto_type')=='upgrade'): continue
-            penalty=self._indexer_penalty(rt,str(rel.get('indexer') or ''),now)
-            rel.update({'item_id':str(item.get('id') or ''),'media_kind':str(item.get('kind') or ''),'season':row.get('season'),'episode':row.get('episode'),'episode_title':str(row.get('episode_name') or ''),'season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'current_quality':current,'automatic_eligible':True,'automation_indexer_penalty':penalty,'automation_effective_score':int(rel.get('score') or 0)-penalty,'decision':'FEED MATCH'})
+            rel.update({'item_id':str(item.get('id') or ''),'media_kind':str(item.get('kind') or ''),'season':row.get('season'),'episode':row.get('episode'),'episode_title':str(row.get('episode_name') or ''),'season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'current_quality':current,'automatic_eligible':True,'decision':'FEED MATCH'})
             candidates.append(rel)
-        return sorted(candidates,key=lambda x:(int(x.get('automation_effective_score') or -99999),float(x.get('published') or 0)),reverse=True)
+        self._apply_release_selection_preferences(candidates,profile,rt,now=now)
+        return sorted(candidates,key=lambda x:self._release_selection_sort_key(x,profile),reverse=True)
 
 
     def search_releases(self,item_id,season=None,episode=None):
@@ -5708,8 +5786,8 @@ class MediaAutomationEngine:
             r['automatic_eligible']=bool(r.get('accepted')) and self._auto_release_matches(item,row_ctx,r,profile,upgrade=(not season_pack and current_quality not in {'','Unknown'}))
             if r.get('accepted') and not r['automatic_eligible']:
                 r['decision']='MANUAL ONLY'; r['reasons']=list(r.get('reasons') or [])+['Passes profile, but unattended safety rules require manual choice']
-            r['effective_score']=int(r.get('score') or 0)-self._indexer_penalty(rt,str(r.get('indexer') or ''))
-        releases=sorted(releases,key=lambda x:(bool(x.get('automatic_eligible')),bool(x.get('accepted')),int(x.get('effective_score',-9999)),int(x.get('published',0))),reverse=True)
+        self._apply_release_selection_preferences(releases,profile,rt)
+        releases=sorted(releases,key=lambda x:self._release_selection_sort_key(x,profile),reverse=True)
         recommended=next((r for r in releases if r.get('automatic_eligible')),None)
         if recommended: recommended['recommended']=True; recommended['decision']='RECOMMENDED'
         for i,r in enumerate(releases,1): r['rank']=i
