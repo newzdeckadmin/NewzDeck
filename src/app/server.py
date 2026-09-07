@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.42"
+APP_VERSION = "3.6.43"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11740,6 +11740,44 @@ def _dir_size(path: Path, pattern: str = '*') -> int:
     except OSError: pass
     return total
 
+def _diagnostic_downloads_snapshot(snap: dict[str,Any]) -> dict[str,Any]:
+    """Return diagnostics-focused Downloads state without duplicating full history.
+
+    /api/downloads remains the authoritative full presentation snapshot. Diagnostics
+    needs counts, engine/transport telemetry, statistics, and a bounded sample of
+    active/recent collections only. This keeps /api/diagnostics fast and small even
+    when SAB/NewzDeck history contains hundreds of jobs.
+    """
+    rows=list(snap.get('collections') or [])
+    terminal={'completed','failed','cancelled','canceled','removed'}
+    selected=[]; seen=set()
+    for row in rows:
+        status=str(row.get('status') or '').casefold(); post=str(row.get('post_status') or '').casefold()
+        if status not in terminal or post in {'queued','verifying','repairing','extracting','importing','waiting'}:
+            ident=str(row.get('id') or '')
+            if ident not in seen: selected.append(row); seen.add(ident)
+    for row in rows:
+        if len(selected)>=30: break
+        ident=str(row.get('id') or '')
+        if ident in seen: continue
+        selected.append(row); seen.add(ident)
+    fields=('id','display_name','name','status','post_status','post_progress','post_message','import_status','health','expected_bytes','downloaded_bytes','speed_bps','eta_seconds','failed_parts','retry_count','created_ts','started_ts','completed_ts','automation_label','automation_release_title','automation_source')
+    compact=[{key:row.get(key) for key in fields if key in row} for row in selected[:50]]
+    return {
+        'counts':snap.get('counts',{}),'speed_bps':snap.get('total_speed_bps',0),'concurrent_downloads':snap.get('concurrent_downloads',0),
+        'telemetry':snap.get('telemetry',{}),'statistics':snap.get('statistics',{}),'engine':snap.get('engine',{}),
+        'collection_count':len(rows),'collections_included':len(compact),'collections_truncated':len(compact)<len(rows),'collections':compact,
+    }
+
+def _client_disconnected(exc: BaseException) -> bool:
+    if isinstance(exc,(BrokenPipeError,ConnectionResetError,ConnectionAbortedError)):
+        return True
+    winerror=getattr(exc,'winerror',None); errno_value=getattr(exc,'errno',None)
+    if winerror in {10053,10054} or errno_value in {32,54,104,103}:
+        return True
+    low=str(exc or '').casefold()
+    return any(x in low for x in ('forcibly closed','connection reset by peer','broken pipe','software caused connection abort'))
+
 def diagnostics_snapshot() -> dict[str, Any]:
     base = DIAGNOSTICS.snapshot(); metrics = base.get('providers', {})
     providers = []
@@ -11772,7 +11810,7 @@ def diagnostics_snapshot() -> dict[str, Any]:
     memory_error = str(_PROCESS_MEMORY_LAST_ERROR or '')
     return {
         'version': APP_VERSION, 'uptime_seconds': int(time.time()-base.get('started',time.time())), 'memory_bytes': memory_bytes, 'memory_error': memory_error,
-        'providers': providers, 'connections': pool_stats, 'downloads': {'counts': snap.get('counts',{}), 'speed_bps': snap.get('total_speed_bps',0), 'concurrent_downloads': snap.get('concurrent_downloads',0), 'telemetry': snap.get('telemetry',{}), 'statistics': snap.get('statistics',{}), 'collections': snap.get('collections',[]), 'engine': snap.get('engine',{})},
+        'providers': providers, 'connections': pool_stats, 'downloads': _diagnostic_downloads_snapshot(snap),
         'storage': {'disk': disk_info, 'thumbnail_cache': thumbnail_cache_stats(), 'preview_cache_bytes': _dir_size(CACHE_DIR), 'download_temp_bytes': _dir_size(DOWNLOAD_TEMP_DIR), 'data_bytes': _dir_size(DATA_DIR)},
         'thumbnail_decode': thumbnail_decode_stats(),
         'thumbnail_transfer': thumbnail_transfer_stats(),
@@ -12128,8 +12166,13 @@ class AppHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/health" and (time.monotonic() - BACKEND_PROCESS_STARTED_AT) < 120.0:
             self.send_header("Clear-Site-Data", '"cache"')
             self.send_header("X-NewzDeck-Cache-Recovery", APP_VERSION)
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as exc:
+            if _client_disconnected(exc):
+                return None
+            raise
 
     def _body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0") or 0)
@@ -12460,6 +12503,16 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._json(200, MEDIA_AUTOMATION.scan_library(str(data.get("id") or "")))
             if parsed.path == "/api/automation/library/integrity-audit":
                 return self._json(200, MEDIA_AUTOMATION.library_integrity_audit())
+            if parsed.path == "/api/automation/library/integrity/open-folder":
+                rec=MEDIA_AUTOMATION.library_integrity_location(str(data.get('item_id') or ''),data.get('season'),data.get('episode'),data.get('path'))
+                location=str(rec.get('folder') or '')
+                if SERVICE_MODE:
+                    tray_helper_request('open_path',path=location,timeout=4)
+                elif sys.platform=='win32':
+                    os.startfile(location)
+                return self._json(200,rec)
+            if parsed.path == "/api/automation/library/integrity/mark-missing":
+                return self._json(200, MEDIA_AUTOMATION.library_integrity_mark_missing(str(data.get('item_id') or ''),data.get('season'),data.get('episode'),data.get('path')))
             if parsed.path == "/api/automation/run-now":
                 return self._json(200, MEDIA_AUTOMATION.run_automatic_now())
             if parsed.path == "/api/automation/metadata/service-test":

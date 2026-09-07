@@ -389,13 +389,46 @@ def _tv_allowed_series_prefixes(item: dict[str,Any] | None) -> list[list[str]]:
     return out
 
 
-def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
-    """Fail closed unless the release's series prefix exactly matches the TV item.
+def _tv_stylized_token_fold(token: Any) -> str:
+    """Fold a bounded full-token release stylization without substring matching.
 
-    v3.6.42 intentionally anchors TV identity before the first season/episode token.
-    This prevents episode-title/franchise collisions such as ``FROM`` matching the
-    words "...Home Away from Home" or ``Love Island`` matching an unrelated show's
-    episode title.  Movies retain the existing token/phrase + year matcher.
+    Some legitimate release names use a digit inside the *series token* itself
+    (for example ``PLUR1BUS`` for ``Pluribus``).  This helper is deliberately
+    narrow: it is used only when both sides are a single full series token, never
+    for arbitrary substrings or later episode-title text.
+    """
+    text=str(token or '').casefold()
+    return text.translate(str.maketrans({'0':'o','1':'i','3':'e','4':'a','5':'s','7':'t'}))
+
+def _tv_year_decorations(tokens: list[str]) -> bool:
+    """Return True for one or two year-only decorations after an exact title."""
+    return 1 <= len(tokens) <= 2 and all(re.fullmatch(r'(?:19|20)\d{2}',str(x or '')) for x in tokens)
+
+def _tv_prefix_matches_candidate(prefix: list[str], candidate: list[str]) -> bool:
+    """Match one exact series candidate plus only bounded safe decorations."""
+    if not prefix or not candidate:
+        return False
+    width=len(candidate)
+    if prefix[:width]==candidate:
+        suffix=prefix[width:]
+        return not suffix or _tv_year_decorations(suffix)
+    # Full-token leetspeak/stylization compatibility (PLUR1BUS -> Pluribus).
+    # Require a reasonably specific canonical token so tiny titles do not gain a
+    # fuzzy alias, and still permit only year tokens after that exact token.
+    if len(candidate)==1 and len(candidate[0])>=5 and prefix:
+        if _tv_stylized_token_fold(prefix[0])==candidate[0]:
+            suffix=prefix[1:]
+            return not suffix or _tv_year_decorations(suffix)
+    return False
+
+def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -> bool:
+    """Fail closed unless the release's series prefix matches the TV item.
+
+    v3.6.43 preserves v3.6.42's exact pre-Sxx/Eyy anchoring while allowing two
+    diagnostic-proven naming conventions that do not weaken series identity:
+    bounded year-only decorations after the exact title and a full-token stylized
+    alias such as PLUR1BUS. Arbitrary words between title and Sxx/Eyy remain a hard
+    rejection, so cross-series/episode-title collisions stay blocked.
     """
     row=item if isinstance(item,dict) else {}
     title=str(row.get('title') or '').strip()
@@ -411,18 +444,13 @@ def _tv_release_identity_match(release_title: Any, item: dict[str,Any] | None) -
     if not allowed:
         return False
 
-    # An optional matching premiere year immediately after the exact title is
-    # common for same-name series and remains safe because it is anchored here.
-    year=str(row.get('year') or '').strip()
     for candidate in allowed:
-        if prefix==candidate:
-            return True
-        if year and prefix==candidate+[year]:
+        if _tv_prefix_matches_candidate(prefix,candidate):
             return True
 
     # TV candidates without a season marker are never broadened to "contains".
     # The caller may still reject them for missing Sxx/Eyy, but identity itself
-    # remains exact and cannot be satisfied by later episode-title words.
+    # remains anchored and cannot be satisfied by later episode-title words.
     return False
 
 def _episode_token(season: int | None, episode: int | None) -> str:
@@ -3909,6 +3937,9 @@ class MediaAutomationEngine:
                 conflicts.append((None,None))
             else:
                 current['movie_file']=copy.deepcopy(scanned.get('movie_file'))
+                for key in ('integrity_excluded_path','integrity_excluded_fingerprint','integrity_reviewed_at'):
+                    if key in scanned: current[key]=copy.deepcopy(scanned.get(key))
+                    else: current.pop(key,None)
             return conflicts
 
         scan_seasons={int(x.get('season_number') or 0):x for x in scanned.get('seasons') or [] if int(x.get('season_number') or 0)>0}
@@ -3928,6 +3959,9 @@ class MediaAutomationEngine:
                     continue
                 for key in file_keys:
                     ep[key]=copy.deepcopy(src.get(key))
+                for key in ('integrity_excluded_path','integrity_excluded_fingerprint','integrity_reviewed_at'):
+                    if key in src: ep[key]=copy.deepcopy(src.get(key))
+                    else: ep.pop(key,None)
         return conflicts
 
     def library_integrity_audit(self) -> dict[str,Any]:
@@ -4007,6 +4041,101 @@ class MediaAutomationEngine:
             'identity_mismatch_examples':identity_mismatches[:100],
         }
 
+    @staticmethod
+    def _same_library_path(left: Any, right: Any) -> bool:
+        a=str(left or '').strip(); b=str(right or '').strip()
+        if not a or not b: return False
+        try:
+            return os.path.normcase(os.path.normpath(a))==os.path.normcase(os.path.normpath(b))
+        except Exception:
+            return a.casefold()==b.casefold()
+
+    def _library_file_reference(self,item_id:str,season:Any=None,episode:Any=None) -> tuple[dict[str,Any],dict[str,Any]|None,str]:
+        lib=self._library()
+        item=next((x for x in lib if isinstance(x,dict) and str(x.get('id') or '')==str(item_id or '')),None)
+        if not item:
+            raise ValueError('Automation library item was not found.')
+        if str(item.get('kind') or '')=='tv':
+            try: sn=int(season)
+            except (TypeError,ValueError): raise ValueError('A valid TV season is required.')
+            try: en=int(episode)
+            except (TypeError,ValueError): raise ValueError('A valid TV episode is required.')
+            sr=next((x for x in item.get('seasons') or [] if int(x.get('season_number') or 0)==sn),None)
+            ep=next((x for x in (sr or {}).get('episodes') or [] if int(x.get('episode_number') or 0)==en),None)
+            if ep is None:
+                raise ValueError('The selected TV episode is not present in the current library metadata.')
+            return item,ep,str(ep.get('file_path') or '').strip()
+        mf=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else {}
+        return item,None,str(mf.get('path') or '').strip()
+
+    def library_integrity_location(self,item_id:str,season:Any=None,episode:Any=None,expected_path:Any='') -> dict[str,Any]:
+        """Resolve the currently associated file for an explicit review action."""
+        with self.lock:
+            item,ep,path=self._library_file_reference(item_id,season,episode)
+            if not path:
+                raise ValueError('This library record no longer has an associated file.')
+            if str(expected_path or '').strip() and not self._same_library_path(path,expected_path):
+                raise ValueError('The library association changed since this review was loaded. Refresh and review again.')
+            return {'ok':True,'item_id':str(item.get('id') or ''),'kind':str(item.get('kind') or ''),'path':path,'folder':str(Path(path).parent)}
+
+    def library_integrity_mark_missing(self,item_id:str,season:Any=None,episode:Any=None,expected_path:Any='') -> dict[str,Any]:
+        """Clear one reviewed association without deleting or moving the media file.
+
+        The exact old fingerprint/path is remembered as a review exclusion so a
+        periodic scan cannot immediately reattach the same known-bad file. A new
+        replacement with a different fingerprint remains eligible normally.
+        """
+        with self.lock:
+            lib=self._library()
+            item=next((x for x in lib if isinstance(x,dict) and str(x.get('id') or '')==str(item_id or '')),None)
+            if not item:
+                raise ValueError('Automation library item was not found.')
+            kind=str(item.get('kind') or '')
+            target=None; current_path=''; current_fp=''
+            sn=en=None
+            if kind=='tv':
+                try: sn=int(season)
+                except (TypeError,ValueError): raise ValueError('A valid TV season is required.')
+                try: en=int(episode)
+                except (TypeError,ValueError): raise ValueError('A valid TV episode is required.')
+                sr=next((x for x in item.get('seasons') or [] if int(x.get('season_number') or 0)==sn),None)
+                target=next((x for x in (sr or {}).get('episodes') or [] if int(x.get('episode_number') or 0)==en),None)
+                if target is None: raise ValueError('The selected TV episode is not present in the current library metadata.')
+                current_path=str(target.get('file_path') or '').strip(); current_fp=str(target.get('file_fingerprint') or '').strip()
+            else:
+                target=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
+                current_path=str((target or {}).get('path') or '').strip(); current_fp=str((target or {}).get('file_fingerprint') or '').strip()
+            if not current_path:
+                return {'ok':True,'already_missing':True,'file_preserved':True,'item_id':str(item.get('id') or ''),'path':''}
+            if str(expected_path or '').strip() and not self._same_library_path(current_path,expected_path):
+                raise ValueError('The library association changed since this review was loaded. Refresh and review again.')
+            if not current_fp:
+                try:
+                    source_path=Path(current_path)
+                    if source_path.exists() and source_path.is_file():
+                        current_fp=self._media_fingerprint(source_path)
+                except OSError:
+                    current_fp=''
+            if kind=='tv':
+                for key in ('has_file','file_path','file_quality','file_size','file_fingerprint','quality_source','media_info','cutoff_met'):
+                    if key=='has_file': target[key]=False
+                    elif key in {'file_size'}: target[key]=0
+                    elif key in {'media_info'}: target[key]={}
+                    elif key in {'cutoff_met'}: target[key]=False
+                    else: target[key]=''
+                target['integrity_excluded_path']=current_path
+                target['integrity_excluded_fingerprint']=current_fp
+                target['integrity_reviewed_at']=_now()
+            else:
+                item['movie_file']=None
+                item['integrity_excluded_path']=current_path
+                item['integrity_excluded_fingerprint']=current_fp
+                item['integrity_reviewed_at']=_now()
+            item['updated_at']=_now()
+            self._save_library(lib)
+        self._event('integrity-review','Marked reviewed library association missing without deleting media',item_id=str(item.get('id') or ''),title=str(item.get('title') or ''),season=sn,episode=en,path=current_path,file_preserved=True)
+        return {'ok':True,'file_preserved':True,'item_id':str(item.get('id') or ''),'kind':kind,'season':sn,'episode':en,'path':current_path}
+
     def scan_library(self, ident=''):
         """Reconcile Automation against configured library folders without UI lock stalls.
 
@@ -4085,6 +4214,13 @@ class MediaAutomationEngine:
                     sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==key[0]),None)
                     ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==key[1]),None)
                     if not ep: continue
+                    excluded_path=str(ep.get('integrity_excluded_path') or '').strip()
+                    excluded_fp=str(ep.get('integrity_excluded_fingerprint') or '').strip()
+                    if excluded_path and self._same_library_path(str(f),excluded_path):
+                        current_fp=self._media_fingerprint(f) if excluded_fp else ''
+                        if not excluded_fp or current_fp==excluded_fp:
+                            continue
+                        ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
                     q,source,fp,changed=self._quality_for_media(f,qcache,previous.get(key)); qcache_changed|=changed
                     rec=(self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp)
                     if key not in candidates or rec[:2]<candidates[key][:2]: candidates[key]=rec
@@ -4107,6 +4243,13 @@ class MediaAutomationEngine:
                 candidates=[]
                 for f in item_files:
                     if not _slug_match(str(f.parent)+' '+f.name,item.get('title',''),item.get('year')): continue
+                    excluded_path=str(item.get('integrity_excluded_path') or '').strip()
+                    excluded_fp=str(item.get('integrity_excluded_fingerprint') or '').strip()
+                    if excluded_path and self._same_library_path(str(f),excluded_path):
+                        current_fp=self._media_fingerprint(f) if excluded_fp else ''
+                        if not excluded_fp or current_fp==excluded_fp:
+                            continue
+                        item.pop('integrity_excluded_path',None); item.pop('integrity_excluded_fingerprint',None); item.pop('integrity_reviewed_at',None)
                     q,source,fp,changed=self._quality_for_media(f,qcache,previous); qcache_changed|=changed
                     candidates.append((self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp))
                 item['movie_file']=None
@@ -4730,7 +4873,9 @@ class MediaAutomationEngine:
                         record={'path':str(existing),'quality':existing_quality,'size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':self._probe_media_traits(existing),'cutoff_met':cutoff}
                         if item.get('kind')=='tv':
                             ep=e.get('episode_ref')
-                            if isinstance(ep,dict): ep.update({'has_file':True,'file_path':str(existing),'file_quality':existing_quality,'file_size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':record['media_info'],'cutoff_met':cutoff})
+                            if isinstance(ep,dict):
+                                ep.update({'has_file':True,'file_path':str(existing),'file_quality':existing_quality,'file_size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':record['media_info'],'cutoff_met':cutoff})
+                                ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
                         else:
                             item['movie_file']=record
                         kept_existing_files.append({'destination':str(existing),'quality':existing_quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':existing.name})
@@ -4740,7 +4885,9 @@ class MediaAutomationEngine:
                 cutoff=self._quality_cutoff_met(quality,profile)
                 if item.get('kind')=='tv':
                     ep=e.get('episode_ref')
-                    if isinstance(ep,dict): ep.update({'has_file':True,'file_path':str(dest),'file_quality':quality,'file_size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'cutoff_met':cutoff})
+                    if isinstance(ep,dict):
+                        ep.update({'has_file':True,'file_path':str(dest),'file_quality':quality,'file_size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'cutoff_met':cutoff})
+                        ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
                 else:
                     item['movie_file']={'path':str(dest),'quality':quality,'size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'cutoff_met':cutoff}
                 media_bytes=int(dest.stat().st_size)

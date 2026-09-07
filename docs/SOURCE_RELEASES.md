@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.42
+## Current release: v3.6.43
 
-**v3.6.42 is the current stable production release.**
+**v3.6.43 is the current stable production release.**
 
-The `v3.6.42` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.43` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.43 - TV Identity Compatibility & Library Integrity Review.** Preserves strict pre-Sxx/Eyy TV identity anchoring while accepting bounded year-only decorations and safe full-token stylizations, adds a non-destructive Needs Review workflow with fingerprint-specific Mark Missing exclusions, compacts duplicated Downloads history out of /api/diagnostics, and prevents proven localhost client disconnects from being mislabeled as Automation calculation failures.
 
 - **v3.6.42 - TV Release Identity & Reliability Hardening.** Anchors TV identity to the complete series prefix before Sxx/Eyy, blocks diagnostic-proven cross-title/episode-title collisions, makes library scans and the read-only Needs Review audit use the same strict identity, prunes expired Grab reservations, adds per-drive percentage reserves, fixes Win64 memory diagnostics/SAB warning classification, and makes launcher log identity dynamic with permanent production regression tests.
 

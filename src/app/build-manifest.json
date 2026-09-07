@@ -1,26 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.42",
-  "base_version": "3.6.41",
-  "release": "TV Release Identity & Reliability Hardening",
-  "adapter_version": "3.6.42",
-  "name": "TV Release Identity & Reliability Hardening",
+  "version": "3.6.43",
+  "base_version": "3.6.42",
+  "release": "TV Identity Compatibility & Library Integrity Review",
+  "adapter_version": "3.6.43",
+  "name": "TV Identity Compatibility & Library Integrity Review",
   "changes": [
-    "Anchors TV release identity to the complete series prefix before the first season/episode marker, preventing episode-title and unrelated-series collisions such as FROM/Home Away from Home and Love Island matches inside other shows.",
-    "Uses the same strict persisted title/country-edition identity for search eligibility, final Grab validation, Smart Import, library scanning, and a read-only Needs Review integrity audit.",
-    "Prefers the proven TV series directory during library scans and refuses to learn a series directory from a stale cross-title episode record.",
-    "Safely prunes only expired Automation Grab reservation files and exposes cleanup counters without weakening cross-process duplicate-Grab protection.",
-    "Adds a configurable percentage free-space reserve, combined with the existing GB minimum, and blocks grabs/imports when a media or staging drive would fall below reserve.",
-    "Fixes Windows backend working-set diagnostics by using typed 64-bit process-memory APIs and reports an explicit memory telemetry error instead of silently returning zero.",
-    "Separates generic SAB engine warnings from provider/network summaries and disk faults so messages such as NZB import warnings are not misreported as Usenet provider failures.",
-    "Makes launcher startup-log release identity dynamic from version.txt and adds permanent production regression guards for the launcher marker and strict TV identity tests."
+    "Keeps v3.6.42 exact TV series-prefix anchoring but accepts one or two year-only decorations between an already-exact title and Sxx/Eyy, covering diagnostic-proven Reacher/Beast Games/FROM/Dark Matter release naming without reopening cross-series matches.",
+    "Adds bounded full-token stylization compatibility such as PLUR1BUS -> Pluribus while retaining exact-prefix semantics and rejecting arbitrary intervening words.",
+    "Adds an on-demand Library Integrity Needs Review interface with provenance, current path, cross-title duplicate evidence, Open Folder, and explicit Mark Missing actions; no media is deleted or moved automatically.",
+    "Mark Missing persists an exact reviewed path/fingerprint exclusion so periodic scans cannot immediately reattach the same known-bad file; a genuinely different replacement remains eligible.",
+    "Reduces /api/diagnostics payload duplication by returning full Downloads telemetry/statistics/engine state plus bounded compact collection evidence instead of the entire Downloads history.",
+    "Suppresses only proven localhost client-disconnect write exceptions so browser reloads do not get mislabeled as Automation sidebar/summary failures."
   ],
   "regression_guards": [
-    "Existing country-edition aliases remain bounded to the persisted TV country identity; conflicting explicit editions are rejected and ambiguous franchise matching is not broadened.",
-    "The integrity audit is read-only and never deletes, moves, renames, or automatically repairs existing media; suspicious records are reported as Needs Review.",
-    "Active Grab reservation files are never pruned before their expiry and malformed reservation files receive an additional age grace before removal.",
-    "The v3.6.41 Downloads snapshot responsiveness path and v3.6.20+ serialized SAB transport remain intact.",
-    "v3.6.40 runtime-storage cleanup, v3.6.39 startup-reservation refinement, and v3.6.38 crash-recovery/authoritative queue-admission protections remain intact.",
-    "Manual Search/Grab, no-downgrade Smart Import safety, source-freshness protections, installer service/tray handoff, and user-data locations remain unchanged."
+    "The strict pre-Sxx/Eyy series identity boundary remains mandatory; The Morning Show/Love Island, Bradshaw, Debrief, Romania, cross-edition, and FROM episode-title collision cases stay rejected.",
+    "Year compatibility permits only one or two 19xx/20xx tokens after an exact allowed series prefix; arbitrary words remain rejected.",
+    "Integrity review mutations alter NewzDeck library association state only and never delete, move, rename, or overwrite the reviewed media file.",
+    "Reviewed-file scan exclusion is fingerprint-specific so a newly replaced physical file at the same path can be reconciled normally.",
+    "The full /api/downloads endpoint remains authoritative and unchanged; only /api/diagnostics duplicates less historical presentation data.",
+    "v3.6.42 storage-reserve, reservation hygiene, strict library scan ownership, Win64 memory telemetry and SAB warning classification remain intact.",
+    "v3.6.41 fail-soft Downloads snapshot behavior and the v3.6.20+ serialized SAB control transport remain intact."
   ]
 }

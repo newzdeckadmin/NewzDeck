@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.42** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.43** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.42_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.43_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,19 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.42 highlights
+## v3.6.43 highlights
 
-v3.6.42 hardens TV release identity and long-running Automation reliability based on a completed v3.6.41 diagnostic review.
+v3.6.43 refines the strict v3.6.42 TV identity model and adds a safe workflow for reviewing historical library assignments exposed by the new audit.
 
-- **Strict TV series prefix identity:** unrelated shows and episode-title text can no longer satisfy another show's Automation target.
-- **Library reconciliation safety:** TV scans prefer a proven series folder and reject stale cross-title folder ownership.
-- **Needs Review audit:** existing suspicious cross-title/edition/identity records are reported read-only; media is never automatically deleted or rewritten.
-- **Reservation hygiene:** only expired Automation Grab reservations are pruned, preserving active duplicate-Grab protection.
-- **Drive reserve protection:** Automation can preserve a configurable percentage of every media/staging drive in addition to the GB minimum.
-- **Cleaner diagnostics:** Win64 memory telemetry is fixed and generic SAB warnings no longer masquerade as provider failures.
-- **Permanent release guards:** launcher log identity is dynamic and production CI runs the strict TV identity regression suite.
+- **Safe release-name compatibility:** exact TV prefixes may carry bounded year-only decorations, and full-token stylizations such as PLUR1BUS are supported without substring matching.
+- **Cross-series safety preserved:** Debrief/Romania/Bradshaw/Morning Show/episode-title and conflicting-edition matches remain rejected.
+- **Library Integrity review:** Automation Setup can audit suspicious provenance and duplicate fingerprints, open the associated folder, and explicitly Mark Missing without deleting media.
+- **Reviewed-file protection:** the exact old file fingerprint is excluded from immediate scan re-attachment while a genuinely different replacement remains eligible.
+- **Smaller diagnostics:** /api/diagnostics keeps engine/telemetry/statistics but no longer duplicates the entire Downloads history already available from /api/downloads.
+- **Cleaner localhost logging:** proven browser/client disconnects during response delivery no longer masquerade as Automation calculation failures.
 
-See [the full v3.6.42 release notes](release/RELEASE_NOTES_v3.6.42.md).
+See [the full v3.6.43 release notes](release/RELEASE_NOTES_v3.6.43.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -68,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.42_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.43_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
