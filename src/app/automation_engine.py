@@ -35,6 +35,13 @@ def _friendly_grab_exception(exc: Exception) -> str:
                 'Check Downloads; if it is not listed, try Grab again in a moment.')
     return text or 'The release could not be queued.'
 
+class ReleaseContentValidationError(RuntimeError):
+    """Positive NZB-content evidence contradicts the requested Automation target."""
+    def __init__(self, message:str, *, error_code:str='nzb_content_identity_mismatch', evidence:dict[str,Any]|None=None):
+        super().__init__(message)
+        self.error_code=str(error_code or 'nzb_content_identity_mismatch')
+        self.evidence=dict(evidence or {})
+
 class ReleaseFetchError(RuntimeError):
     """A release-specific Newznab NZB retrieval failure.
 
@@ -2051,7 +2058,21 @@ class MediaAutomationEngine:
                     break
                 if key in capacity_targets:
                     rec.update({'status':'queued','message':'Download became active while this cycle was searching','updated_ts':time.time()}); skipped+=1; continue
-                grabbed=self.grab_release(rel)
+                grabbed=None
+                content_rejections=[]
+                for candidate_index,candidate in enumerate(candidates):
+                    candidate=dict(candidate); candidate.update({'automatic':True,'target_key':key,'auto_type':row.get('auto_type') or 'missing','season_pack':bool(row.get('season_pack')),'pack_episode_numbers':list(row.get('pack_episode_numbers') or []),'pack_known_episode_numbers':list(row.get('pack_known_episode_numbers') or [])})
+                    try:
+                        grabbed=self.grab_release(candidate); rel=candidate; break
+                    except ReleaseContentValidationError as exc:
+                        content_rejections.append({'title':str(candidate.get('title') or ''),'reason':str(exc),'error_code':exc.error_code})
+                        attempted.append({'guid':str(candidate.get('guid') or candidate.get('download_url') or ''),'title':str(candidate.get('title') or ''),'ts':time.time(),'rejected':'nzb_content_identity'})
+                        self._event('release-content-rejected',str(exc),item_id=str(row.get('item_id') or ''),target_key=key,release=str(candidate.get('title') or ''),candidate_index=candidate_index)
+                        continue
+                if grabbed is None:
+                    rec.update({'status':'waiting','message':'Rejected misleading NZB contents; searching for the next candidate','updated_ts':time.time(),'next_search_ts':0,'attempted_releases':attempted[-8:]})
+                    skipped+=1
+                    continue
                 if bool(grabbed.get('suppressed')):
                     skipped+=1
                     rec.update({'status':'satisfied','message':str(grabbed.get('reason') or 'Target changed before queueing; Wanted will re-evaluate it'),'updated_ts':time.time(),'next_search_ts':0})
@@ -6280,6 +6301,87 @@ class MediaAutomationEngine:
             raise ReleaseFetchError(f"Indexer could not be reached while fetching this NZB from {host}: {detail}", blacklist=False, error_code='indexer_unavailable')
         raise ReleaseFetchError(f"Indexer could not retrieve this NZB from {host}: {detail}", blacklist=blacklist, error_code='nzb_fetch_failed')
 
+    @staticmethod
+    def _nzb_tv_content_evidence(raw:bytes, context:dict[str,Any]) -> dict[str,Any]:
+        """Inspect actual NZB file subjects for explicit TV episode/pack identity.
+
+        This is deliberately evidence-only. Obfuscated subjects with no recognizable
+        SxxExx/season-pack identity remain admissible; NewzDeck rejects only when the
+        NZB itself positively contradicts the requested single-episode/season target.
+        """
+        if not isinstance(context,dict) or str(context.get('kind') or '').casefold()!='tv':
+            return {'checked':False,'reason':'not_tv'}
+        try:
+            root=ET.fromstring(raw)
+        except Exception:
+            return {'checked':False,'reason':'xml_unavailable'}
+        subjects=[]
+        for node in root.iter():
+            if str(node.tag).split('}')[-1].casefold()!='file': continue
+            subject=str(node.attrib.get('subject') or '').strip()
+            if subject: subjects.append(subject[:1000])
+            if len(subjects)>=5000: break
+        refs=set(); pack_seasons=set(); explicit_samples=[]
+        episode_re=re.compile(r'(?i)(?<![A-Z0-9])S(\d{1,2})[ ._\-]*E(\d{1,3})(?:[ ._\-]*E(\d{1,3}))?')
+        pack_patterns=(
+            re.compile(r'(?i)(?<![A-Z0-9])S(\d{1,2})[ ._\-]*(?:COMPLETE|FULL[ ._\-]*SEASON|SEASON[ ._\-]*PACK)'),
+            re.compile(r'(?i)(?:COMPLETE|FULL)[ ._\-]*SEASON[ ._\-]*(\d{1,2})(?!\d)'),
+            re.compile(r'(?i)SEASON[ ._\-]*(\d{1,2})[ ._\-]*(?:COMPLETE|PACK)(?![A-Z0-9])'),
+        )
+        for subject in subjects:
+            found=False
+            for m in episode_re.finditer(subject):
+                sn,en=int(m.group(1)),int(m.group(2)); refs.add((sn,en)); found=True
+                if m.group(3): refs.add((sn,int(m.group(3))))
+            for pattern in pack_patterns:
+                for m in pattern.finditer(subject):
+                    pack_seasons.add(int(m.group(1))); found=True
+            if found and len(explicit_samples)<12: explicit_samples.append(subject[:300])
+        return {
+            'checked':True,'subject_count':len(subjects),
+            'episode_identities':[{'season':sn,'episode':en} for sn,en in sorted(refs)],
+            'pack_seasons':sorted(pack_seasons),'explicit_samples':explicit_samples,
+        }
+
+    def _validate_release_nzb_content(self, raw:bytes, context:dict[str,Any]) -> dict[str,Any]:
+        evidence=self._nzb_tv_content_evidence(raw,context)
+        if not evidence.get('checked'): return evidence
+        try: requested_season=int(context.get('season')) if context.get('season') is not None else None
+        except Exception: requested_season=None
+        try: requested_episode=int(context.get('episode')) if context.get('episode') is not None else None
+        except Exception: requested_episode=None
+        season_pack=bool(context.get('season_pack'))
+        refs={(int(x.get('season') or 0),int(x.get('episode') or 0)) for x in evidence.get('episode_identities') or []}
+        pack_seasons={int(x) for x in evidence.get('pack_seasons') or []}
+        contradiction=''
+        if requested_season is not None:
+            if season_pack:
+                wrong=sorted(x for x in refs if x[0] and x[0]!=requested_season)
+                wrong_packs=sorted(x for x in pack_seasons if x!=requested_season)
+                if wrong or wrong_packs:
+                    contradiction=f'NZB contents include TV identities outside requested Season {requested_season}.'
+            elif requested_episode is not None:
+                target=(requested_season,requested_episode)
+                wrong=sorted(x for x in refs if x!=target)
+                pack_conflict=requested_season in pack_seasons or bool(pack_seasons)
+                if wrong or pack_conflict:
+                    detail=[]
+                    if wrong: detail.append(f'{len(refs)} distinct episode identities')
+                    if pack_seasons: detail.append('complete-season/season-pack markers')
+                    contradiction=(f'NZB contents do not represent only S{requested_season:02d}E{requested_episode:02d}; '
+                                   + ' and '.join(detail) + ' were detected.')
+        evidence['requested_season']=requested_season
+        evidence['requested_episode']=requested_episode
+        evidence['season_pack']=season_pack
+        evidence['accepted']=not bool(contradiction)
+        if contradiction:
+            evidence['rejection_reason']=contradiction
+            raise ReleaseContentValidationError(
+                contradiction + ' NewzDeck rejected the post before SAB download submission.',
+                evidence=evidence,
+            )
+        return evidence
+
     def grab_release(self,data):
         title=str(data.get('title') or 'Indexer release')
         providers=[p for p in self.get_providers() if p.get('use_downloads',True) is not False]
@@ -6426,6 +6528,22 @@ class MediaAutomationEngine:
                 if str(context.get('source') or '')=='automation_grab' and exc.blacklist:
                     self.record_release_failure(context,str(exc),error_code=exc.error_code)
                     raise ValueError(f"This release could not be retrieved from {str(data.get('indexer') or 'the indexer')} and has been marked FAILED for this target. Choose a different post. Details: {exc}") from exc
+                raise ValueError(str(exc)) from exc
+
+            try:
+                validation=self._validate_release_nzb_content(raw,context) if context else {'checked':False}
+                if isinstance(context,dict):
+                    context['nzb_content_validation']={
+                        'checked':bool(validation.get('checked')),
+                        'subject_count':int(validation.get('subject_count') or 0),
+                        'episode_identity_count':len(validation.get('episode_identities') or []),
+                        'pack_seasons':list(validation.get('pack_seasons') or [])[:20],
+                        'accepted':bool(validation.get('accepted',True)),
+                    }
+            except ReleaseContentValidationError as exc:
+                if str(context.get('source') or '')=='automation_grab':
+                    self.record_release_failure(context,str(exc),error_code=exc.error_code)
+                    raise
                 raise ValueError(str(exc)) from exc
 
             # Submission/control-plane errors are not proof that the release itself

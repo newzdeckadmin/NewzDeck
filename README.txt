@@ -1,9 +1,11 @@
-NewzDeck v3.6.52
-Scope-Native Downloads Projection & SAB Probe Efficiency
+NewzDeck v3.6.53
+NZB Identity Gate & Durable Downloads History
 
-New in v3.6.52:
-- Routine Live Downloads polling now builds a scope-native presentation from live/non-terminal jobs instead of constructing every Completed/Failed card first and discarding terminal history afterward. Global Completed/Failed counts remain accurate.
-- The presentation state gate is zero-wait: one non-blocking in-memory lock attempt either succeeds immediately or reuses the last coherent presentation, removing scheduler overshoot from the former retry/sleep loop.
-- Once the running engine has been proven as the pinned SAB 5.1.2 generation, recent authenticated API success is enough to skip redundant version fingerprints. Unknown/older generations still reach the strict upgrade boundary, and proven-current fingerprints are rate-limited to sparse recovery/upgrade checks instead of every engine-loop cycle.
-- Adds scope-native projection telemetry, including projected job count and terminal records skipped from routine Live builds.
-- Preserves v3.6.51 cached engine health, SAB handoff grace and episode-based overlap telemetry; v3.6.50 Queue/History sampling/deferred persistence, v3.6.49 bounded Downloads payloads, Smart Import ownership, Library Integrity, Selected Episodes/PAR2 visibility and private SABnzbd 5.1.2 remain intact.
+New in v3.6.53:
+- Automatic single-episode TV grabs inspect actual NZB file subjects before SAB submission. Explicit multi-episode or complete-season evidence is rejected and blacklisted for that target; obfuscated/no-evidence NZBs remain admissible.
+- Continuous Automation immediately advances to the next candidate after an NZB-content identity rejection.
+- Live Downloads consumes a copy-on-write active-job presentation index and durable terminal counters rather than scanning the full cross-runtime ledger.
+- NewzDeck owns compact terminal history (up to 5,000 rows), bootstrapped from existing durable jobs and independent of SAB's bounded History window.
+- Completed/Failed pages use compact rows and fetch rich PAR2/block diagnostics only when Details is expanded.
+- Queue sampler diagnostics preserve the last failure reason/timestamp and bounded failure-reason counts after recovery.
+- Private SABnzbd remains pinned to 5.1.2 and remains authoritative for transfer, repair, extraction, and retry.

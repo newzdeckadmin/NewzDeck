@@ -7,6 +7,7 @@ import http.client
 import io
 import json
 import os
+import queue
 import re
 import shutil
 import socket
@@ -24,10 +25,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.52"
+ADAPTER_VERSION = "3.6.53"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
+TERMINAL_HISTORY_VERSION = 1
+TERMINAL_HISTORY_MAX_ROWS = 5000
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
 
 SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
@@ -749,6 +752,7 @@ class SabDownloadManager:
         self.incomplete_dir = self.root / "incomplete"
         self.cache_dir = self.root / "cache"
         self.state_file = self.root / "newzdeck-jobs.json"
+        self.terminal_history_file = self.root / "terminal-history.json"
         self.browser_name_recovery_file = self.root / "browser-name-recovery.json"
         self.state_lock_file = self.root / ".newzdeck-jobs.lock"
         self.engine_state_file = self.root / "engine.json"
@@ -773,6 +777,25 @@ class SabDownloadManager:
         self.state.setdefault("removed_job_reasons", {})
         self.state.setdefault("_paused_updated_ts", 0.0)
         self.lock = threading.RLock()
+        # v3.6.53: NewzDeck owns a compact terminal-history presentation index that
+        # outlives SAB's bounded History window. The active presentation index is a
+        # copy-on-write memory snapshot so routine Live rendering never waits on the
+        # cross-runtime job ledger lock or scans hundreds of historical records.
+        self._terminal_history_lock = threading.RLock()
+        loaded_terminal = _json_read(self.terminal_history_file, {})
+        self._terminal_history = loaded_terminal if isinstance(loaded_terminal, dict) else {}
+        self._terminal_history.setdefault("version", TERMINAL_HISTORY_VERSION)
+        self._terminal_history.setdefault("rows", {})
+        self._terminal_history_writes = 0
+        self._terminal_history_bootstrap_rows = 0
+        self._terminal_history_pruned_rows = 0
+        self._terminal_history_last_write_ts = 0.0
+        self._presentation_index: dict[str, Any] = {}
+        self._presentation_index_publishes = 0
+        self._presentation_index_last_ts = 0.0
+        self._snapshot_state_patch_queue: queue.SimpleQueue[tuple[str,str]] = queue.SimpleQueue()
+        self._sync_terminal_history_from_state(persist=True)
+        self._publish_presentation_index_locked()
         # engine.json is shared by the UI polling, SAB coordination and completion
         # threads.  Serializing identity normalization prevents Windows read/replace
         # races from starving the Automation completion monitor.
@@ -946,6 +969,9 @@ class SabDownloadManager:
         self._queue_sampler_failures = 0
         self._queue_sampler_last_success_ts = 0.0
         self._queue_sampler_last_error = ""
+        self._queue_sampler_last_failure_error = ""
+        self._queue_sampler_last_failure_ts = 0.0
+        self._queue_sampler_failure_reasons: dict[str, int] = {}
         self._queue_sample_consumers = 0
         self._queue_sample_stale_consumers = 0
         self._queue_sample_bootstrap_fetches = 0
@@ -1032,6 +1058,7 @@ class SabDownloadManager:
         self._import_progress_persist_writes = 0
         self._import_progress_persist_skips = 0
         self._unsafe_output_fallback_rejections = 0
+        self._multi_episode_output_rejections = 0
         # v3.6.13: an explicit Remove/Cancel must not hide a card until SAB has
         # actually stopped owning that NZO id. Earlier code treated the localhost
         # delete call as best-effort, immediately tombstoned the NewzDeck record,
@@ -1443,6 +1470,7 @@ class SabDownloadManager:
             with self._state_file_guard():
                 disk = _json_read(self.state_file, {})
                 self.state = self._merge_shared_states(disk, self.state)
+                self._publish_presentation_index_locked()
 
     def _refresh_shared_state_for_snapshot(self, max_wait_seconds: float = 0.0) -> bool:
         """Attempt the in-memory presentation gate exactly once and never wait.
@@ -1477,6 +1505,7 @@ class SabDownloadManager:
                 merged = self._merge_shared_states(disk, self.state)
                 _atomic_json_write(self.state_file, merged)
                 self.state = merged
+                self._publish_presentation_index_locked()
 
     def _request_deferred_state_persist(self) -> None:
         """Schedule durable reconciliation bookkeeping without blocking presentation/sampling."""
@@ -2691,6 +2720,9 @@ class SabDownloadManager:
             'queue_sampler_last_success_ts': float(self._queue_sampler_last_success_ts or 0.0),
             'queue_sampler_sample_age_seconds': max(0.0, now - float(self._queue_sample_ts or 0.0)) if self._queue_sample_ts else 0.0,
             'queue_sampler_last_error': str(self._queue_sampler_last_error or ''),
+            'queue_sampler_last_failure_error': str(self._queue_sampler_last_failure_error or ''),
+            'queue_sampler_last_failure_ts': float(self._queue_sampler_last_failure_ts or 0.0),
+            'queue_sampler_failure_reasons': dict(self._queue_sampler_failure_reasons),
             'queue_sample_consumers': int(self._queue_sample_consumers),
             'queue_sample_stale_consumers': int(self._queue_sample_stale_consumers),
             'queue_sample_bootstrap_fetches': int(self._queue_sample_bootstrap_fetches),
@@ -2718,6 +2750,15 @@ class SabDownloadManager:
             'historical_sab_occupied_port_probes': int(self._historical_sab_occupied_port_probes),
             'historical_sab_authenticated': int(self._historical_sab_authenticated),
             'historical_sab_last_sweep_ts': float(self._stale_engine_quarantine_last_ts or 0.0),
+            'presentation_index_publishes': int(self._presentation_index_publishes),
+            'presentation_index_last_ts': float(self._presentation_index_last_ts or 0.0),
+            'presentation_index_active_jobs': int(len((self._presentation_index or {}).get("active_jobs") or {})),
+            'presentation_index_tracked_total': int((self._presentation_index or {}).get("tracked_total") or 0),
+            'terminal_history_rows': int(len((self._terminal_history or {}).get("rows") or {})),
+            'terminal_history_writes': int(self._terminal_history_writes),
+            'terminal_history_bootstrap_rows': int(self._terminal_history_bootstrap_rows),
+            'terminal_history_pruned_rows': int(self._terminal_history_pruned_rows),
+            'terminal_history_last_write_ts': float(self._terminal_history_last_write_ts or 0.0),
         }
 
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
@@ -4726,6 +4767,183 @@ class SabDownloadManager:
             self.state["jobs"] = jobs
         return jobs
 
+    @staticmethod
+    def _terminal_status_from_meta(meta:dict[str,Any]) -> str:
+        status=str(meta.get("terminal_status") or "").casefold()
+        if status in {"completed","failed","cancelled"}: return status
+        if bool(meta.get("imported")) or _num(meta.get("completed_ts"),0)>0: return "completed"
+        if str(meta.get("import_status") or "").casefold()=="failed" and _num(meta.get("completed_ts"),0)>0: return "completed"
+        return ""
+
+    def _terminal_summary_from_meta(self, nzo_id:str, meta:dict[str,Any]) -> dict[str,Any] | None:
+        status=self._terminal_status_from_meta(meta)
+        if not status: return None
+        repair=meta.get("repair_telemetry") if isinstance(meta.get("repair_telemetry"),dict) else {}
+        import_status=str(meta.get("import_status") or "")
+        post_status=str(meta.get("post_status") or "")
+        if not post_status:
+            if import_status.casefold()=="failed": post_status="failed"
+            elif import_status.casefold() in {"queued","waiting","importing"}: post_status="importing"
+            elif status=="completed": post_status="completed"
+        expected=max(0,int(meta.get("expected_bytes") or 0))
+        completed=float(_num(meta.get("completed_ts"),0) or _num(meta.get("_updated_ts"),0) or _num(meta.get("created_ts"),0))
+        row={
+            "id":str(nzo_id),"identity":str(nzo_id),"collection_id":str(nzo_id),
+            "collection_name":str(meta.get("name") or "NZB package"),"filename":str(meta.get("name") or "NZB package"),
+            "status":status,"expected_bytes":expected,"downloaded_bytes":expected if status=="completed" else max(0,int(meta.get("downloaded_bytes") or 0)),
+            "actual_size":max(expected,int(meta.get("actual_size") or 0)),"created_ts":float(_num(meta.get("created_ts"),0)),
+            "completed_ts":completed,"started_ts":float(_num(meta.get("started_ts"),0)),"speed_bps":0,"eta_seconds":0,"connections_used":0,
+            "post_status":post_status,"post_progress":100 if post_status in {"completed","not_needed"} else int(meta.get("import_progress") or 0),
+            "post_message":str(meta.get("import_message") or meta.get("failure_reason") or "")[:600],
+            "import_status":import_status,"import_progress":int(meta.get("import_progress") or 0),"imported":bool(meta.get("imported")),
+            "automation_context":dict(meta.get("automation_context") or {}),"priority":str(meta.get("priority") or "normal"),
+            "source":"nzb","provider_name":"SABnzbd engine","provider_id":str(meta.get("provider_id") or ""),
+            "path":str(meta.get("import_destination") or meta.get("resolved_output") or meta.get("output_hint") or ""),
+            "error":str(meta.get("failure_reason") or repair.get("sab_fail_message") or "")[:600],
+            "repair_outcome":str(repair.get("repair_outcome") or "not_observed"),"repair_summary":str(repair.get("repair_summary") or "")[:600],
+            "failure_class":str(repair.get("failure_class") or ""),"verification_observed":bool(repair.get("verification_observed")),
+            "repair_attempted":bool(repair.get("repair_attempted")),"par2_fetch_observed":bool(repair.get("par2_fetch_observed")),
+            "postproc_seconds":int(repair.get("postproc_seconds") or 0),"recovery_blocks_reported":False,
+            "details_loaded":False,"terminal_history_source":"newzdeck","_updated_ts":float(_num(meta.get("_updated_ts"),completed)),
+        }
+        return row
+
+    def _write_terminal_history(self) -> None:
+        with self._terminal_history_lock:
+            payload={"version":TERMINAL_HISTORY_VERSION,"updated_ts":time.time(),"rows":dict(self._terminal_history.get("rows") or {})}
+            _atomic_json_write(self.terminal_history_file,payload)
+            self._terminal_history=payload
+            self._terminal_history_writes+=1
+            self._terminal_history_last_write_ts=float(payload["updated_ts"])
+
+    def _sync_terminal_history_from_state(self, *, persist:bool=True) -> int:
+        with self.lock:
+            tracked={str(k):dict(v) for k,v in self._tracked().items() if isinstance(v,dict)}
+        changed=0
+        with self._terminal_history_lock:
+            rows=dict(self._terminal_history.get("rows") or {})
+            for nzo_id,meta in tracked.items():
+                summary=self._terminal_summary_from_meta(nzo_id,meta)
+                if summary is None: continue
+                previous=rows.get(nzo_id)
+                if previous!=summary:
+                    if previous is None: self._terminal_history_bootstrap_rows+=1
+                    rows[nzo_id]=summary; changed+=1
+            ordered=sorted(rows.items(),key=lambda kv:(float(_num((kv[1] or {}).get("completed_ts"),0)),float(_num((kv[1] or {}).get("created_ts"),0)),kv[0]),reverse=True)
+            if len(ordered)>TERMINAL_HISTORY_MAX_ROWS:
+                self._terminal_history_pruned_rows+=len(ordered)-TERMINAL_HISTORY_MAX_ROWS
+                ordered=ordered[:TERMINAL_HISTORY_MAX_ROWS]; changed+=1
+            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":dict(ordered)}
+        if changed and persist: self._write_terminal_history()
+        return changed
+
+    def _remove_terminal_history_ids(self, ids:list[str]) -> int:
+        removed=0
+        with self._terminal_history_lock:
+            rows=dict(self._terminal_history.get("rows") or {})
+            for raw_id in ids:
+                if rows.pop(str(raw_id),None) is not None: removed+=1
+            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":rows}
+        if removed: self._write_terminal_history()
+        self._publish_presentation_index()
+        return removed
+
+    def _terminal_history_snapshot(self) -> dict[str,dict[str,Any]]:
+        with self._terminal_history_lock:
+            return {str(k):dict(v) for k,v in (self._terminal_history.get("rows") or {}).items() if isinstance(v,dict)}
+
+    def _terminal_counts(self) -> dict[str,int]:
+        counts={"completed":0,"failed":0,"cancelled":0}
+        for row in self._terminal_history_snapshot().values():
+            status=str(row.get("status") or "").casefold()
+            if status in counts: counts[status]+=1
+        return counts
+
+    def _build_presentation_index_value_locked(self) -> dict[str,Any]:
+        active={}
+        for nzo_id,meta in self._tracked().items():
+            if not isinstance(meta,dict): continue
+            status=self._terminal_status_from_meta(meta)
+            post=str(meta.get("post_status") or meta.get("import_status") or "").casefold()
+            if status and post not in {"queued","waiting","verifying","repairing","extracting","importing","needs_password","needs_tool","needs_attention","blocked","failed"}:
+                continue
+            active[str(nzo_id)]=dict(meta)
+        return {
+            "active_jobs":active,"terminal_counts":self._terminal_counts(),
+            "removed_job_reasons":{str(k):str(v or "") for k,v in (self.state.get("removed_job_reasons") or {}).items()},
+            "paused":bool(self.state.get("paused",False)),"tracked_total":len(self._tracked()),"updated_ts":time.time(),
+        }
+
+    def _publish_presentation_index_locked(self) -> None:
+        self._presentation_index=self._build_presentation_index_value_locked()
+        self._presentation_index_publishes+=1
+        self._presentation_index_last_ts=time.time()
+
+    def _publish_presentation_index(self) -> None:
+        with self.lock: self._publish_presentation_index_locked()
+
+    def _presentation_index_snapshot(self) -> dict[str,Any]:
+        current=self._presentation_index or {}
+        return {
+            "active_jobs":dict(current.get("active_jobs") or {}),"terminal_counts":dict(current.get("terminal_counts") or {}),
+            "removed_job_reasons":dict(current.get("removed_job_reasons") or {}),"paused":bool(current.get("paused",False)),
+            "tracked_total":int(current.get("tracked_total") or 0),"updated_ts":float(current.get("updated_ts") or 0.0),
+        }
+
+    def _queue_snapshot_state_patch(self, nzo_id:str, action:str) -> None:
+        self._snapshot_state_patch_queue.put((str(nzo_id),str(action)))
+        self.sync_event.set()
+
+    def _drain_snapshot_state_patches(self) -> int:
+        patches=[]
+        while True:
+            try: patches.append(self._snapshot_state_patch_queue.get_nowait())
+            except queue.Empty: break
+        if not patches: return 0
+        changed=0
+        with self.lock:
+            tracked=self._tracked()
+            for nzo_id,action in patches:
+                meta=tracked.get(nzo_id)
+                if not isinstance(meta,dict): continue
+                if action=="restore_ownership" and meta.get("ownership_released_ts"):
+                    meta.pop("ownership_released_ts",None); meta.pop("ownership_released_reason",None); self._touch_job_locked(meta); changed+=1
+                elif action=="release_ownership" and not meta.get("ownership_released_ts"):
+                    meta["ownership_released_ts"]=time.time(); meta["ownership_released_reason"]="SAB no longer exposes this tracked non-terminal job"; self._touch_job_locked(meta); changed+=1
+        if changed: self._save_state()
+        return changed
+
+    def _terminal_history_page(self, mode:str, *, limit:int, offset:int) -> tuple[list[dict[str,Any]],list[str]]:
+        mode=str(mode or "completed").casefold()
+        rows=[]
+        for row in self._terminal_history_snapshot().values():
+            status=str(row.get("status") or "").casefold(); post=str(row.get("post_status") or "").casefold()
+            include=(status=="completed" and post not in {"failed","needs_attention","needs_tool","blocked","cancelled"}) if mode=="completed" else (status in {"failed","cancelled"} or post in {"failed","needs_attention","needs_tool","blocked","cancelled"})
+            if include: rows.append(row)
+        rows.sort(key=self._display_order_key)
+        ids=[str(x.get("id") or "") for x in rows if str(x.get("id") or "")]
+        start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
+        return [dict(x) for x in rows[start:start+size]],ids
+
+    def _terminal_detail_job(self, nzo_id:str) -> dict[str,Any] | None:
+        nzo_id=str(nzo_id or "").strip()
+        if not nzo_id: return None
+        with self.lock:
+            meta=self._tracked().get(nzo_id)
+            meta=dict(meta) if isinstance(meta,dict) else None
+        if meta is None:
+            row=self._terminal_history_snapshot().get(nzo_id)
+            return dict(row,details_loaded=True) if isinstance(row,dict) else None
+        slot=None
+        with self._queue_sample_lock:
+            pair=self._queue_sample_pair
+            if pair is not None:
+                _qr,qs=self._queue_slots(pair[0]); _hr,hs=self._history_slots(pair[1])
+                slot=next((x for x in hs+qs if str(x.get("nzo_id") or x.get("id") or "")==nzo_id),None)
+        job=self._job_from_slot(nzo_id,meta,slot,history=True) if isinstance(slot,dict) else self._offline_job_from_meta(nzo_id,meta,time.time())
+        job=dict(job); job["details_loaded"]=True; job["terminal_history_source"]="newzdeck"
+        return job
+
     def _track_add(self, nzo_id: str, *, name: str, source_name: str, provider_id: str,
                    expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None,
                    priority: str = "normal", browser_flat_images: bool = False,
@@ -5655,6 +5873,12 @@ class SabDownloadManager:
             except Exception as exc:
                 self._queue_sampler_failures += 1
                 self._queue_sampler_last_error = str(exc)[:300]
+                self._queue_sampler_last_failure_error = self._queue_sampler_last_error
+                self._queue_sampler_last_failure_ts = time.time()
+                reason=(type(exc).__name__ + ': ' + str(exc))[:160]
+                self._queue_sampler_failure_reasons[reason]=int(self._queue_sampler_failure_reasons.get(reason) or 0)+1
+                if len(self._queue_sampler_failure_reasons)>20:
+                    self._queue_sampler_failure_reasons=dict(sorted(self._queue_sampler_failure_reasons.items(),key=lambda kv:kv[1],reverse=True)[:20])
                 delay = 0.75
 
     def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -6566,45 +6790,38 @@ class SabDownloadManager:
         finally:
             self._snapshot_lock.release()
 
-    def snapshot_view(self, scope: str = "all", *, limit: int = 50, offset: int = 0) -> dict[str, Any]:
-        """Return a bounded Downloads presentation while preserving global counts.
-
-        v3.6.49 keeps ``snapshot()`` as the full compatibility/diagnostic contract,
-        but the desktop polls this view so hundreds of terminal jobs are not serialized
-        and parsed on every live refresh. Completed/Failed pages remain accessible in
-        deterministic chunks without changing queue authority or reconciliation.
-        """
+    def snapshot_view(self, scope: str = "all", *, limit: int = 50, offset: int = 0, detail_id: str = "") -> dict[str, Any]:
+        """Return scope-native Live, durable terminal pages, or one lazy detail row."""
         mode=str(scope or "all").strip().casefold()
+        if mode=="detail":
+            detail=self._terminal_detail_job(detail_id)
+            if detail is None: return {"ok":False,"error":"Download history item was not found","jobs":[],"collections":[],"view":{"scope":"detail","total":0}}
+            return {"ok":True,"jobs":[detail],"collections":[],"view":{"scope":"detail","total":1,"returned":1,"id":str(detail_id)}}
+        if mode in {"completed","failed"}:
+            base=self.snapshot(scope="live")
+            page,matching_ids=self._terminal_history_page(mode,limit=limit,offset=offset)
+            result=dict(base)
+            result["jobs"]=page; result["collections"]=[]
+            counts=dict(result.get("counts") or {})
+            terminal_counts=self._terminal_counts()
+            counts["completed"]=int(terminal_counts.get("completed") or 0)
+            counts["failed"]=int(terminal_counts.get("failed") or 0)
+            counts["cancelled"]=int(terminal_counts.get("cancelled") or 0)
+            result["counts"]=counts
+            start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
+            result["view"]={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":len(matching_ids),"has_more":start+len(page)<len(matching_ids),"matching_ids":matching_ids,"history_source":"newzdeck-terminal-index","lazy_details":True}
+            return result
         snap=self.snapshot(scope="live" if mode=="live" else "all")
         if mode in {"all","full"}:
-            result=dict(snap)
-            result["view"]={"scope":"all","offset":0,"limit":len(snap.get("jobs") or []),"total":len(snap.get("jobs") or []),"has_more":False}
-            return result
+            result=dict(snap); result["view"]={"scope":"all","offset":0,"limit":len(snap.get("jobs") or []),"total":len(snap.get("jobs") or []),"has_more":False}; return result
         jobs=list(snap.get("jobs") or [])
-        active_post={"queued","waiting","verifying","repairing","extracting","importing","needs_password","needs_tool","needs_attention","blocked","failed","cancelled"}
-        def include(job: dict[str,Any]) -> bool:
-            status=str(job.get("status") or "").casefold()
-            post=str(job.get("post_status") or "").casefold()
-            if mode=="live":
-                return status in {"queued","downloading","retry_wait","cancelling"} or (status not in {"failed","cancelled"} and post in active_post)
-            if mode=="completed":
-                return status=="completed" and post in {"","completed","not_needed","disabled"}
-            if mode=="failed":
-                return status in {"failed","cancelled"} or post in {"failed","needs_attention","needs_tool","blocked","cancelled"}
-            return True
-        selected=[job for job in jobs if include(job)]
-        total=len(selected)
-        start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
-        page=selected[start:start+size]
-        ids={str(job.get("id") or "") for job in page}
-        collection_ids={str(job.get("collection_id") or "") for job in page if str(job.get("collection_id") or "")}
-        collections=[row for row in list(snap.get("collections") or []) if str(row.get("id") or "") in ids or str(row.get("id") or "") in collection_ids]
-        result=dict(snap)
-        result["jobs"]=page
-        result["collections"]=collections
-        result["view"]={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":total,"has_more":start+len(page)<total,
-                        "scope_native_projection": bool(mode=="live" and str(snap.get("snapshot_scope") or "") == "live"),
-                        "matching_ids":[str(job.get("id") or "") for job in selected if str(job.get("id") or "")]}
+        if mode=="live":
+            active_post={"queued","waiting","verifying","repairing","extracting","importing","needs_password","needs_tool","needs_attention","blocked"}
+            jobs=[job for job in jobs if str(job.get("status") or "").casefold() in {"queued","downloading","retry_wait","cancelling"} or (str(job.get("status") or "").casefold() not in {"failed","cancelled"} and str(job.get("post_status") or "").casefold() in active_post)]
+        start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50))); page=jobs[start:start+size]
+        ids={str(job.get("id") or "") for job in page}; collections=[row for row in list(snap.get("collections") or []) if str(row.get("id") or "") in ids]
+        result=dict(snap); result["jobs"]=page; result["collections"]=collections
+        result["view"]={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":len(jobs),"has_more":start+len(page)<len(jobs),"scope_native_projection":True,"matching_ids":[str(job.get("id") or "") for job in jobs if str(job.get("id") or "")]}
         return result
 
     def _offline_job_from_meta(self, nzo_id: str, meta: dict[str, Any], now: float) -> dict[str, Any]:
@@ -6787,13 +7004,17 @@ class SabDownloadManager:
             # Never show a queue badge with an empty Downloads page. If the private
             # engine is provisioning/reconnecting, render tracked NewzDeck jobs from
             # their last known view (or a queued placeholder) until SAB is reachable.
-            with self.lock:
-                tracked = dict(self._tracked())
+            if scope_mode == "live":
+                presentation_index=self._presentation_index_snapshot()
+                tracked=dict(presentation_index.get("active_jobs") or {})
+            else:
+                with self.lock:
+                    tracked = dict(self._tracked())
             jobs: list[dict[str, Any]] = []
             collections: list[dict[str, Any]] = []
             counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
             terminal_skips = 0
-            terminal_counts = {"completed": 0, "failed": 0, "cancelled": 0}
+            terminal_counts = dict((presentation_index.get("terminal_counts") or {}) if scope_mode=="live" else {"completed": 0, "failed": 0, "cancelled": 0})
             for nzo_id, meta in tracked.items():
                 prior = self._job_last_view.get(nzo_id) or {}
                 terminal_hint = str(meta.get("terminal_status") or prior.get("status") or "").casefold()
@@ -6809,7 +7030,8 @@ class SabDownloadManager:
                 jobs.append(job)
                 collections.append(self._collection_from_job(job, meta))
                 status = str(job.get("status") or "queued")
-                counts[status if status in counts else "queued"] += 1
+                if not (scope_mode == "live" and status in {"completed","failed","cancelled"}):
+                    counts[status if status in counts else "queued"] += 1
             jobs.sort(key=self._display_order_key)
             collections.sort(key=self._display_order_key)
             for terminal_status, terminal_count in terminal_counts.items():
@@ -6824,7 +7046,8 @@ class SabDownloadManager:
                       "remaining_bytes": sum(max(0, int(j.get("expected_bytes", 0) or 0) - int(j.get("downloaded_bytes", 0) or 0)) for j in jobs if j.get("status") in {"queued", "downloading", "retry_wait"}),
                       "queue_eta_seconds": 0, "post_processing_active": 0,
                       "connections": {"active": 0, "live_active": 0, "open": 0, "effective_capacity": configured_capacity, "capacity": configured_capacity, "configured": configured_capacity, "pools": [], "yenc": {"available": True, "workers": 0}},
-                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections), "recovered_import_reconciliations": int(self._recovered_import_reconciliations), "recovered_import_last_ts": float(self._recovered_import_last_ts or 0.0), "recovered_pause_resumes": int(self._recovered_pause_resumes), "recovered_pause_resume_last_ts": float(self._recovered_pause_resume_last_ts or 0.0), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), **self._sab_http_transport_telemetry(), "bandwidth": {"enabled": False, "active": False}},
+                      "collections": collections, "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} • adapter {ADAPTER_VERSION} • {'provisioning' if engine.get('provisioning') else 'reconnecting'}", "network_rate_bps": 0, "decode_rate_bps": 0, "disk_rate_bps": 0, "soft_misses": 0, "native_parts": 0, "slot_utilization_pct": 0, "active_card_continuity_bridges": int(self._active_continuity_bridges), "active_card_continuity_last_ts": float(self._active_continuity_last_ts), "visibility_continuity_bridges": int(self._visibility_bridges), "queued_visibility_continuity_bridges": int(self._queued_visibility_bridges), "visibility_continuity_open": int(len(self._visibility_bridge_open)), "visibility_continuity_last_ts": float(self._visibility_last_ts), "visibility_continuity_longest_gap_ms": int(self._visibility_longest_gap_ms), "sab_job_omission_events": int(self._sab_job_omission_events), "sab_job_omission_last_ts": float(self._sab_job_omission_last_ts), "unexpected_sab_pause_bridges": int(self._unexpected_sab_pause_bridges), "unexpected_sab_pause_last_ts": float(self._unexpected_sab_pause_last_ts), "unexpected_sab_pause_active": bool(self._unexpected_sab_pause_bridge_open), "removed_orphan_cleanup_count": int(self._orphan_removed_cleanup_count), "removed_orphan_cleanup_last_ts": float(self._orphan_removed_cleanup_last_ts), "sab_queue_fetches": int(self._live_queue_fetches), "sab_queue_reuses": int(self._live_queue_reuses), "import_progress_persist_writes": int(self._import_progress_persist_writes), "import_progress_persist_skips": int(self._import_progress_persist_skips), "unsafe_output_fallback_rejections": int(self._unsafe_output_fallback_rejections),
+                                "multi_episode_output_rejections": int(self._multi_episode_output_rejections), "recovered_import_reconciliations": int(self._recovered_import_reconciliations), "recovered_import_last_ts": float(self._recovered_import_last_ts or 0.0), "recovered_pause_resumes": int(self._recovered_pause_resumes), "recovered_pause_resume_last_ts": float(self._recovered_pause_resume_last_ts or 0.0), "sab_launch_cooldowns": int(self._ensure_launch_cooldowns), **self._sab_http_transport_telemetry(), "bandwidth": {"enabled": False, "active": False}},
                       "statistics": self._statistics({}), "engine": engine}
             self._last_snapshot, self._last_snapshot_ts = result, now
             return result
@@ -6967,10 +7190,18 @@ class SabDownloadManager:
         jobs: list[dict[str, Any]] = []
         collections: list[dict[str, Any]] = []
         counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
-        terminal_counts = {"completed": 0, "failed": 0, "cancelled": 0}
         terminal_skips = 0
-        with self.lock:
-            tracked = dict(self._tracked())
+        if scope_mode == "live":
+            presentation_index=self._presentation_index_snapshot()
+            tracked=dict(presentation_index.get("active_jobs") or {})
+            terminal_counts={"completed":int((presentation_index.get("terminal_counts") or {}).get("completed") or 0),
+                             "failed":int((presentation_index.get("terminal_counts") or {}).get("failed") or 0),
+                             "cancelled":int((presentation_index.get("terminal_counts") or {}).get("cancelled") or 0)}
+            terminal_skips=max(0,int(presentation_index.get("tracked_total") or 0)-len(tracked))
+        else:
+            terminal_counts = {"completed": 0, "failed": 0, "cancelled": 0}
+            with self.lock:
+                tracked = dict(self._tracked())
 
         # SAB can occasionally expose aggregate Downloading/speed/remaining while its
         # per-job slots list is temporarily empty during internal queue reshaping.
@@ -7150,21 +7381,24 @@ class SabDownloadManager:
                     self._job_fresh_missing_since.pop(nzo_id, None)
                     continue
                 if fresh_absence and not aggregate_live_signal and fresh_missing_since > 0 and now - fresh_missing_since > retain_seconds:
-                    with self.lock:
-                        live_meta=self._tracked().get(nzo_id)
-                        if isinstance(live_meta,dict):
-                            live_meta["ownership_released_ts"] = now
-                            live_meta["ownership_released_reason"] = "missing from fresh SAB Queue/History after retention window"
-                            self._touch_job_locked(live_meta)
-                        self._job_last_view.pop(nzo_id, None)
-                        self._job_last_seen_ts.pop(nzo_id, None)
-                        self._job_fresh_missing_since.pop(nzo_id, None)
-                        self._active_latch_until.pop(nzo_id, None)
-                        self._job_active_confirmed_ts.pop(nzo_id, None)
-                        self._active_bridge_open.discard(nzo_id)
-                        self._close_visibility_bridge(nzo_id)
-                        self._job_queued_observations.pop(nzo_id, None)
-                        self._request_deferred_state_persist()
+                    if scope_mode == "live":
+                        self._queue_snapshot_state_patch(nzo_id,"release_ownership")
+                    else:
+                        with self.lock:
+                            live_meta=self._tracked().get(nzo_id)
+                            if isinstance(live_meta,dict):
+                                live_meta["ownership_released_ts"] = now
+                                live_meta["ownership_released_reason"] = "missing from fresh SAB Queue/History after retention window"
+                                self._touch_job_locked(live_meta)
+                            self._request_deferred_state_persist()
+                    self._job_last_view.pop(nzo_id, None)
+                    self._job_last_seen_ts.pop(nzo_id, None)
+                    self._job_fresh_missing_since.pop(nzo_id, None)
+                    self._active_latch_until.pop(nzo_id, None)
+                    self._job_active_confirmed_ts.pop(nzo_id, None)
+                    self._active_bridge_open.discard(nzo_id)
+                    self._close_visibility_bridge(nzo_id)
+                    self._job_queued_observations.pop(nzo_id, None)
                     self._event("warning", "Released stale SAB ownership record without removal tombstone",
                                 nzo_id=nzo_id, automation=bool(context), missing_seconds=int(now - missing_since))
                     continue
@@ -7200,13 +7434,16 @@ class SabDownloadManager:
             self._job_fresh_missing_since.pop(nzo_id, None)
             self._close_visibility_bridge(nzo_id)
             if meta.get("ownership_released_ts"):
-                with self.lock:
-                    live_meta=self._tracked().get(nzo_id)
-                    if isinstance(live_meta,dict):
-                        live_meta.pop("ownership_released_ts",None)
-                        live_meta.pop("ownership_released_reason",None)
-                        self._touch_job_locked(live_meta)
-                        self._request_deferred_state_persist()
+                if scope_mode == "live":
+                    self._queue_snapshot_state_patch(nzo_id,"restore_ownership")
+                else:
+                    with self.lock:
+                        live_meta=self._tracked().get(nzo_id)
+                        if isinstance(live_meta,dict):
+                            live_meta.pop("ownership_released_ts",None)
+                            live_meta.pop("ownership_released_reason",None)
+                            self._touch_job_locked(live_meta)
+                            self._request_deferred_state_persist()
             job = self._job_from_slot(nzo_id, meta, slot, history=history)
             if not history and str(meta.get("terminal_status") or "").casefold() == "completed" and bool(meta.get("imported")):
                 job["status"] = "cancelling"
@@ -7324,10 +7561,13 @@ class SabDownloadManager:
             if remembered_id in represented_ids or remembered_id not in live_slot_ids:
                 self._untracked_queue_first_seen_ts.pop(remembered_id, None)
                 self._untracked_queue_warned.discard(remembered_id)
-        with self.lock:
-            removed_reason_snapshot = {
-                str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()
-            }
+        if scope_mode == "live":
+            removed_reason_snapshot=dict(presentation_index.get("removed_job_reasons") or {})
+        else:
+            with self.lock:
+                removed_reason_snapshot = {
+                    str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()
+                }
         for raw_slot in qslots:
             orphan_id = str(raw_slot.get("nzo_id") or raw_slot.get("id") or "")
             if not orphan_id or orphan_id in represented_ids:
@@ -7415,6 +7655,9 @@ class SabDownloadManager:
             counts[terminal_status] += int(terminal_count)
         for visible_job in jobs:
             visible_status = str(visible_job.get("status") or "queued")
+            if scope_mode == "live" and visible_status in {"completed","failed","cancelled"}:
+                # Durable terminal history already contributes this item globally.
+                continue
             counts[visible_status if visible_status in counts else "queued"] += 1
 
         transfer_statuses = {"queued", "downloading", "retry_wait", "cancelling"}
@@ -7664,6 +7907,7 @@ class SabDownloadManager:
                             self._job_fresh_missing_since.pop(nzo, None)
                             self._job_queued_observations.pop(nzo, None)
                         self._save_state()
+                    self._remove_terminal_history_ids(ids)
                     self._event("info", "Bulk removed failed/terminal SAB downloads", count=len(ids), queue_read_ok=qslots is not None, history_terminal=len(terminal_history))
                     self._last_snapshot = None
                     self._last_snapshot_ts = 0
@@ -7694,6 +7938,7 @@ class SabDownloadManager:
                         self._job_fresh_missing_since.pop(nzo, None)
                         self._job_queued_observations.pop(nzo, None)
                     self._save_state()
+                self._remove_terminal_history_ids(succeeded)
             self._last_snapshot = None
             self._last_snapshot_ts = 0
             if failures:
@@ -7729,6 +7974,7 @@ class SabDownloadManager:
                         self._job_fresh_missing_since.pop(nzo, None)
                         self._job_queued_observations.pop(nzo, None)
                     self._save_state()
+                self._remove_terminal_history_ids(succeeded)
             self._last_snapshot = None
             self._last_snapshot_ts = 0
             if failures:
@@ -7769,6 +8015,12 @@ class SabDownloadManager:
         elif action == "retry":
             for nzo in ids:
                 self._api("retry", value=nzo, timeout=8)
+                with self.lock:
+                    live=self._tracked().get(str(nzo))
+                    if isinstance(live,dict):
+                        live.pop("terminal_status",None); live.pop("completed_ts",None); self._touch_job_locked(live)
+            self._save_state()
+            self._remove_terminal_history_ids(ids)
         elif action == "priority":
             priority = str(value or "normal").lower()
             if priority not in {"high", "normal", "low"}:
@@ -8099,6 +8351,7 @@ class SabDownloadManager:
                 self._reconcile_statistics(hroot, hslots, _kb_to_bps(qroot.get("kbpersec")))
                 self._adopt_untracked_slots(qslots, hslots)
                 self._refresh_shared_state()
+                self._drain_snapshot_state_patches()
                 if bool(hroot.get("_newzdeck_fresh", True)):
                     self._persist_terminal_history_evidence(hslots)
                 self._recover_single_recovered_paused_queue_job(qroot, qslots)
@@ -8126,6 +8379,8 @@ class SabDownloadManager:
                             self._reconcile_recovered_completed_import(nzo_id, meta)
                     self._process_completed_automation_slots(qslots, hslots)
                     self._retry_pending_automation_cleanups()
+                self._sync_terminal_history_from_state(persist=True)
+                self._publish_presentation_index()
                 delay = 2.0
                 self._completion_backoff_seconds = delay
             except Exception as exc:
@@ -8375,6 +8630,28 @@ class SabDownloadManager:
         stage = next((p for p in explicit if p.exists() and p.is_dir()), None)
         return [], stage, "SAB completed the job but NewzDeck could not prove job-specific ownership of its media output"
 
+    def _validate_automation_output_episode_identity(self, context:dict[str,Any], files:list[Path]) -> tuple[bool,str,dict[str,Any]]:
+        """Refuse mixed explicit episode outputs for a single-episode Smart Import."""
+        if str(context.get("kind") or "").casefold()!="tv" or bool(context.get("season_pack")):
+            return True,"",{}
+        if context.get("season") is None or context.get("episode") is None:
+            return True,"",{}
+        target=(int(context.get("season")),int(context.get("episode")))
+        refs=set(); samples=[]
+        episode_re=re.compile(r'(?i)(?<![A-Z0-9])S(\d{1,2})[ ._\-]*E(\d{1,3})(?:[ ._\-]*E(\d{1,3}))?')
+        for path in files:
+            name=Path(path).name
+            found=False
+            for m in episode_re.finditer(name):
+                refs.add((int(m.group(1)),int(m.group(2)))); found=True
+                if m.group(3): refs.add((int(m.group(1)),int(m.group(3))))
+            if found and len(samples)<12: samples.append(name[:300])
+        wrong=sorted(x for x in refs if x!=target)
+        evidence={"target":{"season":target[0],"episode":target[1]},"episode_identities":[{"season":x[0],"episode":x[1]} for x in sorted(refs)],"samples":samples}
+        if wrong:
+            return False,(f"Smart Import stopped because this single-episode job contains explicit media for {len(refs)} episode identities, not only S{target[0]:02d}E{target[1]:02d}. The completed SAB output was preserved."),evidence
+        return True,"",evidence
+
     def _cleanup_automation_output(self, nzo_id: str, staging_dir: Path | str | None, *, attempts: int = 6) -> tuple[bool, str]:
         """Remove one verified Automation job's completed SAB folder safely.
 
@@ -8480,6 +8757,20 @@ class SabDownloadManager:
             return
         meta = claimed
         candidates, staging_dir, resolution = self._resolve_automation_output(nzo_id, meta, slot)
+        context=dict(meta.get("automation_context") or {})
+        output_ok,output_reason,output_evidence=self._validate_automation_output_episode_identity(context,candidates)
+        if not output_ok:
+            self._multi_episode_output_rejections += 1
+            with self.lock:
+                live=self._tracked().get(nzo_id)
+                if isinstance(live,dict):
+                    live["imported"]=False; live["import_status"]="failed"; live["import_progress"]=0; live["import_retry_after"]=0
+                    live["import_message"]=output_reason[:500]; live["output_identity_evidence"]=output_evidence
+                    live["import_claim_pid"]=0; live["import_claim_ts"]=0; live["import_heartbeat_ts"]=0; self._touch_job_locked(live)
+                    self._save_state()
+            self._event("warning","Rejected mixed-episode Smart Import output",nzo_id=nzo_id,evidence=output_evidence)
+            self._last_snapshot_ts=0
+            return
         if not candidates and self._reconcile_recovered_completed_import(nzo_id, meta):
             return
         with self.lock:

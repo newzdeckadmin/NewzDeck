@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.52"
+APP_VERSION = "3.6.53"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -12290,9 +12290,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             except Exception: limit=50
             try: offset=max(0,int((query.get("offset") or [0])[0] or 0))
             except Exception: offset=0
+            detail_id=str((query.get("id") or [""])[0] or "")[:200]
             started=time.monotonic()
             if hasattr(DOWNLOAD_MANAGER,"snapshot_view"):
-                payload=DOWNLOAD_MANAGER.snapshot_view(scope,limit=limit,offset=offset)
+                payload=DOWNLOAD_MANAGER.snapshot_view(scope,limit=limit,offset=offset,detail_id=detail_id)
             else:
                 payload=DOWNLOAD_MANAGER.snapshot()
             if isinstance(payload,dict):

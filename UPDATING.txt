@@ -1,15 +1,11 @@
-NewzDeck v3.6.52
-Scope-Native Downloads Projection & SAB Probe Efficiency
-Updating
+NewzDeck v3.6.53
+NZB Identity Gate & Durable Downloads History
 
 INSTALLED NEWZDECK
-------------------
-Use NewzDeck > About & Updates > Install Update.
+Install the v3.6.53 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
-The installer-owned update lifecycle remains authoritative. v3.6.52 does not change user-data locations, private SAB ownership, service/tray handoff, or installer cleanup policy.
+The existing NewzDeck job ledger is preserved. On first v3.6.53 startup NewzDeck bootstraps `sab-engine\terminal-history.json` from terminal records already present in the durable ledger. It is compact presentation/audit metadata only; SAB remains authoritative for live queue and post-processing state.
 
-v3.6.52 makes routine Live Downloads projection scope-native so terminal history is counted but not materialized into card/collection objects on every foreground poll. It also changes the in-memory presentation gate to one zero-wait lock attempt and removes redundant SAB version fingerprints from healthy three-second engine-loop passes.
+Automatic TV grabs now inspect actual NZB file-subject identity before SAB submission. Positive contradictory evidence (for example a single-episode target whose NZB contains many SxxExx identities or Complete Season markers) is rejected before download. Obfuscated NZBs without explicit contradictory evidence are not rejected.
 
-It preserves v3.6.51 cached engine status, four-second SAB ownership handoff grace, projection timing and episode-based overlap telemetry; v3.6.50 Queue/History sampling/deferred persistence/retired-binary cleanup, v3.6.49 bounded Downloads history, strict Smart Import output ownership, Library Integrity protections, Selected Episodes/PAR2 repair visibility and private SABnzbd 5.1.2 remain intact.
-
-Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder. Existing settings, provider configuration, Automation data, history, queue state and user data remain stored outside the program directory.
+The terminal-history index retains the newest 5,000 terminal rows. Removing a terminal job removes its row; retrying a failed job removes/supersedes the old row until the job becomes terminal again.

@@ -1,24 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.52",
-  "base_version": "3.6.51",
-  "release": "Scope-Native Downloads Projection & SAB Probe Efficiency",
-  "adapter_version": "3.6.52",
-  "name": "Scope-Native Downloads Projection & SAB Probe Efficiency",
+  "version": "3.6.53",
+  "base_version": "3.6.52",
+  "release": "NZB Identity Gate & Durable Downloads History",
+  "adapter_version": "3.6.53",
+  "name": "NZB Identity Gate & Durable Downloads History",
   "sab_version": "5.1.2",
   "changes": [
-    "Makes routine Live Downloads projection scope-native: only terminal records still visible in SAB History (or the existing brief Completed continuity bridge) contribute to global terminal counts, while retired ledger-only history and Completed/Failed card/collection dictionaries are not materialized before the Live API filters them away.",
-    "Changes the presentation state gate from a retry/sleep loop to one non-blocking in-memory lock attempt, eliminating scheduler-driven overshoot now that disk/JSON reconciliation is already background-only.",
-    "Uses recent authenticated SAB API success to bypass redundant fingerprints only after the pinned SAB generation is already proven; unknown/older generations still reach strict upgrade identity checks, while proven-current fingerprints establish a five-minute sparse boundary.",
-    "Adds scope-native projection telemetry for requested scope, Live-native build count, terminal records skipped from Live projection and last projected job count.",
-    "Preserves v3.6.51 cached engine status, SAB ownership handoff grace and episode-based overlap telemetry; v3.6.50 Queue/History sampling/deferred persistence, v3.6.49 bounded Downloads data plane, strict Smart Import ownership, Library Integrity, Selected Episodes/PAR2 visibility and private SABnzbd 5.1.2 remain intact."
+    "Validates actual TV NZB file-subject identity before SAB submission and rejects positively contradictory multi-episode/complete-season payloads for single-episode targets while allowing obfuscated/no-evidence NZBs.",
+    "Continues Automatic Downloads to the next candidate after an NZB-content rejection and records the rejected release in target-specific failure history.",
+    "Publishes a copy-on-write active-job presentation index so routine Live Downloads avoids full durable-ledger scans and blocking state-lock work.",
+    "Adds a compact NewzDeck-owned terminal-history index, bootstrapped from existing durable jobs, retained independently of SAB History and bounded to 5,000 rows.",
+    "Pages compact Completed/Failed rows from NewzDeck terminal history and loads rich transfer/PAR2 details lazily on demand.",
+    "Preserves queue-sampler last failure evidence and reason counts across subsequent successful samples."
   ],
   "regression_guards": [
-    "All established automation identity, Library Integrity, quality, Selected Episodes, PAR2/repair, v3.6.49 data-plane, v3.6.50 sampler/state-lock and v3.6.51 heavy-load guards remain mandatory.",
-    "v3.6.52 structurally requires snapshot_view(scope=live) to request snapshot(scope=live), and the Live-native builder must skip terminal-only projection while retaining only the terminal counts the established full presentation would expose.",
-    "A synthetic 250 visible Completed + 100 retired ledger-only Completed + 10 Live fixture must return exactly 10 Live jobs, report exactly 250 Completed globally, skip at least 350 terminal projections and mark scope_native_projection=true.",
-    "The presentation state gate must perform exactly one non-blocking local-lock attempt with no sleep/retry loop or disk access.",
-    "ensure_running may bypass the version boundary on recent authenticated API success only when the running SAB generation is already proven current; unknown generations must still reach the boundary, and a proven current version must set the sparse recheck cooldown.",
-    "The release workflow runs the carried v3.6.50 and v3.6.51 guards plus the new v3.6.52 guard before any Windows release assets are built."
+    "The real Big Brother Canada S07E29 disguised-season-pack fixture must be rejected before queue submission; valid S07E29 and obfuscated fixtures must pass.",
+    "Automatic candidate fallback must continue to the next release after content rejection.",
+    "620 durable terminal jobs with only a 200-row SAB History window must remain page-accessible from NewzDeck terminal history.",
+    "Live presentation index must contain only active/non-terminal durable jobs plus terminal counts, and terminal details remain lazy.",
+    "Sampler last-failure evidence must survive a later successful sample.",
+    "All v3.6.52 and historical identity/Library Integrity/Selected Episodes/PAR2/SAB 5.1.2 guards remain mandatory."
   ]
 }
