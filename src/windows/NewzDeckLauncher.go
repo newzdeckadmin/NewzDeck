@@ -1,4 +1,4 @@
-// NewzDeck desktop launcher v3.5.33 Ã¢â‚¬â€ Source-Complete Runtime & Handoff
+// NewzDeck desktop launcher v3.5.33 - Source-Complete Runtime & Handoff
 //
 // v3.6.5 preserves the source-complete runtime/handoff path and adds Windows taskbar
 // identity for the browser-hosted application window. The legacy opaque Bootstrap/Core

@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.48
+## Current release: v3.6.54
 
-**v3.6.48 is the current stable production release.**
+**v3.6.54 is the current stable production release.**
 
-The `v3.6.48` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.54` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -22,6 +22,17 @@ The Python backend, Automation engine, SAB adapter, and browser interface are al
 
 ## Recent production releases
 
+- **v3.6.54 - Downloads History Compaction & Automation Startup Efficiency.** Compacts finalized Completed jobs out of the operational ledger after durable history ownership, adds page-native terminal indexes and smaller Completed payloads, prevents SAB History resurrection, and reduces repeated Automation startup work while preserving the v3.6.53 correctness stack.
+
+- **v3.6.53 - NZB Identity Gate & Durable Downloads History.** Adds pre-SAB single-episode NZB identity validation, automatic next-candidate recovery, a copy-on-write Live Downloads presentation index, durable 5,000-row NewzDeck terminal history, lazy terminal details, and retained sampler failure evidence.
+
+- **v3.6.52 - Scope-Native Downloads Projection & SAB Probe Efficiency.** Makes routine Live Downloads projection scope-native, uses a zero-wait presentation state gate, and rate-limits redundant private-SAB version fingerprints while preserving global terminal counts and prior recovery behavior.
+
+- **v3.6.51 - Heavy-Load Snapshot & Handoff Hardening.** Removes shared-ledger I/O from presentation refresh, consumes cached SAB engine status in foreground snapshots, adds bounded SAB ownership handoff grace, and improves heavy-load overlap/projection telemetry.
+
+- **v3.6.50 - Snapshot Sampler & State-Lock Hardening.** Moves Queue/History sampling and durable reconciliation away from presentation requests, bounds state-lock interaction, and adds sampler/deferred-persistence telemetry and regression coverage.
+
+- **v3.6.49 - Downloads Data-Plane & Runtime Efficiency.** Reduces Downloads/API payload and hot-state overhead, compacts legacy terminal detail safely, strengthens Smart Import output ownership, and adds cache/runtime efficiency safeguards.
 - **v3.6.48 - Library Integrity & Downloads Runtime Hardening.** Flags identical fingerprints across separate episode files of the same TV series while preserving legitimate shared multi-episode files, promotes 29 real historical false-positive TV identities into release-blocking regression evidence, reduces avoidable Downloads/SAB polling pressure, adds split snapshot phase telemetry, and clears recovered reader-busy state while preserving v3.6.47 Selected Episodes/PAR2 behavior and SABnzbd 5.1.2.
 
 - **v3.6.47 - PAR2 Repair Visibility, SAB 5.1.2 & Selected Episode Monitoring.** Adds explicit whole-season/individual-episode TV monitoring with old-episode eligibility and partial-pack suppression, persists observable SAB Verify/PAR2/Repair evidence into Completed/Failed downloads, distinguishes terminal failure classes, and upgrades the private pinned SAB runtime to official 5.1.2 with SHA verification and a graceful queue-preserving handoff.
@@ -86,15 +97,15 @@ The Python backend, Automation engine, SAB adapter, and browser interface are al
 
 - **v3.6.17 - Downloads State Integrity & Smart Import Recovery.** Unifies Downloads around one canonical visible-job state model, prevents contradictory SAB aggregate Remaining values, guarantees every live SAB Queue slot has a visible card, separates user Pause intent from engine pause state, and reclaims Smart Imports orphaned by dead runtimes.
 
-- **v3.6.16 Ã¢â‚¬â€ Verified Download Control & Active Continuity.** Hardens Failed/Completed verified Remove/Cancel, preserves specific control errors, invalidates stale pre-mutation snapshots, and bridges short unexpected SAB global Pause samples when NewzDeck knows the user did not pause the queue.
-- **v3.6.15 Ã¢â‚¬â€ Wanted State Reconciliation & Responsive Automation.** Makes live Downloads authoritative for Wanted queue state, adds honest QUEUEING handoff state and per-target cycle progress, decouples metadata/library maintenance from release searching, bounds automatic NZB retrieval, and prevents stale long-cycle runtime snapshots from overwriting newer state.
-- **v3.6.14 Ã¢â‚¬â€ Automation Save Reliability & Responsiveness.** Serializes Automation JSON reads/writes per file, adds bounded Windows sharing/access retry around atomic replacement, and returns truthful Save feedback immediately after persistence while the larger Automation summary refreshes asynchronously.
-- **v3.6.13 Ã¢â‚¬â€ Download Continuity & Automation Clarity.** Adds bounded SAB Active-card continuity, verified Remove/Cancel with hidden-transfer reconciliation, Wanted policy visibility, and fallback-only season packs with member-target reservation.
-- **v3.6.12 Ã¢â‚¬â€ Installer-Owned Runtime Restore.** Makes Setup authoritative for closing the browser-hosted UI after overlay, repairing and starting the service, restoring the tray, and reopening NewzDeck after `/update`.
-- **v3.6.11 Ã¢â‚¬â€ SAB Ownership Continuity & Managed Update Handoff.** Preserves live SAB job ownership across transient slot omissions and restores queue-to-history Smart Import completion continuity.
-- **v3.6.10 Ã¢â‚¬â€ Python Source Freshness & Runtime Refresh.** Forces NewzDeck-owned Python modules to load from current source bytes and removes stale adjacent bytecode during startup/upgrades.
-- **v3.6.9 Ã¢â‚¬â€ In-App Update Runtime Handoff.** Fixes Update Center upgrades blocked by the legacy long-lived Picker taskbar helper and adds native-helper lock regression coverage.
-- **v3.6.8 Ã¢â‚¬â€ Image Browsing Performance & Gallery Quality.** Promotes the accepted image-browsing performance and gallery-quality work.
+- **v3.6.16 - Verified Download Control & Active Continuity.** Hardens Failed/Completed verified Remove/Cancel, preserves specific control errors, invalidates stale pre-mutation snapshots, and bridges short unexpected SAB global Pause samples when NewzDeck knows the user did not pause the queue.
+- **v3.6.15 - Wanted State Reconciliation & Responsive Automation.** Makes live Downloads authoritative for Wanted queue state, adds honest QUEUEING handoff state and per-target cycle progress, decouples metadata/library maintenance from release searching, bounds automatic NZB retrieval, and prevents stale long-cycle runtime snapshots from overwriting newer state.
+- **v3.6.14 - Automation Save Reliability & Responsiveness.** Serializes Automation JSON reads/writes per file, adds bounded Windows sharing/access retry around atomic replacement, and returns truthful Save feedback immediately after persistence while the larger Automation summary refreshes asynchronously.
+- **v3.6.13 - Download Continuity & Automation Clarity.** Adds bounded SAB Active-card continuity, verified Remove/Cancel with hidden-transfer reconciliation, Wanted policy visibility, and fallback-only season packs with member-target reservation.
+- **v3.6.12 - Installer-Owned Runtime Restore.** Makes Setup authoritative for closing the browser-hosted UI after overlay, repairing and starting the service, restoring the tray, and reopening NewzDeck after `/update`.
+- **v3.6.11 - SAB Ownership Continuity & Managed Update Handoff.** Preserves live SAB job ownership across transient slot omissions and restores queue-to-history Smart Import completion continuity.
+- **v3.6.10 - Python Source Freshness & Runtime Refresh.** Forces NewzDeck-owned Python modules to load from current source bytes and removes stale adjacent bytecode during startup/upgrades.
+- **v3.6.9 - In-App Update Runtime Handoff.** Fixes Update Center upgrades blocked by the legacy long-lived Picker taskbar helper and adds native-helper lock regression coverage.
+- **v3.6.8 - Image Browsing Performance & Gallery Quality.** Promotes the accepted image-browsing performance and gallery-quality work.
 
 ## Earlier source-complete milestones
 

@@ -9,20 +9,20 @@
 </p>
 
 <p align="center">
-  <a href="https://www.newzdeck.com/">Website</a> Ã‚Â·
-  <a href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download</a> Ã‚Â·
+  <a href="https://www.newzdeck.com/">Website</a> &middot;
+  <a href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download</a> &middot;
   <a href="https://github.com/newzdeckadmin/NewzDeck/issues">Report an issue</a>
 </p>
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.48** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.54** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.48_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.54_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
-NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬â€ you need your own Usenet provider account. Automation and interactive NZB search can also use your own Newznab-compatible indexer.
+NewzDeck is free and open source. **Usenet access is not included** - you need your own Usenet provider account. Automation and interactive NZB search can also use your own Newznab-compatible indexer.
 
 ## What NewzDeck does
 
@@ -34,18 +34,19 @@ NewzDeck is free and open source. **Usenet access is not included** Ã¢â‚¬�
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.48 highlights
+## v3.6.54 highlights
 
-v3.6.48 hardens Library Integrity and the Downloads control plane using evidence from real v3.6.47 diagnostics, without changing SABnzbd's authoritative transfer or repair behavior.
+v3.6.54 is a scale and efficiency release based on a full-load diagnostic captured during an active SABnzbd download.
 
-- **Same-title duplicate review:** identical fingerprints across different physical episode files of the same series now require review, while one shared multi-episode file remains informational.
-- **Production regression evidence:** 29 exact historical false-positive TV release identities from real diagnostics are now release blockers, including Love Island companion/related-show collisions and the Dark Matter title collision.
-- **Less control-plane pressure:** visible Downloads polling backs off to 2 Hz during active work and 0.8 Hz while idle, with a slower hidden-page cadence; the coherent presentation snapshot cache increases from 0.22s to 0.40s.
-- **Actionable snapshot telemetry:** SAB reconciliation, provider-health, and remaining snapshot time are measured separately so slow builds can be traced instead of appearing as one opaque duration.
-- **Recovered busy state:** a transient SAB Queue/History reader-busy condition is cleared from active last-error state after a later fresh Queue+History pair succeeds.
-- **Existing behavior preserved:** v3.6.47 Selected Episodes, persistent PAR2/repair visibility, private SABnzbd 5.1.2, quality-aware selection, scan progress, Smart Import, strict TV identity, and installer/runtime handoff remain intact.
+- **Bounded operational history:** finalized Completed jobs retire from the cross-runtime operational ledger only after durable NewzDeck terminal-history ownership is established.
+- **Page-native Completed/Failed history:** cached indexes let a 50-row page slice directly without repeatedly copying and sorting the full retained history.
+- **Smaller Completed responses:** Completed pages no longer transport every historical matching UUID; rich SAB/PAR2 detail remains lazy behind Details.
+- **No SAB History resurrection:** recent SAB History cannot re-adopt a finalized job already represented in durable NewzDeck terminal history.
+- **Faster Automation startup:** sidebar counts are cached against the relevant library/configuration signatures and startup probes stop after trustworthy success.
+- **Existing safety preserved:** the v3.6.53 NZB identity gate, next-candidate recovery, Smart Import protections, Live Downloads presentation model, sampler evidence, and private SABnzbd 5.1.2 remain intact.
 
-See [the full v3.6.48 release notes](release/RELEASE_NOTES_v3.6.48.md).
+See [the full v3.6.54 release notes](release/RELEASE_NOTES_v3.6.54.md).
+
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.48_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.54_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
