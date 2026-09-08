@@ -616,6 +616,14 @@ class MediaAutomationEngine:
         self.library_integrity_cache_result: dict[str,Any]|None = None
         self.library_integrity_cache_hits = 0
         self.library_integrity_cache_misses = 0
+        # v3.6.54: persistent nav badges are read repeatedly during startup. Cache
+        # the derived counts against every file that can change Wanted/media totals
+        # (plus local date, because air/release eligibility changes at midnight).
+        self.sidebar_counts_cache_lock = threading.RLock()
+        self.sidebar_counts_cache_signature = None
+        self.sidebar_counts_cache_result: dict[str,Any]|None = None
+        self.sidebar_counts_cache_hits = 0
+        self.sidebar_counts_cache_misses = 0
         self.reconcile_lock = threading.Lock()
         self.reconcile_thread = None
         self.metadata_refresh_run_lock = threading.Lock()
@@ -5630,14 +5638,31 @@ class MediaAutomationEngine:
         events.sort(key=lambda x:(x.get('date') or '',x.get('kind') or '',x.get('label') or '',int(x.get('season') or 0),int(x.get('episode') or 0)))
         return events[:1000]
 
-    def sidebar_counts(self):
-        """Return only the small count payload needed by persistent navigation.
+    def _sidebar_counts_signature(self):
+        return (
+            self._file_signature(self.library_file),
+            self._file_signature(self.profiles_file),
+            self._file_signature(self.config_file),
+            datetime.now().date().isoformat(),
+        )
 
-        Startup should not need to build the full Automation summary (calendar,
-        history, runtime health, indexer details, etc.) just to paint TV/Movie/
-        Wanted badges. Keep this derived from the same library/Wanted rules so the
-        sidebar cannot disagree with the full Automation view.
+    def sidebar_counts(self):
+        """Return a file-signature-cached navigation count payload.
+
+        Startup may ask for this small payload several times while service-owned
+        state settles. Once the library/profiles/config files and local date are
+        unchanged, reuse the last coherent result instead of re-walking Wanted and
+        the media library on every retry.
         """
+        signature=self._sidebar_counts_signature()
+        with self.sidebar_counts_cache_lock:
+            if self.sidebar_counts_cache_result is not None and signature==self.sidebar_counts_cache_signature:
+                self.sidebar_counts_cache_hits+=1
+                result=copy.deepcopy(self.sidebar_counts_cache_result)
+                result['cache_hit']=True
+                result['cache_hits']=self.sidebar_counts_cache_hits
+                result['cache_misses']=self.sidebar_counts_cache_misses
+                return result
         warnings=[]
         try:
             lib=self._library()
@@ -5648,7 +5673,7 @@ class MediaAutomationEngine:
             wanted=self.wanted()
         except Exception as exc:
             wanted={'missing':[],'upgrades':[]};warnings.append(f'Wanted view could not be calculated: {exc}')
-        return {
+        result={
             'tv':sum(isinstance(x,dict) and x.get('kind')=='tv' for x in lib),
             'movies':sum(isinstance(x,dict) and x.get('kind')=='movie' for x in lib),
             'missing':len(wanted.get('missing') or []),
@@ -5656,6 +5681,17 @@ class MediaAutomationEngine:
             'loaded':True,
             'warnings':warnings,
         }
+        # _library()/wanted() may normalize old state files, so capture the final
+        # post-read signature rather than caching against a pre-normalization mtime.
+        signature=self._sidebar_counts_signature()
+        with self.sidebar_counts_cache_lock:
+            self.sidebar_counts_cache_misses+=1
+            self.sidebar_counts_cache_signature=signature
+            self.sidebar_counts_cache_result=copy.deepcopy(result)
+            result['cache_hit']=False
+            result['cache_hits']=self.sidebar_counts_cache_hits
+            result['cache_misses']=self.sidebar_counts_cache_misses
+        return result
 
     def summary(self):
         warnings=[]

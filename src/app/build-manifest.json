@@ -1,25 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.53",
-  "base_version": "3.6.52",
-  "release": "NZB Identity Gate & Durable Downloads History",
-  "adapter_version": "3.6.53",
-  "name": "NZB Identity Gate & Durable Downloads History",
+  "version": "3.6.54",
+  "base_version": "3.6.53",
+  "release": "Downloads History Compaction & Automation Startup Efficiency",
+  "adapter_version": "3.6.54",
+  "name": "Downloads History Compaction & Automation Startup Efficiency",
   "sab_version": "5.1.2",
   "changes": [
-    "Validates actual TV NZB file-subject identity before SAB submission and rejects positively contradictory multi-episode/complete-season payloads for single-episode targets while allowing obfuscated/no-evidence NZBs.",
-    "Continues Automatic Downloads to the next candidate after an NZB-content rejection and records the rejected release in target-specific failure history.",
-    "Publishes a copy-on-write active-job presentation index so routine Live Downloads avoids full durable-ledger scans and blocking state-lock work.",
-    "Adds a compact NewzDeck-owned terminal-history index, bootstrapped from existing durable jobs, retained independently of SAB History and bounded to 5,000 rows.",
-    "Pages compact Completed/Failed rows from NewzDeck terminal history and loads rich transfer/PAR2 details lazily on demand.",
-    "Preserves queue-sampler last failure evidence and reason counts across subsequent successful samples."
+    "Compacts finalized Completed jobs out of the cross-runtime operational ledger only after their durable NewzDeck terminal-history row is committed; failed, retryable and import/cleanup-in-progress jobs remain actionable. The monotonic statistics accounted-ID set is independently capped at the newest 20,000 IDs to prevent secondary ledger growth.",
+    "Indexes Completed/Failed terminal history and cached status counts so page reads slice ordered IDs instead of copying and sorting the full 5,000-row history.",
+    "Omits the all-history matching-ID list from Completed responses and keeps full Automation context and SAB stage history out of compact page rows while preserving lazy Details.",
+    "Prevents recent SAB History from re-adopting finalized jobs already owned by durable NewzDeck terminal history.",
+    "Caches Automation sidebar counts against library/profile/config file signatures and local date, cancels startup count probes after the first populated result, and stops full-summary warm retries after success.",
+    "Preserves the v3.6.53 NZB identity gate, next-candidate recovery, Smart Import protections, copy-on-write Live Downloads view, queue-sampler evidence and private SABnzbd 5.1.2."
   ],
   "regression_guards": [
-    "The real Big Brother Canada S07E29 disguised-season-pack fixture must be rejected before queue submission; valid S07E29 and obfuscated fixtures must pass.",
-    "Automatic candidate fallback must continue to the next release after content rejection.",
-    "620 durable terminal jobs with only a 200-row SAB History window must remain page-accessible from NewzDeck terminal history.",
-    "Live presentation index must contain only active/non-terminal durable jobs plus terminal counts, and terminal details remain lazy.",
-    "Sampler last-failure evidence must survive a later successful sample.",
-    "All v3.6.52 and historical identity/Library Integrity/Selected Episodes/PAR2/SAB 5.1.2 guards remain mandatory."
+    "v3.6.53 diagnostic-shaped state must migrate from hundreds of finalized tracked jobs to operational/actionable state while retaining every durable terminal row.",
+    "Completed page reads must be bounded to the requested page, exclude matching_ids and rich context/stage logs, while Failed keeps matching_ids for batch removal and Details retains repair-stage evidence.",
+    "Finalized Completed rows already in terminal history must not be re-adopted from recent SAB History; failed/actionable rows must remain tracked.",
+    "Automation sidebar counts must cache on unchanged inputs and invalidate after a library/profile/config signature change.",
+    "Startup JavaScript must cancel remaining sidebar probes after a populated result and suppress redundant full-summary warm retries once state.automation is loaded.",
+    "All v3.6.53 NZB identity, SAB 5.1.2, Library Integrity, Selected Episodes and prior release guards remain mandatory."
   ]
 }

@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.53';
+const UI_VERSION = '3.6.54';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -2648,15 +2648,16 @@ function primeAutomationSidebarCounts(){
     if(generation!==automationStartupPrimeGeneration)return;
     const counts=await loadAutomationSidebarCounts();
     if(generation!==automationStartupPrimeGeneration)return;
-    // Do not consider a transient zero snapshot authoritative during startup.
-    // Continue the scheduled probes until a populated media-library snapshot is seen.
-    if(counts&&automationBadgeMediaTotal(counts)>0)automationLastPositiveBadgeCounts=normalizedAutomationBadgeCounts(counts);
+    // A populated media-library snapshot is authoritative. Cancel the remaining
+    // startup probes instead of continuing twelve identical count requests.
+    if(counts&&automationBadgeMediaTotal(counts)>0){
+      automationLastPositiveBadgeCounts=normalizedAutomationBadgeCounts(counts);
+      automationStartupPrimeGeneration++;
+    }
   },delay);
-  // Full Automation summary is useful for Discover/Automation later, but it must
-  // never be allowed to erase a positive sidebar snapshot while startup settles.
-  setTimeout(()=>void loadAutomation({quiet:true,render:false,background:true}),500);
-  setTimeout(()=>void loadAutomation({quiet:true,render:false,background:true}),5000);
-  setTimeout(()=>void loadAutomation({quiet:true,render:false,background:true}),15000);
+  // Warm the full Automation summary, but stop retrying as soon as one coherent
+  // summary is loaded. Positive sidebar counts remain protected during startup.
+  for(const delay of [500,5000,15000])setTimeout(()=>{if(!state.automation)void loadAutomation({quiet:true,render:false,background:true})},delay);
 }
 async function activateAutomationTab(tab){state.automationTab=tab||'tv';document.querySelectorAll('#automationTabs [data-auto-tab]').forEach(b=>b.classList.toggle('active',b.dataset.autoTab===state.automationTab));document.querySelectorAll('.sidebar [data-auto-tab]').forEach(b=>b.classList.toggle('active',state.activeView==='automation'&&b.dataset.autoTab===state.automationTab));if(state.activeView!=='automation')setMainView('automation');if(!state.automation){$('automationContent').innerHTML=automationEmpty('◌','Loading automation…','Reading your media automation configuration.');await loadAutomation({quiet:false});}renderAutomation();}
 function setAutomationTab(tab){void activateAutomationTab(tab)}

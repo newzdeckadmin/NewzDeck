@@ -25,12 +25,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.53"
+ADAPTER_VERSION = "3.6.54"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
-TERMINAL_HISTORY_VERSION = 1
+TERMINAL_HISTORY_VERSION = 2
 TERMINAL_HISTORY_MAX_ROWS = 5000
+STATISTICS_ACCOUNTED_MAX_ROWS = 20000
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
 
 SMART_IMPORT_SOURCES = {"automation_grab", "manual_media_grab"}
@@ -790,11 +791,26 @@ class SabDownloadManager:
         self._terminal_history_bootstrap_rows = 0
         self._terminal_history_pruned_rows = 0
         self._terminal_history_last_write_ts = 0.0
+        # v3.6.54: page-native terminal indexes are rebuilt only when durable
+        # terminal history changes. Completed/Failed UI requests therefore slice
+        # an ordered ID vector instead of copying/sorting every history row.
+        self._terminal_history_index: dict[str, list[str]] = {"completed": [], "failed": []}
+        self._terminal_status_counts: dict[str, int] = {"completed": 0, "failed": 0, "cancelled": 0}
+        self._terminal_history_index_rebuilds = 0
+        self._terminal_page_reads = 0
+        self._terminal_page_rows_projected = 0
+        self._tracked_terminal_retired_jobs = 0
+        self._tracked_terminal_retired_last_ts = 0.0
         self._presentation_index: dict[str, Any] = {}
         self._presentation_index_publishes = 0
         self._presentation_index_last_ts = 0.0
         self._snapshot_state_patch_queue: queue.SimpleQueue[tuple[str,str]] = queue.SimpleQueue()
         self._sync_terminal_history_from_state(persist=True)
+        # The v3.6.53 migration intentionally kept historical terminal jobs in the
+        # operational ledger. Once their compact durable rows are present, v3.6.54
+        # can safely retire finalized Completed rows immediately.
+        if self._has_retirable_terminal_jobs_locked(self.state):
+            self._save_state()
         self._publish_presentation_index_locked()
         # engine.json is shared by the UI polling, SAB coordination and completion
         # threads.  Serializing identity normalization prevents Windows read/replace
@@ -1459,6 +1475,8 @@ class SabDownloadManager:
                 key = str(nzo_id or "").strip()
                 if key:
                     accounted[key] = max(_num(accounted.get(key), 0), _num(completed_ts, 0))
+        if len(accounted)>STATISTICS_ACCOUNTED_MAX_ROWS:
+            accounted=dict(sorted(accounted.items(),key=lambda kv:(_num(kv[1],0),kv[0]),reverse=True)[:STATISTICS_ACCOUNTED_MAX_ROWS])
         merged["statistics_accounted_jobs"] = accounted
         merged["completed_imports"] = {**dict(disk.get("completed_imports") or {}), **dict(memory.get("completed_imports") or {})}
         merged["version"] = max(int(disk.get("version") or ENGINE_STATE_VERSION), int(memory.get("version") or ENGINE_STATE_VERSION))
@@ -1503,6 +1521,10 @@ class SabDownloadManager:
             with self._state_file_guard():
                 disk = _json_read(self.state_file, {})
                 merged = self._merge_shared_states(disk, self.state)
+                # v3.6.54: terminal-history.json is the bounded durable history.
+                # Keep newzdeck-jobs.json operational/actionable instead of letting
+                # every successful download inflate that cross-runtime merge forever.
+                self._retire_finalized_terminal_jobs_locked(merged)
                 _atomic_json_write(self.state_file, merged)
                 self.state = merged
                 self._publish_presentation_index_locked()
@@ -1613,6 +1635,9 @@ class SabDownloadManager:
                 stats = self._ensure_statistics_schema(merged)
                 accounted = merged.setdefault("statistics_accounted_jobs", {})
                 changed = bool(updater(stats, accounted))
+                if len(accounted)>STATISTICS_ACCOUNTED_MAX_ROWS:
+                    merged["statistics_accounted_jobs"]=dict(sorted(accounted.items(),key=lambda kv:(_num(kv[1],0),kv[0]),reverse=True)[:STATISTICS_ACCOUNTED_MAX_ROWS])
+                    changed=True
                 if changed:
                     _atomic_json_write(self.state_file, merged)
                 self.state = merged
@@ -2754,11 +2779,19 @@ class SabDownloadManager:
             'presentation_index_last_ts': float(self._presentation_index_last_ts or 0.0),
             'presentation_index_active_jobs': int(len((self._presentation_index or {}).get("active_jobs") or {})),
             'presentation_index_tracked_total': int((self._presentation_index or {}).get("tracked_total") or 0),
+            'terminal_history_schema': int(TERMINAL_HISTORY_VERSION),
             'terminal_history_rows': int(len((self._terminal_history or {}).get("rows") or {})),
             'terminal_history_writes': int(self._terminal_history_writes),
             'terminal_history_bootstrap_rows': int(self._terminal_history_bootstrap_rows),
             'terminal_history_pruned_rows': int(self._terminal_history_pruned_rows),
             'terminal_history_last_write_ts': float(self._terminal_history_last_write_ts or 0.0),
+            'terminal_history_index_rebuilds': int(self._terminal_history_index_rebuilds),
+            'terminal_history_completed_index_rows': int(len(self._terminal_history_index.get("completed") or [])),
+            'terminal_history_failed_index_rows': int(len(self._terminal_history_index.get("failed") or [])),
+            'terminal_page_reads': int(self._terminal_page_reads),
+            'terminal_page_rows_projected': int(self._terminal_page_rows_projected),
+            'tracked_terminal_retired_jobs': int(self._tracked_terminal_retired_jobs),
+            'tracked_terminal_retired_last_ts': float(self._tracked_terminal_retired_last_ts or 0.0),
         }
 
     def _raw_api(self, api_port: int, mode: str, *, timeout: float = 1.0, api_key: str = "",
@@ -4787,6 +4820,10 @@ class SabDownloadManager:
             elif status=="completed": post_status="completed"
         expected=max(0,int(meta.get("expected_bytes") or 0))
         completed=float(_num(meta.get("completed_ts"),0) or _num(meta.get("_updated_ts"),0) or _num(meta.get("created_ts"),0))
+        automation_context=dict(meta.get("automation_context") or {})
+        automation_label,automation_release_title,automation_destination=_automation_identity(automation_context)
+        source_filename=str(meta.get("source_name") or meta.get("name") or "")
+        stage_log=[str(x)[:400] for x in list(repair.get("sab_stage_log") or [])[-40:] if str(x).strip()]
         row={
             "id":str(nzo_id),"identity":str(nzo_id),"collection_id":str(nzo_id),
             "collection_name":str(meta.get("name") or "NZB package"),"filename":str(meta.get("name") or "NZB package"),
@@ -4796,23 +4833,61 @@ class SabDownloadManager:
             "post_status":post_status,"post_progress":100 if post_status in {"completed","not_needed"} else int(meta.get("import_progress") or 0),
             "post_message":str(meta.get("import_message") or meta.get("failure_reason") or "")[:600],
             "import_status":import_status,"import_progress":int(meta.get("import_progress") or 0),"imported":bool(meta.get("imported")),
-            "automation_context":dict(meta.get("automation_context") or {}),"priority":str(meta.get("priority") or "normal"),
+            # Keep only the human-readable Automation identity required by compact
+            # history rows. Full target metadata remains operational state only.
+            "automation_source":str(automation_context.get("source") or ""),
+            "automation_label":automation_label,"automation_release_title":automation_release_title,
+            "automation_destination":automation_destination,
+            "display_name":automation_label or str(meta.get("name") or "NZB package"),
+            "source_filename":source_filename,
+            "priority":str(meta.get("priority") or "normal"),
             "source":"nzb","provider_name":"SABnzbd engine","provider_id":str(meta.get("provider_id") or ""),
             "path":str(meta.get("import_destination") or meta.get("resolved_output") or meta.get("output_hint") or ""),
             "error":str(meta.get("failure_reason") or repair.get("sab_fail_message") or "")[:600],
+            "release_failure_recorded":bool(meta.get("failure_feedback_recorded")),
+            "release_failure_reason":str(meta.get("failure_reason") or "")[:600],
             "repair_outcome":str(repair.get("repair_outcome") or "not_observed"),"repair_summary":str(repair.get("repair_summary") or "")[:600],
             "failure_class":str(repair.get("failure_class") or ""),"verification_observed":bool(repair.get("verification_observed")),
             "repair_attempted":bool(repair.get("repair_attempted")),"par2_fetch_observed":bool(repair.get("par2_fetch_observed")),
-            "postproc_seconds":int(repair.get("postproc_seconds") or 0),"recovery_blocks_reported":False,
+            "sab_fail_message":str(repair.get("sab_fail_message") or "")[:600],"sab_stage_log":stage_log,
+            "postproc_seconds":int(repair.get("postproc_seconds") or 0),"recovery_blocks_reported":bool(repair.get("recovery_blocks_reported")),
             "details_loaded":False,"terminal_history_source":"newzdeck","_updated_ts":float(_num(meta.get("_updated_ts"),completed)),
         }
         return row
+
+    @staticmethod
+    def _terminal_history_scope_for_row(row:dict[str,Any]) -> str:
+        status=str(row.get("status") or "").casefold(); post=str(row.get("post_status") or "").casefold()
+        if status=="completed" and post not in {"failed","needs_attention","needs_tool","blocked","cancelled"}:
+            return "completed"
+        if status in {"failed","cancelled"} or post in {"failed","needs_attention","needs_tool","blocked","cancelled"}:
+            return "failed"
+        return ""
+
+    def _rebuild_terminal_history_indexes_locked(self) -> None:
+        rows=self._terminal_history.get("rows") if isinstance(self._terminal_history,dict) else {}
+        if not isinstance(rows,dict): rows={}
+        completed=[]; failed=[]; counts={"completed":0,"failed":0,"cancelled":0}
+        # rows are already stored newest-first; preserve that durable order.
+        for raw_id,row in rows.items():
+            if not isinstance(row,dict): continue
+            nzo_id=str(raw_id or row.get("id") or "").strip()
+            if not nzo_id: continue
+            status=str(row.get("status") or "").casefold()
+            if status in counts: counts[status]+=1
+            scope=self._terminal_history_scope_for_row(row)
+            if scope=="completed": completed.append(nzo_id)
+            elif scope=="failed": failed.append(nzo_id)
+        self._terminal_history_index={"completed":completed,"failed":failed}
+        self._terminal_status_counts=counts
+        self._terminal_history_index_rebuilds+=1
 
     def _write_terminal_history(self) -> None:
         with self._terminal_history_lock:
             payload={"version":TERMINAL_HISTORY_VERSION,"updated_ts":time.time(),"rows":dict(self._terminal_history.get("rows") or {})}
             _atomic_json_write(self.terminal_history_file,payload)
             self._terminal_history=payload
+            self._rebuild_terminal_history_indexes_locked()
             self._terminal_history_writes+=1
             self._terminal_history_last_write_ts=float(payload["updated_ts"])
 
@@ -4833,7 +4908,21 @@ class SabDownloadManager:
             if len(ordered)>TERMINAL_HISTORY_MAX_ROWS:
                 self._terminal_history_pruned_rows+=len(ordered)-TERMINAL_HISTORY_MAX_ROWS
                 ordered=ordered[:TERMINAL_HISTORY_MAX_ROWS]; changed+=1
-            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":dict(ordered)}
+            # Normalize carried v1 rows opportunistically so full Automation context
+            # never remains in the compact v2 history file after the next write.
+            normalized=[]
+            for nzo_id,row in ordered:
+                if isinstance(row,dict) and "automation_context" in row:
+                    row=dict(row); ctx=dict(row.pop("automation_context",{}) or {})
+                    label,release,destination=_automation_identity(ctx)
+                    row.setdefault("automation_source",str(ctx.get("source") or ""))
+                    row.setdefault("automation_label",label); row.setdefault("automation_release_title",release)
+                    row.setdefault("automation_destination",destination)
+                    row.setdefault("display_name",label or str(row.get("collection_name") or row.get("filename") or "NZB package"))
+                    row.setdefault("source_filename",str(row.get("filename") or "")); changed+=1
+                normalized.append((nzo_id,row))
+            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":dict(normalized)}
+            self._rebuild_terminal_history_indexes_locked()
         if changed and persist: self._write_terminal_history()
         return changed
 
@@ -4844,20 +4933,92 @@ class SabDownloadManager:
             for raw_id in ids:
                 if rows.pop(str(raw_id),None) is not None: removed+=1
             self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":rows}
+            self._rebuild_terminal_history_indexes_locked()
         if removed: self._write_terminal_history()
         self._publish_presentation_index()
         return removed
 
     def _terminal_history_snapshot(self) -> dict[str,dict[str,Any]]:
+        # Diagnostics/compatibility path only. Page rendering uses the cached index.
         with self._terminal_history_lock:
             return {str(k):dict(v) for k,v in (self._terminal_history.get("rows") or {}).items() if isinstance(v,dict)}
 
+    def _terminal_history_row(self,nzo_id:str) -> dict[str,Any] | None:
+        with self._terminal_history_lock:
+            row=(self._terminal_history.get("rows") or {}).get(str(nzo_id))
+            return dict(row) if isinstance(row,dict) else None
+
     def _terminal_counts(self) -> dict[str,int]:
-        counts={"completed":0,"failed":0,"cancelled":0}
-        for row in self._terminal_history_snapshot().values():
-            status=str(row.get("status") or "").casefold()
-            if status in counts: counts[status]+=1
-        return counts
+        with self._terminal_history_lock:
+            return dict(self._terminal_status_counts)
+
+    def _terminal_history_retention_snapshot(self) -> tuple[set[str],bool,tuple[float,float,str]]:
+        with self._terminal_history_lock:
+            rows=self._terminal_history.get("rows") or {}
+            ids={str(x) for x in rows.keys()}
+            full=len(rows)>=TERMINAL_HISTORY_MAX_ROWS
+            oldest=(0.0,0.0,"")
+            if rows:
+                last_id,last_row=next(reversed(rows.items()))
+                if isinstance(last_row,dict):
+                    oldest=(float(_num(last_row.get("completed_ts"),0)),float(_num(last_row.get("created_ts"),0)),str(last_id))
+            return ids,full,oldest
+
+    def _terminal_history_ids_snapshot(self) -> set[str]:
+        return self._terminal_history_retention_snapshot()[0]
+
+    @staticmethod
+    def _job_is_retirable_from_operational_ledger(meta:dict[str,Any]) -> bool:
+        # Failed/cancelled/import-needs-attention rows remain actionable (Retry,
+        # Retry Import, feedback), so only fully finalized Completed work can leave
+        # the cross-runtime operational ledger.
+        if SabDownloadManager._terminal_status_from_meta(meta)!="completed": return False
+        post=str(meta.get("post_status") or "").casefold()
+        import_status=str(meta.get("import_status") or "").casefold()
+        actionable={"queued","waiting","verifying","repairing","extracting","importing","needs_password","needs_tool","needs_attention","blocked","failed","cancelled"}
+        if post in actionable or import_status in actionable: return False
+        if bool(meta.get("cleanup_pending")): return False
+        if bool(meta.get("browser_flat_images")) and not bool(meta.get("browser_flattened")): return False
+        context=meta.get("automation_context") if isinstance(meta.get("automation_context"),dict) else {}
+        if _is_smart_import_context(context) and not (bool(meta.get("imported")) or import_status=="completed"):
+            return False
+        return True
+
+    @staticmethod
+    def _terminal_meta_order_key(nzo_id:str,meta:dict[str,Any]) -> tuple[float,float,str]:
+        completed=float(_num(meta.get("completed_ts"),0) or _num(meta.get("_updated_ts"),0) or _num(meta.get("created_ts"),0))
+        created=float(_num(meta.get("created_ts"),0))
+        return completed,created,str(nzo_id)
+
+    def _retirable_terminal_ids_locked(self,state:dict[str,Any]) -> list[str]:
+        jobs=state.get("jobs") if isinstance(state,dict) else None
+        if not isinstance(jobs,dict) or not jobs: return []
+        durable_ids,history_full,oldest=self._terminal_history_retention_snapshot()
+        retired=[]
+        for raw_id,meta in jobs.items():
+            nzo_id=str(raw_id)
+            if not isinstance(meta,dict) or not self._job_is_retirable_from_operational_ledger(meta):
+                continue
+            # A finalized row is safe to retire when its durable summary exists. If
+            # history is already at the 5,000-row retention cap, older finalized
+            # rows are intentionally expired and must not linger in jobs.json merely
+            # because their terminal summary fell beyond that bounded window.
+            if nzo_id in durable_ids or (history_full and self._terminal_meta_order_key(nzo_id,meta)<=oldest):
+                retired.append(nzo_id)
+        return retired
+
+    def _has_retirable_terminal_jobs_locked(self,state:dict[str,Any]) -> bool:
+        return bool(self._retirable_terminal_ids_locked(state))
+
+    def _retire_finalized_terminal_jobs_locked(self,state:dict[str,Any]) -> int:
+        jobs=state.get("jobs") if isinstance(state,dict) else None
+        if not isinstance(jobs,dict) or not jobs: return 0
+        retired=self._retirable_terminal_ids_locked(state)
+        for nzo_id in retired: jobs.pop(nzo_id,None)
+        if retired:
+            self._tracked_terminal_retired_jobs+=len(retired)
+            self._tracked_terminal_retired_last_ts=time.time()
+        return len(retired)
 
     def _build_presentation_index_value_locked(self) -> dict[str,Any]:
         active={}
@@ -4890,6 +5051,50 @@ class SabDownloadManager:
             "tracked_total":int(current.get("tracked_total") or 0),"updated_ts":float(current.get("updated_ts") or 0.0),
         }
 
+    @staticmethod
+    def _compact_terminal_page_row(row:dict[str,Any]) -> dict[str,Any]:
+        # Stage-by-stage repair history is useful only after Details is expanded.
+        # Keep it durable but out of routine Completed/Failed transport.
+        compact=dict(row)
+        compact.pop("automation_context",None)
+        compact.pop("sab_stage_log",None)
+        compact["details_loaded"]=False
+        return compact
+
+    def _terminal_history_page(self, mode:str, *, limit:int, offset:int) -> tuple[list[dict[str,Any]],int,list[str]]:
+        mode="failed" if str(mode or "completed").casefold()=="failed" else "completed"
+        start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
+        with self._terminal_history_lock:
+            ids=self._terminal_history_index.get(mode) or []
+            total=len(ids)
+            page_ids=ids[start:start+size]
+            rows=self._terminal_history.get("rows") or {}
+            page=[self._compact_terminal_page_row(rows[nzo_id]) for nzo_id in page_ids if isinstance(rows.get(nzo_id),dict)]
+            # Only Failed needs a stable all-ID copy for Remove all failed. Completed
+            # slices the cached index directly and never copies the 5,000-ID vector.
+            matching_ids=list(ids) if mode=="failed" else []
+        self._terminal_page_reads+=1; self._terminal_page_rows_projected+=len(page)
+        return page,total,matching_ids
+
+    def _terminal_detail_job(self, nzo_id:str) -> dict[str,Any] | None:
+        nzo_id=str(nzo_id or "").strip()
+        if not nzo_id: return None
+        with self.lock:
+            meta=self._tracked().get(nzo_id)
+            meta=dict(meta) if isinstance(meta,dict) else None
+        if meta is None:
+            row=self._terminal_history_row(nzo_id)
+            return dict(row,details_loaded=True) if isinstance(row,dict) else None
+        slot=None
+        with self._queue_sample_lock:
+            pair=self._queue_sample_pair
+            if pair is not None:
+                _qr,qs=self._queue_slots(pair[0]); _hr,hs=self._history_slots(pair[1])
+                slot=next((x for x in hs+qs if str(x.get("nzo_id") or x.get("id") or "")==nzo_id),None)
+        job=self._job_from_slot(nzo_id,meta,slot,history=True) if isinstance(slot,dict) else self._offline_job_from_meta(nzo_id,meta,time.time())
+        job=dict(job); job["details_loaded"]=True; job["terminal_history_source"]="newzdeck"
+        return job
+
     def _queue_snapshot_state_patch(self, nzo_id:str, action:str) -> None:
         self._snapshot_state_patch_queue.put((str(nzo_id),str(action)))
         self.sync_event.set()
@@ -4912,37 +5117,6 @@ class SabDownloadManager:
                     meta["ownership_released_ts"]=time.time(); meta["ownership_released_reason"]="SAB no longer exposes this tracked non-terminal job"; self._touch_job_locked(meta); changed+=1
         if changed: self._save_state()
         return changed
-
-    def _terminal_history_page(self, mode:str, *, limit:int, offset:int) -> tuple[list[dict[str,Any]],list[str]]:
-        mode=str(mode or "completed").casefold()
-        rows=[]
-        for row in self._terminal_history_snapshot().values():
-            status=str(row.get("status") or "").casefold(); post=str(row.get("post_status") or "").casefold()
-            include=(status=="completed" and post not in {"failed","needs_attention","needs_tool","blocked","cancelled"}) if mode=="completed" else (status in {"failed","cancelled"} or post in {"failed","needs_attention","needs_tool","blocked","cancelled"})
-            if include: rows.append(row)
-        rows.sort(key=self._display_order_key)
-        ids=[str(x.get("id") or "") for x in rows if str(x.get("id") or "")]
-        start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
-        return [dict(x) for x in rows[start:start+size]],ids
-
-    def _terminal_detail_job(self, nzo_id:str) -> dict[str,Any] | None:
-        nzo_id=str(nzo_id or "").strip()
-        if not nzo_id: return None
-        with self.lock:
-            meta=self._tracked().get(nzo_id)
-            meta=dict(meta) if isinstance(meta,dict) else None
-        if meta is None:
-            row=self._terminal_history_snapshot().get(nzo_id)
-            return dict(row,details_loaded=True) if isinstance(row,dict) else None
-        slot=None
-        with self._queue_sample_lock:
-            pair=self._queue_sample_pair
-            if pair is not None:
-                _qr,qs=self._queue_slots(pair[0]); _hr,hs=self._history_slots(pair[1])
-                slot=next((x for x in hs+qs if str(x.get("nzo_id") or x.get("id") or "")==nzo_id),None)
-        job=self._job_from_slot(nzo_id,meta,slot,history=True) if isinstance(slot,dict) else self._offline_job_from_meta(nzo_id,meta,time.time())
-        job=dict(job); job["details_loaded"]=True; job["terminal_history_source"]="newzdeck"
-        return job
 
     def _track_add(self, nzo_id: str, *, name: str, source_name: str, provider_id: str,
                    expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None,
@@ -6178,6 +6352,7 @@ class SabDownloadManager:
                 if _num(v, 0) >= time.time() - 7 * 86400
             }
             removed_reasons = {str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()}
+        durable_terminal_ids=self._terminal_history_ids_snapshot()
         legacy_recovered: set[str] = set()
         for slot in queue_slots:
             nzo_id = str(slot.get("nzo_id") or slot.get("id") or "")
@@ -6203,6 +6378,11 @@ class SabDownloadManager:
         for slot in history_slots:
             nzo_id = str(slot.get("nzo_id") or slot.get("id") or "")
             if not nzo_id:
+                continue
+            if nzo_id in durable_terminal_ids:
+                # Durable NewzDeck terminal history already owns this presentation
+                # row. Do not repopulate the operational ledger from SAB's recent
+                # History window after v3.6.54 compaction.
                 continue
             if str(slot.get("status") or "").casefold() != "completed":
                 continue
@@ -6799,7 +6979,7 @@ class SabDownloadManager:
             return {"ok":True,"jobs":[detail],"collections":[],"view":{"scope":"detail","total":1,"returned":1,"id":str(detail_id)}}
         if mode in {"completed","failed"}:
             base=self.snapshot(scope="live")
-            page,matching_ids=self._terminal_history_page(mode,limit=limit,offset=offset)
+            page,total,matching_ids=self._terminal_history_page(mode,limit=limit,offset=offset)
             result=dict(base)
             result["jobs"]=page; result["collections"]=[]
             counts=dict(result.get("counts") or {})
@@ -6809,7 +6989,9 @@ class SabDownloadManager:
             counts["cancelled"]=int(terminal_counts.get("cancelled") or 0)
             result["counts"]=counts
             start=max(0,int(offset or 0)); size=max(1,min(500,int(limit or 50)))
-            result["view"]={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":len(matching_ids),"has_more":start+len(page)<len(matching_ids),"matching_ids":matching_ids,"history_source":"newzdeck-terminal-index","lazy_details":True}
+            view={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":total,"has_more":start+len(page)<total,"history_source":"newzdeck-terminal-index-v2","lazy_details":True,"page_native":True}
+            if mode=="failed": view["matching_ids"]=matching_ids
+            result["view"]=view
             return result
         snap=self.snapshot(scope="live" if mode=="live" else "all")
         if mode in {"all","full"}:

@@ -116,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3643-integrity-") as td:
         }]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.53")
+    engine = module.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, _DummyDownloadManager(), lambda:[], version="3.6.54")
     result = engine.library_integrity_mark_missing("guard-show",1,1,str(media_file))
     after = json.loads((data_dir / "media-library.json").read_text(encoding="utf-8"))
     episode = after[0]["seasons"][0]["episodes"][0]
@@ -187,7 +187,7 @@ for required_dom in ('id="automationScanProgress"','id="automationScanProgressFi
         raise SystemExit(f"Library scan progress DOM is missing marker: {required_dom}")
 
 with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
-    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.53")
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.54")
     job=engine.start_library_scan("")
     if not job.get("job_id"):
         raise SystemExit("Library scan start did not return a job ID.")
@@ -204,7 +204,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3645-scan-") as td:
 # and custom-format score, while materially larger same-tier releases receive a
 # bounded preference rather than an unconditional largest-file rule.
 with tempfile.TemporaryDirectory(prefix="newzdeck-v3646-ranking-") as td:
-    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.53")
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.54")
     profile=module.DEFAULT_PROFILES[1]
     item={"kind":"tv","title":"Love Island","library_title":"Love Island (UK)","country_codes":["GB"],"title_ambiguous":True,"year":2015}
     now=__import__('time').time()
@@ -267,7 +267,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3646-ranking-") as td:
 # v3.6.47: Selected Episodes monitoring must keep explicit old episode choices
 # authoritative without implicitly monitoring other seasons or requiring backlog mode.
 with tempfile.TemporaryDirectory(prefix="newzdeck-v3647-selected-") as td:
-    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.53")
+    engine=module.MediaAutomationEngine(pathlib.Path(td),lambda value:value,lambda value:value,_DummyDownloadManager(),lambda:[],version="3.6.54")
     item={"id":"selected-show","kind":"tv","title":"Selected Show","monitored":True,"monitor_mode":"all","quality_profile_id":"quality-1080p","seasons":[]}
     for sn in range(1,5):
         item["seasons"].append({"season_number":sn,"monitored":True,"episodes":[
@@ -360,7 +360,7 @@ for slot, _outcome, _cls in repair_cases:
 
 for marker in (
     'SAB_VERSION = "5.1.2"',
-    'ADAPTER_VERSION = "3.6.53"',
+    'ADAPTER_VERSION = "3.6.54"',
     'SABnzbd-5.1.2-win64-bin.zip',
     '0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46',
     'def _upgrade_running_sab_if_needed(',

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.53 carried production guards, including v3.6.48 real-world regressions."""
+"""NewzDeck v3.6.54 carried production guards, including v3.6.48 real-world regressions."""
 from __future__ import annotations
 
 import importlib.util
@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-integrity-") as td:
         ]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = auto.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, DummyDownloadManager(), lambda:[], version="3.6.53")
+    engine = auto.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, DummyDownloadManager(), lambda:[], version="3.6.54")
     audit1 = engine.library_integrity_audit()
     audit2 = engine.library_integrity_audit()
     if audit1.get("cache_hit") or not audit2.get("cache_hit"):
@@ -189,7 +189,9 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-view-") as td:
     ]
     fake={"jobs":fake_jobs,"collections":[{"id":x["id"]} for x in fake_jobs],"counts":{"downloading":1,"completed":80,"failed":1},"telemetry":{}}
     manager.snapshot=lambda *args, **kwargs: fake
-    manager._terminal_history={"version":1,"rows":{x["id"]:{**x,"collection_name":x["id"],"filename":x["id"],"details_loaded":False,"created_ts":0,"completed_ts":x.get("completed_ts",0)} for x in fake_jobs if x["status"] in {"completed","failed"}}}
+    manager._terminal_history={"version":2,"rows":{x["id"]:{**x,"collection_name":x["id"],"filename":x["id"],"details_loaded":False,"created_ts":0,"completed_ts":x.get("completed_ts",0)} for x in fake_jobs if x["status"] in {"completed","failed"}}}
+    with manager._terminal_history_lock:
+        manager._rebuild_terminal_history_indexes_locked()
     live=manager.snapshot_view("live",limit=50)
     completed=manager.snapshot_view("completed",limit=50)
     failed=manager.snapshot_view("failed",limit=50)
@@ -211,27 +213,27 @@ server_source=SERVER_PATH.read_text(encoding="utf-8")
 app_source=APP_JS_PATH.read_text(encoding="utf-8")
 index_source=INDEX_PATH.read_text(encoding="utf-8")
 for marker in (
-    'ADAPTER_VERSION = "3.6.53"', 'def snapshot_view(', 'snapshot_p95_ms',
+    'ADAPTER_VERSION = "3.6.54"', 'def snapshot_view(', 'snapshot_p95_ms',
     '_provider_health_cached_snapshot', 'legacy_terminal_segments_compacted_by',
     'Rejected SAB completed path whose identity belongs to another Automation job',
 ):
     if marker not in sab_source:
-        raise SystemExit(f"Missing v3.6.53 SAB/runtime marker: {marker}")
+        raise SystemExit(f"Missing v3.6.54 SAB/runtime marker: {marker}")
 for marker in (
-    'APP_VERSION = "3.6.53"', 'scope=str((query.get("scope")',
+    'APP_VERSION = "3.6.54"', 'scope=str((query.get("scope")',
     'X-NewzDeck-JSON-Serialize-Ms', "runtime_source']='sabnzbd'",
 ):
     if marker not in server_source:
-        raise SystemExit(f"Missing v3.6.53 server marker: {marker}")
+        raise SystemExit(f"Missing v3.6.54 server marker: {marker}")
 for marker in (
-    "const UI_VERSION = '3.6.53';", "downloadHistoryLimit:50",
+    "const UI_VERSION = '3.6.54';", "downloadHistoryLimit:50",
     "scope=terminalView?state.downloadFilter:'live'", "data-download-history-more",
     "Downloads snapshot latency", "SAB runtime",
 ):
     if marker not in app_source:
-        raise SystemExit(f"Missing v3.6.53 UI marker: {marker}")
-for marker in ("v3.6.53", "3.6.53-nzb-identity-durable-history"):
+        raise SystemExit(f"Missing v3.6.54 UI marker: {marker}")
+for marker in ("v3.6.54", "3.6.54-history-compaction-startup-efficiency"):
     if marker not in index_source:
-        raise SystemExit(f"Missing v3.6.53 HTML identity marker: {marker}")
+        raise SystemExit(f"Missing v3.6.54 HTML identity marker: {marker}")
 
-print(f"v3.6.53 carried-forward supplemental regression guard passed ({len(PRODUCTION_REJECTS)} historical identity rejects + data-plane/runtime/cache/output ownership guards).")
+print(f"v3.6.54 carried-forward supplemental regression guard passed ({len(PRODUCTION_REJECTS)} historical identity rejects + data-plane/runtime/cache/output ownership guards).")

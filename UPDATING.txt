@@ -1,11 +1,12 @@
-NewzDeck v3.6.53
-NZB Identity Gate & Durable Downloads History
+NewzDeck v3.6.54
+Downloads History Compaction & Automation Startup Efficiency
 
 INSTALLED NEWZDECK
-Install the v3.6.53 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+-------------------
+Install the v3.6.54 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
-The existing NewzDeck job ledger is preserved. On first v3.6.53 startup NewzDeck bootstraps `sab-engine\terminal-history.json` from terminal records already present in the durable ledger. It is compact presentation/audit metadata only; SAB remains authoritative for live queue and post-processing state.
+On first v3.6.54 startup, existing terminal rows are normalized into the v2 compact history schema. Finalized Completed jobs that already have durable history rows are retired from `sab-engine\newzdeck-jobs.json`; failed/actionable/import-in-progress jobs remain there for Retry and recovery behavior.
 
-Automatic TV grabs now inspect actual NZB file-subject identity before SAB submission. Positive contradictory evidence (for example a single-episode target whose NZB contains many SxxExx identities or Complete Season markers) is rejected before download. Obfuscated NZBs without explicit contradictory evidence are not rejected.
+The durable `sab-engine\terminal-history.json` remains capped at the newest 5,000 terminal rows. Existing settings, providers, Automation state, statistics, queue ownership, user data, and private SABnzbd 5.1.2 are preserved.
 
-The terminal-history index retains the newest 5,000 terminal rows. Removing a terminal job removes its row; retrying a failed job removes/supersedes the old row until the job becomes terminal again.
+Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder. User data remains outside the application directory.
