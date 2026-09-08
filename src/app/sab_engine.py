@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.56"
+ADAPTER_VERSION = "3.6.57"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -801,7 +801,12 @@ class SabDownloadManager:
         # terminal history changes. Completed/Failed UI requests therefore slice
         # an ordered ID vector instead of copying/sorting every history row.
         self._terminal_history_index: dict[str, list[str]] = {"completed": [], "failed": []}
+        # User-facing durable counts follow the same presentation scope as the
+        # Completed/Failed indexes. Raw SAB transfer outcomes are retained separately
+        # so an import-integrity hold can be Failed in NewzDeck without rewriting the
+        # authoritative SAB fact that its transfer completed successfully.
         self._terminal_status_counts: dict[str, int] = {"completed": 0, "failed": 0, "cancelled": 0}
+        self._terminal_transfer_status_counts: dict[str, int] = {"completed": 0, "failed": 0, "cancelled": 0}
         # v3.6.56: exact completed-release identifiers used to demote stale SAB
         # warning text after authoritative terminal completion. Rebuilt only with
         # durable history, so provider-health reads never scan all 5,000 rows.
@@ -2820,6 +2825,8 @@ class SabDownloadManager:
             'terminal_history_index_rebuilds_avoided': int(self._terminal_history_sync_noops),
             'terminal_history_completed_index_rows': int(len(self._terminal_history_index.get("completed") or [])),
             'terminal_history_failed_index_rows': int(len(self._terminal_history_index.get("failed") or [])),
+            'terminal_presentation_counts': self._terminal_counts(),
+            'terminal_transfer_counts': self._terminal_transfer_counts(),
             'terminal_page_reads': int(self._terminal_page_reads),
             'terminal_page_rows_projected': int(self._terminal_page_rows_projected),
             'tracked_terminal_retired_jobs': int(self._tracked_terminal_retired_jobs),
@@ -4902,11 +4909,12 @@ class SabDownloadManager:
             "priority":str(meta.get("priority") or "normal"),
             "source":"nzb","provider_name":"SABnzbd engine","provider_id":str(meta.get("provider_id") or ""),
             "path":str(meta.get("import_destination") or meta.get("resolved_output") or meta.get("output_hint") or ""),
-            "error":str(meta.get("failure_reason") or repair.get("sab_fail_message") or "")[:600],
+            "error":str(meta.get("failure_reason") or (meta.get("import_message") if import_status.casefold()=="failed" else "") or repair.get("sab_fail_message") or "")[:600],
             "release_failure_recorded":bool(meta.get("failure_feedback_recorded")),
             "release_failure_reason":str(meta.get("failure_reason") or "")[:600],
             "repair_outcome":str(repair.get("repair_outcome") or "not_observed"),"repair_summary":str(repair.get("repair_summary") or "")[:600],
-            "failure_class":str(repair.get("failure_class") or ""),"verification_observed":bool(repair.get("verification_observed")),
+            "failure_class":str(meta.get("import_failure_class") or repair.get("failure_class") or ""),"integrity_hold_fingerprint":str(meta.get("integrity_hold_fingerprint") or ""),
+            "target_integrity_hold":bool(meta.get("target_integrity_hold")),"integrity_hold_distinct_releases":int(meta.get("integrity_hold_distinct_releases") or 0),"verification_observed":bool(repair.get("verification_observed")),
             "repair_attempted":bool(repair.get("repair_attempted")),"par2_fetch_observed":bool(repair.get("par2_fetch_observed")),
             "sab_fail_message":str(repair.get("sab_fail_message") or "")[:600],"sab_stage_log":stage_log,
             "postproc_seconds":int(repair.get("postproc_seconds") or 0),"recovery_blocks_reported":bool(repair.get("recovery_blocks_reported")),
@@ -4926,17 +4934,17 @@ class SabDownloadManager:
     def _rebuild_terminal_history_indexes_locked(self) -> None:
         rows=self._terminal_history.get("rows") if isinstance(self._terminal_history,dict) else {}
         if not isinstance(rows,dict): rows={}
-        completed=[]; failed=[]; counts={"completed":0,"failed":0,"cancelled":0}; resolved_warning_keys:set[str]=set()
+        completed=[]; failed=[]; counts={"completed":0,"failed":0,"cancelled":0}; transfer_counts={"completed":0,"failed":0,"cancelled":0}; resolved_warning_keys:set[str]=set()
         # rows are already stored newest-first; preserve that durable order.
         for raw_id,row in rows.items():
             if not isinstance(row,dict): continue
             nzo_id=str(raw_id or row.get("id") or "").strip()
             if not nzo_id: continue
             status=str(row.get("status") or "").casefold()
-            if status in counts: counts[status]+=1
+            if status in transfer_counts: transfer_counts[status]+=1
             scope=self._terminal_history_scope_for_row(row)
             if scope=="completed":
-                completed.append(nzo_id)
+                completed.append(nzo_id); counts["completed"]+=1
                 # A Completed terminal row is authoritative proof that an older SAB
                 # warning naming this exact release is no longer current. Build exact
                 # identifiers once with the history index rather than scanning rows
@@ -4945,9 +4953,13 @@ class SabDownloadManager:
                     for raw_key in (row.get("collection_name"),row.get("filename"),row.get("automation_release_title")):
                         key=str(raw_key or "").strip().casefold()
                         if len(key)>=8: resolved_warning_keys.add(key)
-            elif scope=="failed": failed.append(nzo_id)
+            elif scope=="failed":
+                failed.append(nzo_id)
+                if status=="cancelled": counts["cancelled"]+=1
+                else: counts["failed"]+=1
         self._terminal_history_index={"completed":completed,"failed":failed}
         self._terminal_status_counts=counts
+        self._terminal_transfer_status_counts=transfer_counts
         self._terminal_resolved_warning_keys=resolved_warning_keys
         self._terminal_history_index_rebuilds+=1
 
@@ -5066,6 +5078,10 @@ class SabDownloadManager:
     def _terminal_counts(self) -> dict[str,int]:
         with self._terminal_history_lock:
             return dict(self._terminal_status_counts)
+
+    def _terminal_transfer_counts(self) -> dict[str,int]:
+        with self._terminal_history_lock:
+            return dict(self._terminal_transfer_status_counts)
 
     def _terminal_history_retention_snapshot(self) -> tuple[set[str],bool,tuple[float,float,str]]:
         with self._terminal_history_lock:
@@ -6803,7 +6819,7 @@ class SabDownloadManager:
             "status": status, "expected_bytes": expected, "downloaded_bytes": max(0, downloaded), "actual_size": expected if status == "completed" else 0,
             "current_part": int(round(pct)), "processed_parts": int(round(pct)), "successful_parts": int(round(pct)), "failed_parts": 0,
             "total_parts": 100, "speed_bps": speed, "eta_seconds": eta_seconds, "connections_used": 0, "path": storage, "partial_path": str(slot.get("path") or ""),
-            "error": str(slot.get("fail_message") or "") if status == "failed" else "", "created_ts": created, "started_ts": _num(meta.get("started_ts"), created),
+            "error": str(meta.get("failure_reason") or meta.get("import_message") or "") if import_status == "failed" else (str(slot.get("fail_message") or "") if status == "failed" else ""), "created_ts": created, "started_ts": _num(meta.get("started_ts"), created),
             "completed_ts": completed_ts, "history_rank": history_rank, "recovered_parts": 0, "retry_count": 0, "priority": str(meta.get("priority") or "normal"), "paused": paused,
             "queue_order": _num(slot.get("index"), 0), "status_detail": sab_post_message or _sab_text(slot.get("stage_log")) or str(slot.get("status") or ""), "transfer_phase": "sabnzbd",
             "integrity_status": "healthy" if status == "completed" else "unknown", "post_status": post,
@@ -6823,7 +6839,8 @@ class SabDownloadManager:
             "filename_recovery_hint": str(meta.get("filename_recovery_hint") or ""), "filename_recovery_hint_source": str(meta.get("filename_recovery_hint_source") or ""),
             "verification_observed": bool(repair.get("verification_observed")), "repair_attempted": bool(repair.get("repair_attempted")),
             "par2_fetch_observed": bool(repair.get("par2_fetch_observed")), "repair_outcome": str(repair.get("repair_outcome") or "not_observed"),
-            "repair_summary": str(repair.get("repair_summary") or ""), "failure_class": str(repair.get("failure_class") or ""),
+            "repair_summary": str(repair.get("repair_summary") or ""), "failure_class": str(meta.get("import_failure_class") or repair.get("failure_class") or ""),
+            "integrity_hold_fingerprint": str(meta.get("integrity_hold_fingerprint") or ""), "target_integrity_hold": bool(meta.get("target_integrity_hold")), "integrity_hold_distinct_releases": int(meta.get("integrity_hold_distinct_releases") or 0),
             "sab_fail_message": str(repair.get("sab_fail_message") or ""), "sab_stage_log": list(repair.get("sab_stage_log") or []),
             "postproc_seconds": int(repair.get("postproc_seconds") or 0), "recovery_blocks_reported": bool(repair.get("recovery_blocks_reported")),
             "collection_role": "payload", "is_auxiliary": False, "optional_missing": False, "missing_bytes": 0, "resumed_parts": 0,
@@ -6866,6 +6883,7 @@ class SabDownloadManager:
             "verification_observed": bool(job.get("verification_observed")), "repair_attempted": bool(job.get("repair_attempted")),
             "par2_fetch_observed": bool(job.get("par2_fetch_observed")), "repair_outcome": str(job.get("repair_outcome") or "not_observed"),
             "repair_summary": str(job.get("repair_summary") or ""), "failure_class": str(job.get("failure_class") or ""),
+            "integrity_hold_fingerprint": str(job.get("integrity_hold_fingerprint") or ""), "target_integrity_hold": bool(job.get("target_integrity_hold")), "integrity_hold_distinct_releases": int(job.get("integrity_hold_distinct_releases") or 0),
             "sab_fail_message": str(job.get("sab_fail_message") or ""), "sab_stage_log": list(job.get("sab_stage_log") or []),
             "postproc_seconds": int(job.get("postproc_seconds") or 0), "recovery_blocks_reported": bool(job.get("recovery_blocks_reported")),
             "health": {"state": "needs_attention" if str(job.get("import_status") or "")=="failed" else ("healthy" if status not in {"failed"} else "incomplete"), "label": "Import needs attention" if str(job.get("import_status") or "")=="failed" else ("✓ HEALTHY" if status not in {"failed"} else "Needs attention"), "missing_articles": 0,
@@ -9153,6 +9171,18 @@ class SabDownloadManager:
                     ok = False
                     skipped = False
                     retryable = False
+            integrity_hold = bool((result or {}).get("integrity_hold")) if isinstance(result, dict) else False
+            integrity_feedback: dict[str, Any] = {}
+            if integrity_hold and self.media_automation is not None:
+                try:
+                    integrity_feedback = self.media_automation.record_import_integrity_hold(context, dict(result or {}), collection_id=nzo_id)
+                    result = dict(result or {})
+                    result["release_failure_recorded"] = bool(integrity_feedback.get("recorded"))
+                    result["release_blacklisted"] = bool(integrity_feedback.get("blacklisted"))
+                    result["target_integrity_hold"] = bool(integrity_feedback.get("target_integrity_hold"))
+                    result["integrity_hold_distinct_releases"] = int(integrity_feedback.get("distinct_releases") or 0)
+                except Exception as feedback_exc:
+                    self._event("warning", "Could not persist Smart Import integrity-hold release feedback", nzo_id=nzo_id, error=str(feedback_exc)[:300])
             cleanup_safe = bool((result or {}).get("cleanup_safe", True)) if isinstance(result, dict) else False
             cleanup_attempted = bool(ok and cleanup_safe and staging_dir)
             cleanup_done = False
@@ -9200,6 +9230,18 @@ class SabDownloadManager:
                         live["import_destination"] = str(result.get("destination") or "")[:1000]
                         live["imported_count"] = int(result.get("imported_count", 0) or 0)
                         live["kept_existing_count"] = int(result.get("kept_existing", 0) or 0)
+                    if integrity_hold:
+                        hold_reason = str((result or {}).get("reason") or "Smart Import was held for review because incoming media conflicts with another episode")[:500]
+                        live["import_failure_class"] = "import_integrity_hold"
+                        live["import_integrity_hold"] = True
+                        live["failure_reason"] = hold_reason
+                        live["failure_feedback_recorded"] = bool((result or {}).get("release_failure_recorded"))
+                        live["target_integrity_hold"] = bool((result or {}).get("target_integrity_hold"))
+                        live["integrity_hold_distinct_releases"] = int((result or {}).get("integrity_hold_distinct_releases") or 0)
+                        conflicts = [x for x in ((result or {}).get("fingerprint_conflicts") or []) if isinstance(x,dict)]
+                        live["integrity_hold_fingerprint"] = str((conflicts[0] if conflicts else {}).get("fingerprint") or "")
+                    elif ok or skipped:
+                        live.pop("import_failure_class", None); live.pop("import_integrity_hold", None); live.pop("target_integrity_hold", None); live.pop("integrity_hold_distinct_releases", None); live.pop("integrity_hold_fingerprint", None)
                     live["import_claim_pid"] = 0
                     live["import_claim_ts"] = 0
                     live["import_heartbeat_ts"] = 0
@@ -9219,7 +9261,10 @@ class SabDownloadManager:
                     live["import_message"] = message[:500]
                     self._touch_job_locked(live)
                     self._save_state()
-            self._event("info" if (ok or skipped or retryable) else "warning", f"Smart Import {'completed' if ok else ('deferred' if retryable else 'finished')} for {meta.get('name')}", result=result)
+            if integrity_hold:
+                self._event("warning", f"Smart Import held for review for {meta.get('name')}", result=result, failure_class="import_integrity_hold")
+            else:
+                self._event("info" if (ok or skipped or retryable) else "warning", f"Smart Import {'completed' if ok else ('deferred' if retryable else 'finished')} for {meta.get('name')}", result=result)
         except Exception as exc:
             winerror = getattr(exc, "winerror", None)
             errno_value = getattr(exc, "errno", None)
@@ -9266,6 +9311,7 @@ class SabDownloadManager:
             meta["import_progress"] = 0
             meta["import_retry_after"] = 0
             meta["import_retry_count"] = 0
+            meta.pop("import_failure_class", None); meta.pop("import_integrity_hold", None)
             meta["import_claim_pid"] = 0
             meta["import_claim_ts"] = 0
             meta["import_heartbeat_ts"] = 0

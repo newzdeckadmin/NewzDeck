@@ -1,10 +1,10 @@
-NewzDeck v3.6.56
-Smart Import Duplicate Protection & Diagnostics Refinement
+NewzDeck v3.6.57
+Import Hold Semantics & Downloads Count Integrity
 
-New in v3.6.56:
-- Smart Import stops before commit when incoming TV media is byte-identical to a different episode of the same title; the downloaded output is preserved for Needs Review.
-- Incoming season-pack episodes are also checked against one another for identical bytes before commit.
-- SAB warnings tied to releases that later completed successfully are retained as resolved historical evidence instead of remaining current engine warnings.
-- Raw SAB Active-slot overlap is separated from real visible-card correction and uses bounded examples instead of long UUID signatures.
-- /api/diagnostics and /api/diagnostics/report share a coherent 1.5-second snapshot cache to avoid duplicate expensive aggregation.
-- Preserves v3.6.55 terminal-history efficiency, v3.6.54 compaction, v3.6.53 identity/Smart Import safeguards, and private SABnzbd 5.1.2 authority.
+New in v3.6.57:
+- Completed/Failed durable counts now match the actual page-native presentation tabs while raw SAB transfer results remain available separately.
+- Duplicate-content Smart Import holds use the explicit import_integrity_hold failure class and preserve reason/fingerprint evidence.
+- The exact release that produced a proven duplicate-media conflict is blacklisted for that target.
+- Two distinct releases producing the same conflicting fingerprint pause unattended searching for that target pending manual review.
+- Automation Health shows active Integrity Holds separately from ordinary preserved imports.
+- Preserves v3.6.56 duplicate protection, v3.6.55 terminal-history efficiency, diagnostics caching, recovered-warning handling and private SABnzbd 5.1.2.

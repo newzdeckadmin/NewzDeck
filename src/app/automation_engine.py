@@ -672,6 +672,8 @@ class MediaAutomationEngine:
         self._downgrades_blocked = 0
         self._existing_quality_recovered = 0
         self._cross_episode_fingerprint_imports_blocked = 0
+        self._integrity_hold_releases_blacklisted = 0
+        self._integrity_hold_targets_paused = 0
         self._target_integrity_last_ts = 0.0
         self._grab_reservations_pruned = 0
         self._grab_reservation_invalid_pruned = 0
@@ -696,6 +698,8 @@ class MediaAutomationEngine:
             'downgrades_blocked':'_downgrades_blocked',
             'existing_quality_recovered':'_existing_quality_recovered',
             'cross_episode_fingerprint_imports_blocked':'_cross_episode_fingerprint_imports_blocked',
+            'integrity_hold_releases_blacklisted':'_integrity_hold_releases_blacklisted',
+            'integrity_hold_targets_paused':'_integrity_hold_targets_paused',
         }.get(str(field or ''))
         if not attr:
             return
@@ -711,6 +715,8 @@ class MediaAutomationEngine:
                 'downgrades_blocked':int(self._downgrades_blocked),
                 'existing_quality_recovered':int(self._existing_quality_recovered),
                 'cross_episode_fingerprint_imports_blocked':int(self._cross_episode_fingerprint_imports_blocked),
+                'integrity_hold_releases_blacklisted':int(self._integrity_hold_releases_blacklisted),
+                'integrity_hold_targets_paused':int(self._integrity_hold_targets_paused),
                 'grab_reservations_pruned':int(self._grab_reservations_pruned),
                 'grab_reservation_invalid_pruned':int(self._grab_reservation_invalid_pruned),
                 'grab_reservation_cleanup_last_ts':float(self._grab_reservation_cleanup_last_ts or 0),
@@ -1384,6 +1390,66 @@ class MediaAutomationEngine:
             self._save_auto_runtime(rt)
         return not already
 
+    def record_import_integrity_hold(self, context:dict[str,Any], result:dict[str,Any], *, collection_id:str='') -> dict[str,Any]:
+        """Remember one proven bad media payload without confusing it with SAB failure.
+
+        A v3.6.56 cross-episode fingerprint hold proves that the exact release is
+        unsuitable for this target even though SAB downloaded/unpacked it correctly.
+        v3.6.57 therefore blacklists that exact release and lets unattended Automation
+        try the next candidate. If a second distinct release produces the same
+        conflicting fingerprint, automatic searching pauses for this target so it
+        cannot burn bandwidth cycling through equivalent mislabeled payloads.
+        """
+        if not isinstance(context,dict) or str(context.get('source') or '')!='automation_grab':
+            return {'recorded':False,'blacklisted':False,'target_integrity_hold':False}
+        key=str(context.get('target_key') or self._auto_target_key(context=context))
+        if not key: return {'recorded':False,'blacklisted':False,'target_integrity_hold':False}
+        conflicts=[x for x in (result.get('fingerprint_conflicts') or []) if isinstance(x,dict)] if isinstance(result,dict) else []
+        fingerprints=[]
+        for row in conflicts:
+            fp=str(row.get('fingerprint') or '').strip()
+            if fp and fp not in fingerprints: fingerprints.append(fp)
+        fingerprint=fingerprints[0] if fingerprints else ''
+        cid=str(collection_id or '').strip(); now=time.time()
+        reason=str((result or {}).get('reason') or 'Smart Import integrity hold')[:600]
+        with self.lock:
+            rt=self._auto_runtime(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}; rt['targets']=targets; rec=targets.setdefault(key,{})
+            handled=set(str(x) for x in rt.get('handled_integrity_hold_collections') or [])
+            if cid and cid in handled:
+                history=[x for x in rec.get('integrity_hold_history') or [] if isinstance(x,dict)]
+                same=[x for x in history if fingerprint and str(x.get('fingerprint') or '')==fingerprint]
+                return {'recorded':True,'blacklisted':True,'target_integrity_hold':bool(rec.get('integrity_hold')),'fingerprint':fingerprint,'distinct_releases':len({str(x.get('release_key') or '') for x in same if str(x.get('release_key') or '')})}
+            guid=str(context.get('release_guid') or '').strip(); title=str(context.get('release_title') or 'Unknown release'); indexer=str(context.get('indexer') or '')
+            blacklist=[x for x in rec.get('blacklist') or [] if isinstance(x,dict)]
+            already=any((guid and str(x.get('guid') or '').casefold()==guid.casefold()) or (not guid and str(x.get('title') or '').casefold()==title.casefold()) for x in blacklist)
+            if not already:
+                blacklist.append({'guid':guid,'title':title,'indexer':indexer,'reason':reason,'error_code':'import_integrity_hold','failed_ts':now,'collection_id':cid,'source':'import_integrity_hold','fingerprint':fingerprint})
+                rec['blacklist']=blacklist[-80:]
+                self._note_target_integrity('integrity_hold_releases_blacklisted',1)
+                self._event('release-blacklisted',f'Blacklisted duplicate-content release {title}',item_id=str(context.get('item_id') or ''),target_key=key,release=title,indexer=indexer,reason=reason,collection_id=cid,error_code='import_integrity_hold',fingerprint=fingerprint)
+            release_key=(guid.casefold() if guid else (title.casefold()+'|'+indexer.casefold()))
+            history=[x for x in rec.get('integrity_hold_history') or [] if isinstance(x,dict)]
+            if not any((cid and str(x.get('collection_id') or '')==cid) or (not cid and str(x.get('release_key') or '')==release_key and str(x.get('fingerprint') or '')==fingerprint) for x in history):
+                history.append({'ts':now,'collection_id':cid,'release_key':release_key,'guid':guid,'title':title,'indexer':indexer,'fingerprint':fingerprint,'reason':reason})
+            history=history[-20:]; rec['integrity_hold_history']=history
+            same=[x for x in history if fingerprint and str(x.get('fingerprint') or '')==fingerprint]
+            distinct={str(x.get('release_key') or '') for x in same if str(x.get('release_key') or '')}
+            repeated=bool(fingerprint and len(distinct)>=2)
+            rec['last_integrity_hold_ts']=now; rec['last_integrity_hold_fingerprint']=fingerprint; rec['last_integrity_hold_reason']=reason
+            if repeated:
+                newly_paused=not bool(rec.get('integrity_hold'))
+                rec.update({'integrity_hold':True,'integrity_hold_fingerprint':fingerprint,'integrity_hold_distinct_releases':len(distinct),'status':'integrity_hold','message':f'Repeated duplicate-media conflict across {len(distinct)} distinct releases — automatic search paused for manual review','updated_ts':now,'next_search_ts':0,'last_grab_ts':0})
+                if newly_paused: self._note_target_integrity('integrity_hold_targets_paused',1)
+                self._event('target-integrity-hold',f'Paused automatic search for {rec.get("label") or key} after repeated duplicate-media payload',item_id=str(context.get('item_id') or ''),target_key=key,fingerprint=fingerprint,distinct_releases=len(distinct),needs_review=True)
+            elif bool(context.get('automatic')):
+                rec.update({'status':'retrying','message':'Release produced duplicate media — searching for the next candidate','updated_ts':now,'next_search_ts':0,'last_grab_ts':0})
+            else:
+                rec.update({'status':'failed','message':'Release produced duplicate media — choose a different release','updated_ts':now,'next_search_ts':0,'last_grab_ts':0})
+            if cid: handled.add(cid)
+            rt['handled_integrity_hold_collections']=list(handled)[-500:]
+            self._save_auto_runtime(rt)
+        return {'recorded':True,'blacklisted':True,'blacklist_added':not already,'target_integrity_hold':repeated,'fingerprint':fingerprint,'distinct_releases':len(distinct)}
+
     def _indexer_penalty(self, rt:dict[str,Any], name:str, now:float|None=None) -> int:
         """Small, decaying within-tier reliability tie-breaker, never a quality override.
 
@@ -1623,11 +1689,13 @@ class MediaAutomationEngine:
                 if not path or path.casefold() in seen: continue
                 seen.add(path.casefold()); roots.append({'kind':kind,'path':path,'online':Path(path).expanduser().exists()})
         idx=self.public_indexers(); enabled=[x for x in idx if x.get('enabled',True)]
-        blacklists=[]
+        blacklists=[]; integrity_holds=[]
         for key,rec in (rt.get('targets') or {}).items():
             if not isinstance(rec,dict): continue
             for b in rec.get('blacklist') or []:
                 if isinstance(b,dict): blacklists.append({'target_key':str(key),'target_label':str(rec.get('label') or key),**b})
+            if bool(rec.get('integrity_hold')):
+                integrity_holds.append({'target_key':str(key),'target_label':str(rec.get('label') or key),'message':str(rec.get('message') or 'Automatic search paused for manual review'),'fingerprint':str(rec.get('integrity_hold_fingerprint') or ''),'distinct_releases':int(rec.get('integrity_hold_distinct_releases') or 0),'updated_ts':float(rec.get('updated_ts') or rec.get('last_integrity_hold_ts') or 0)})
         ih=[]
         for key,rec in (rt.get('indexer_health') or {}).items():
             if not isinstance(rec,dict): continue
@@ -1644,7 +1712,7 @@ class MediaAutomationEngine:
                 needs_attention.append({'collection_id':str(pkg.get('id') or ''),'name':str(pkg.get('name') or 'Automation package'),'message':str(pkg.get('post_message') or 'Import needs attention'),'item_id':str(ctx.get('item_id') or ''),'target_key':str(ctx.get('target_key') or '')})
         except Exception: pass
         quiet=self._quiet_hours_state(cfg)
-        return {'metadata':metadata,'roots':roots,'roots_online':sum(1 for x in roots if x['online']),'roots_total':len(roots),'indexers_enabled':len(enabled),'indexers_total':len(idx),'indexer_health':sorted(ih,key=lambda x:x['penalty'],reverse=True),'monitored_tv':sum(1 for x in lib if x.get('kind')=='tv' and x.get('monitored',True)),'monitored_movies':sum(1 for x in lib if x.get('kind')=='movie' and x.get('monitored',True)),'wanted_missing':len(wanted.get('missing') or []),'wanted_upgrades':len(wanted.get('upgrades') or []),'active_targets':len(self._auto_active_targets()),'blacklist_count':len(blacklists),'blacklists':sorted(blacklists,key=lambda x:float(x.get('failed_ts') or 0),reverse=True)[:100],'needs_attention':needs_attention,'needs_attention_count':len(needs_attention),'automatic_enabled':bool(cfg.get('automatic_grab_enabled')),'feed_enabled':bool(cfg.get('automatic_feed_enabled',True)),'last_feed_poll_ts':float(rt.get('last_feed_poll_ts') or 0),'last_feed_count':int(rt.get('last_feed_count') or 0),'last_feed_errors':list(rt.get('last_feed_errors') or [])[:5],'quiet_hours':quiet}
+        return {'metadata':metadata,'roots':roots,'roots_online':sum(1 for x in roots if x['online']),'roots_total':len(roots),'indexers_enabled':len(enabled),'indexers_total':len(idx),'indexer_health':sorted(ih,key=lambda x:x['penalty'],reverse=True),'monitored_tv':sum(1 for x in lib if x.get('kind')=='tv' and x.get('monitored',True)),'monitored_movies':sum(1 for x in lib if x.get('kind')=='movie' and x.get('monitored',True)),'wanted_missing':len(wanted.get('missing') or []),'wanted_upgrades':len(wanted.get('upgrades') or []),'active_targets':len(self._auto_active_targets()),'blacklist_count':len(blacklists),'blacklists':sorted(blacklists,key=lambda x:float(x.get('failed_ts') or 0),reverse=True)[:100],'integrity_holds':sorted(integrity_holds,key=lambda x:float(x.get('updated_ts') or 0),reverse=True)[:100],'integrity_hold_count':len(integrity_holds),'needs_attention':needs_attention,'needs_attention_count':len(needs_attention)+len(integrity_holds),'automatic_enabled':bool(cfg.get('automatic_grab_enabled')),'feed_enabled':bool(cfg.get('automatic_feed_enabled',True)),'last_feed_poll_ts':float(rt.get('last_feed_poll_ts') or 0),'last_feed_count':int(rt.get('last_feed_count') or 0),'last_feed_errors':list(rt.get('last_feed_errors') or [])[:5],'quiet_hours':quiet}
 
     def automatic_status(self):
         cfg=self.public_config(); rt=self._auto_runtime(); last=float(rt.get('last_cycle_ts') or 0)
@@ -2014,6 +2082,12 @@ class MediaAutomationEngine:
                     targets.setdefault(key,{}).update({'status':'queued','updated_ts':now,'message':'Download already queued'}); skipped+=1; continue
                 rec=targets.setdefault(key,{})
                 rec.update({'item_id':str(row.get('item_id') or ''),'label':str(row.get('label') or ''),'kind':str(row.get('kind') or ''),'season':row.get('season'),'episode':row.get('episode'),'season_pack':bool(row.get('season_pack')),'updated_ts':now})
+                if bool(rec.get('integrity_hold')):
+                    rec['status']='integrity_hold'
+                    rec['message']=str(rec.get('message') or 'Repeated duplicate-media conflict — automatic search paused for manual review')
+                    rec['updated_ts']=now
+                    skipped+=1
+                    continue
                 profile=next((p for p in self._profiles() if str(p.get('id'))==str(item.get('quality_profile_id'))),self._profiles()[0])
 
                 candidates=self._feed_candidates_for_target(item,row,profile,feed_rows,rt,rec,now,release_delay) if feed_rows else []
@@ -5420,7 +5494,7 @@ class MediaAutomationEngine:
                     if key:
                         primary_row=(imported[0] if imported else (kept_existing_files[0] if kept_existing_files else {}))
                         message=f"Imported {len(imported)} episode(s) from season pack" if context.get('season_pack') else (f"Imported {Path(imported[0]['destination']).name}" if imported else (f"Import complete; existing library file kept • {Path(primary_row.get('destination') or '').name}" if primary_row.get('destination') else 'Import complete; existing library file kept'))
-                        rec.update({'status':'imported','message':message,'updated_ts':time.time(),'imported_path':str(primary_row.get('destination') or ''),'imported_quality':str(primary_row.get('quality') or ''),'imported_count':len(imported),'kept_existing_count':len(kept_existing_files),'season_pack':bool(context.get('season_pack'))})
+                        rec.update({'status':'imported','message':message,'updated_ts':time.time(),'imported_path':str(primary_row.get('destination') or ''),'imported_quality':str(primary_row.get('quality') or ''),'imported_count':len(imported),'kept_existing_count':len(kept_existing_files),'season_pack':bool(context.get('season_pack')),'integrity_hold':False,'integrity_hold_fingerprint':'','integrity_hold_distinct_releases':0,'integrity_hold_resolved_ts':time.time()})
                         self._record_indexer_outcome(rt,str(context.get('indexer') or rec.get('last_indexer') or ''),success=True); self._save_auto_runtime(rt)
                 except Exception: pass
         if bool(cfg.get('plex_cleanup_staging',True)) and staging_dir:

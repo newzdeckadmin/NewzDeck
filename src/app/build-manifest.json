@@ -1,25 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.56",
-  "base_version": "3.6.55",
-  "release": "Smart Import Duplicate Protection & Diagnostics Refinement",
-  "adapter_version": "3.6.56",
-  "name": "Smart Import Duplicate Protection & Diagnostics Refinement",
+  "version": "3.6.57",
+  "base_version": "3.6.56",
+  "release": "Import Hold Semantics & Downloads Count Integrity",
+  "adapter_version": "3.6.57",
+  "name": "Import Hold Semantics & Downloads Count Integrity",
   "sab_version": "5.1.2",
   "changes": [
-    "Blocks unattended TV Smart Import before commit when incoming media is byte-identical to a different episode of the same library title; the downloaded output is preserved for Needs Review.",
-    "Detects identical bytes across two different episode files inside the same incoming season pack before either file is committed.",
-    "Demotes stale SAB engine warnings to resolved historical evidence when the exact named release is already owned by successful durable terminal history, without altering SAB logs.",
-    "Separates raw SAB per-slot Active overlap from actual visible-card corrections and bounds overlap examples instead of transporting long UUID signatures.",
-    "Caches one coherent /api/diagnostics generation for 1.5 seconds so JSON diagnostics and the text report can reuse expensive Downloads/Automation/storage aggregation.",
-    "Preserves the v3.6.55 terminal-history no-op fast path, private SABnzbd 5.1.2 authority, NZB identity gate, Smart Import ownership, Library Integrity and runtime handoff."
+    "Makes durable Completed/Failed counts use the same presentation classification as the page-native history indexes while retaining raw SAB transfer outcomes separately.",
+    "Classifies duplicate-media Smart Import failures explicitly as import_integrity_hold and preserves the structured reason/fingerprint in durable history and Details.",
+    "Blacklists the exact release that produced a proven cross-episode fingerprint conflict so Automation will not download the same bad post again.",
+    "After two distinct releases produce the same conflicting fingerprint for one target, pauses unattended searching for that target as an Integrity Hold while preserving manual review/retry paths.",
+    "Surfaces active Integrity Holds in Automation Health and clears the active target hold after a later verified successful import.",
+    "Preserves v3.6.56 pre-import fingerprint protection, v3.6.55 terminal-history efficiency, diagnostics caching, recovered-warning handling, private SABnzbd 5.1.2 authority and runtime handoff."
   ],
   "regression_guards": [
-    "Incoming TV media matching another episode fingerprint must fail closed before Smart Import commit and preserve the source for review.",
-    "Two incoming episode targets with identical bytes must be detected before a season-pack transaction commits either file.",
-    "A stale SAB warning naming a durably Completed release must leave current engine_warnings while remaining available as resolved historical warning evidence.",
-    "Raw SAB Active-slot overlap must use bounded count/example telemetry and must not increment visible multi-active correction telemetry by itself.",
-    "Diagnostics snapshot/report requests within the short cache TTL must be able to reuse one coherent generation.",
-    "All v3.6.55 history-efficiency and durable diagnostics guards plus prior production regressions remain mandatory."
+    "A completed SAB transfer with failed Smart Import must count in the Failed presentation scope without losing the raw transfer-completed count.",
+    "One integrity-hold release must be blacklisted exactly once and automatic Automation may continue to the next candidate.",
+    "Two distinct releases with the same conflicting fingerprint must set the target Integrity Hold and unattended cycles must skip that target.",
+    "A later successful import must clear the active target Integrity Hold while preserving historical blacklist/hold evidence.",
+    "Held downloads must expose failure_class=import_integrity_hold and the explicit Smart Import held-for-review log message.",
+    "All v3.6.56 duplicate-protection/diagnostics guards and v3.6.55 history-efficiency guards remain mandatory."
   ]
 }

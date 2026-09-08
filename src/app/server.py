@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.56"
+APP_VERSION = "3.6.57"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11770,12 +11770,14 @@ def _diagnostic_downloads_snapshot(snap: dict[str,Any]) -> dict[str,Any]:
         'failed':int(counts.get('failed',0) or 0),
         'cancelled':int(counts.get('cancelled',0) or 0),
     }
+    transfer_terminal_counts=dict(telemetry.get('terminal_transfer_counts') or {})
+    presentation_terminal_counts=dict(telemetry.get('terminal_presentation_counts') or durable_terminal_counts)
     return {
         'counts':counts,'speed_bps':snap.get('total_speed_bps',0),'concurrent_downloads':snap.get('concurrent_downloads',0),
         'telemetry':telemetry,'statistics':snap.get('statistics',{}),'engine':snap.get('engine',{}),
         'operational_tracked_jobs':int(telemetry.get('presentation_index_tracked_total',len(rows)) or 0),
         'operational_presentable_jobs':int(telemetry.get('presentation_index_active_jobs',len(rows)) or 0),
-        'durable_terminal_counts':durable_terminal_counts,'collection_scope':'live',
+        'durable_terminal_counts':durable_terminal_counts,'presentation_terminal_counts':presentation_terminal_counts,'transfer_terminal_counts':transfer_terminal_counts,'collection_scope':'live',
         'collection_count':len(rows),'collections_included':len(compact),'collections_truncated':len(compact)<len(rows),'collections':compact,
     }
 
@@ -11913,14 +11915,18 @@ def diagnostics_report() -> str:
         tel=(d.get('downloads') or {}).get('telemetry') or {}
         downloads_diag=d.get('downloads') or {}
         durable_counts=downloads_diag.get('durable_terminal_counts') if isinstance(downloads_diag.get('durable_terminal_counts'),dict) else {}
+        transfer_counts=downloads_diag.get('transfer_terminal_counts') if isinstance(downloads_diag.get('transfer_terminal_counts'),dict) else {}
         lines.append(
             "Downloads state: "
             f"operational_tracked={int(downloads_diag.get('operational_tracked_jobs',0) or 0)}; "
             f"operational_presentable={int(downloads_diag.get('operational_presentable_jobs',0) or 0)}; "
             f"live_collections={int(downloads_diag.get('collection_count',0) or 0)}; "
-            f"durable_completed={int(durable_counts.get('completed',0) or 0)}; "
-            f"durable_failed={int(durable_counts.get('failed',0) or 0)}; "
-            f"durable_cancelled={int(durable_counts.get('cancelled',0) or 0)}; "
+            f"presentation_completed={int(durable_counts.get('completed',0) or 0)}; "
+            f"presentation_failed={int(durable_counts.get('failed',0) or 0)}; "
+            f"presentation_cancelled={int(durable_counts.get('cancelled',0) or 0)}; "
+            f"transfer_completed={int(transfer_counts.get('completed',0) or 0)}; "
+            f"transfer_failed={int(transfer_counts.get('failed',0) or 0)}; "
+            f"transfer_cancelled={int(transfer_counts.get('cancelled',0) or 0)}; "
             f"collection_scope={str(downloads_diag.get('collection_scope') or 'live')}"
         )
         lines.append(
@@ -12047,6 +12053,9 @@ def diagnostics_report() -> str:
         f"scan_merge_conflicts={int(integrity.get('scan_merge_conflicts',0) or 0)}; "
         f"downgrades_blocked={int(integrity.get('downgrades_blocked',0) or 0)}; "
         f"existing_quality_recovered={int(integrity.get('existing_quality_recovered',0) or 0)}; "
+        f"cross_episode_fingerprint_imports_blocked={int(integrity.get('cross_episode_fingerprint_imports_blocked',0) or 0)}; "
+        f"integrity_hold_releases_blacklisted={int(integrity.get('integrity_hold_releases_blacklisted',0) or 0)}; "
+        f"integrity_hold_targets_paused={int(integrity.get('integrity_hold_targets_paused',0) or 0)}; "
         f"last_event_ts={float(integrity.get('last_event_ts',0) or 0):.3f}"
     )
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")

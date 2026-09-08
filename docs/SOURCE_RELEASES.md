@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.56
+## Current release: v3.6.57
 
-**v3.6.56 is the current stable production release.**
+**v3.6.57 is the current stable production release.**
 
-The `v3.6.56` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.57` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.57 - Import Hold Semantics & Downloads Count Integrity.** Aligns Completed/Failed badges with the durable presentation tabs while retaining raw SAB transfer outcomes separately, classifies duplicate-content Smart Import holds explicitly, blacklists proven-bad releases, and pauses unattended search when multiple distinct releases produce the same conflicting media fingerprint.
 
 - **v3.6.56 - Smart Import Duplicate Protection & Diagnostics Refinement.** Blocks byte-identical cross-episode TV media before Smart Import commit, demotes recovered SAB warnings to historical evidence, separates raw SAB slot overlap from actual visible-card corrections, and reuses one short-lived coherent diagnostics generation while preserving the proven v3.6.55/SABnzbd 5.1.2 stack.
 

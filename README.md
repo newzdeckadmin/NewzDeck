@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.56** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.57** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.56_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.57_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.56 highlights
+## v3.6.57 highlights
 
-v3.6.56 is a focused correctness and diagnostics refinement based on the first full-load v3.6.55 acceptance capture.
+v3.6.57 refines the Smart Import integrity-hold workflow using the first real v3.6.56 duplicate-content acceptance capture.
 
-- **Pre-import cross-episode duplicate protection:** if an incoming TV file is byte-identical to a different episode already in the same library title, Smart Import stops before commit and preserves the download for Needs Review.
-- **Season-pack duplicate protection:** two incoming episode files with identical bytes are detected before either is committed.
-- **Recovered SAB warning handling:** stale warnings naming releases that later completed successfully are retained as historical evidence but no longer presented as current engine warnings.
-- **Clearer overlap telemetry:** raw SAB slot-status overlap is reported separately from actual visible Active-card correction, with bounded examples rather than long UUID signatures.
-- **Cheaper diagnostics:** JSON diagnostics and the text report can reuse one coherent 1.5-second snapshot generation.
-- **Existing safety preserved:** v3.6.55 terminal-history efficiency, v3.6.54 compaction, the v3.6.53 NZB identity gate, Smart Import ownership rules, and private SABnzbd 5.1.2 remain intact.
+- **Counts match the tabs:** durable Completed/Failed counters now use the same presentation classification as the page-native history indexes, while raw SAB transfer outcomes remain separately available in diagnostics.
+- **Explicit Integrity Hold failures:** duplicate-content imports carry `import_integrity_hold` as their failure class with preserved reason/fingerprint evidence.
+- **Exact bad-release memory:** a release that produces a proven cross-episode duplicate fingerprint is blacklisted for that target so NewzDeck will not download the same post again.
+- **Repeated-conflict stop condition:** if two distinct releases produce the same conflicting fingerprint for one target, unattended searching pauses for manual review instead of burning bandwidth across more equivalent payloads.
+- **Automation Health visibility:** active Integrity Holds are surfaced separately from ordinary preserved imports.
+- **Existing safety preserved:** v3.6.56 pre-import duplicate protection, v3.6.55 terminal-history efficiency, recovered SAB-warning handling, diagnostics caching, Smart Import ownership, and private SABnzbd 5.1.2 remain intact.
 
-See [the full v3.6.56 release notes](release/RELEASE_NOTES_v3.6.56.md).
+See [the full v3.6.57 release notes](release/RELEASE_NOTES_v3.6.57.md).
 
 ## Requirements
 
@@ -68,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.56_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.57_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

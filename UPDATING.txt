@@ -1,14 +1,14 @@
-NewzDeck v3.6.56
-Smart Import Duplicate Protection & Diagnostics Refinement
+NewzDeck v3.6.57
+Import Hold Semantics & Downloads Count Integrity
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.56 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.57 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
-Existing settings, providers, Automation libraries, queue state, durable Downloads history, statistics, and private SABnzbd 5.1.2 state are preserved. The update does not restart or replace healthy SAB transfer state unnecessarily.
+Existing settings, providers, Automation state, queue ownership, durable terminal history, statistics and private SABnzbd 5.1.2 are preserved.
 
-Smart Import now adds a fail-closed pre-commit check for byte-identical media assigned to different episodes of the same TV title. A conflict preserves the downloaded SAB output and returns Needs Review rather than moving the suspicious file into the library.
+v3.6.57 changes only NewzDeck presentation/import policy around integrity-held media: raw SAB transfer outcomes remain authoritative, while Completed/Failed UI counts reflect the final NewzDeck presentation result. Proven bad duplicate-content releases are remembered per target, and repeated identical conflicts pause unattended retries for manual review.
 
 PORTABLE NEWZDECK
 -----------------
-Close NewzDeck and extract the v3.6.56 Portable ZIP to a fresh folder. User data remains outside the application directory.
+Close NewzDeck and extract the v3.6.57 Portable ZIP to a fresh folder. User data remains outside the application directory.
