@@ -1,11 +1,10 @@
-NewzDeck v3.6.55
-Terminal History Index & Diagnostics Efficiency
+NewzDeck v3.6.56
+Smart Import Duplicate Protection & Diagnostics Refinement
 
-New in v3.6.55:
-- Unchanged terminal-history sync passes return before copying, sorting, or rebuilding the durable Completed/Failed index.
-- Real terminal-history mutations now own exactly one index rebuild, removing the duplicate rebuild path seen during sustained v3.6.54 operation.
-- New terminal-history sync/no-op/rebuild telemetry makes long-history efficiency directly observable.
-- /api/diagnostics now uses scope-native Live Downloads and reports operational tracked/presentable jobs separately from durable Completed/Failed/Cancelled counts.
-- Unmeasured provider latency/success is reported as N/A instead of 0 ms / None%.
-- Multi-active diagnostics retain current/last overlap signatures and distinguish raw SAB overlap from visible-card normalization.
-- Preserves v3.6.54 compaction/startup efficiency, v3.6.53 NZB identity/Smart Import safeguards, and private SABnzbd 5.1.2 authority.
+New in v3.6.56:
+- Smart Import stops before commit when incoming TV media is byte-identical to a different episode of the same title; the downloaded output is preserved for Needs Review.
+- Incoming season-pack episodes are also checked against one another for identical bytes before commit.
+- SAB warnings tied to releases that later completed successfully are retained as resolved historical evidence instead of remaining current engine warnings.
+- Raw SAB Active-slot overlap is separated from real visible-card correction and uses bounded examples instead of long UUID signatures.
+- /api/diagnostics and /api/diagnostics/report share a coherent 1.5-second snapshot cache to avoid duplicate expensive aggregation.
+- Preserves v3.6.55 terminal-history efficiency, v3.6.54 compaction, v3.6.53 identity/Smart Import safeguards, and private SABnzbd 5.1.2 authority.

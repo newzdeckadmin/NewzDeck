@@ -1,12 +1,14 @@
-NewzDeck v3.6.55
-Terminal History Index & Diagnostics Efficiency
+NewzDeck v3.6.56
+Smart Import Duplicate Protection & Diagnostics Refinement
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.55 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.56 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
-v3.6.55 does not change the private SABnzbd transfer/repair/extraction stack or user-data layout. It optimizes how NewzDeck synchronizes its durable terminal-history index and makes diagnostics distinguish operational state from durable history accurately.
+Existing settings, providers, Automation libraries, queue state, durable Downloads history, statistics, and private SABnzbd 5.1.2 state are preserved. The update does not restart or replace healthy SAB transfer state unnecessarily.
 
-Existing settings, providers, Automation state, durable terminal history, download statistics, queue ownership, user data, and private SABnzbd 5.1.2 are preserved.
+Smart Import now adds a fail-closed pre-commit check for byte-identical media assigned to different episodes of the same TV title. A conflict preserves the downloaded SAB output and returns Needs Review rather than moving the suspicious file into the library.
 
-Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder. User data remains outside the application directory.
+PORTABLE NEWZDECK
+-----------------
+Close NewzDeck and extract the v3.6.56 Portable ZIP to a fresh folder. User data remains outside the application directory.

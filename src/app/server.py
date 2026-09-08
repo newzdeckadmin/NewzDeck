@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.55"
+APP_VERSION = "3.6.56"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11788,7 +11788,14 @@ def _client_disconnected(exc: BaseException) -> bool:
     low=str(exc or '').casefold()
     return any(x in low for x in ('forcibly closed','connection reset by peer','broken pipe','software caused connection abort'))
 
-def diagnostics_snapshot() -> dict[str, Any]:
+DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS = 1.5
+_DIAGNOSTICS_SNAPSHOT_CACHE_LOCK = threading.RLock()
+_DIAGNOSTICS_SNAPSHOT_CACHE_TS = 0.0
+_DIAGNOSTICS_SNAPSHOT_CACHE_VALUE: dict[str,Any]|None = None
+_DIAGNOSTICS_SNAPSHOT_CACHE_HITS = 0
+_DIAGNOSTICS_SNAPSHOT_CACHE_MISSES = 0
+
+def _diagnostics_snapshot_uncached() -> dict[str, Any]:
     base = DIAGNOSTICS.snapshot(); metrics = base.get('providers', {})
     providers = []
     pool_stats = download_pool_stats()
@@ -11861,6 +11868,38 @@ def diagnostics_snapshot() -> dict[str, Any]:
         'automation_storage': MEDIA_AUTOMATION.storage_health_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'roots':[],'low_roots':[]},
     }
 
+
+def diagnostics_snapshot(*, force:bool=False) -> dict[str, Any]:
+    """Return one coherent, briefly reusable diagnostics generation.
+
+    Collector and UI commonly request JSON diagnostics and the text report back to
+    back. Reusing the same generation for 1.5 seconds avoids repeating Downloads,
+    Automation and storage aggregation while keeping diagnostics effectively live.
+    """
+    global _DIAGNOSTICS_SNAPSHOT_CACHE_TS,_DIAGNOSTICS_SNAPSHOT_CACHE_VALUE
+    global _DIAGNOSTICS_SNAPSHOT_CACHE_HITS,_DIAGNOSTICS_SNAPSHOT_CACHE_MISSES
+    now=time.monotonic()
+    with _DIAGNOSTICS_SNAPSHOT_CACHE_LOCK:
+        age=max(0.0,now-float(_DIAGNOSTICS_SNAPSHOT_CACHE_TS or 0.0))
+        if (not force) and isinstance(_DIAGNOSTICS_SNAPSHOT_CACHE_VALUE,dict) and age<=DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS:
+            _DIAGNOSTICS_SNAPSHOT_CACHE_HITS+=1
+            result=dict(_DIAGNOSTICS_SNAPSHOT_CACHE_VALUE)
+            result['diagnostics_cache']={
+                'hit':True,'age_seconds':round(age,3),'ttl_seconds':DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS,
+                'hits':int(_DIAGNOSTICS_SNAPSHOT_CACHE_HITS),'misses':int(_DIAGNOSTICS_SNAPSHOT_CACHE_MISSES),
+            }
+            return result
+        _DIAGNOSTICS_SNAPSHOT_CACHE_MISSES+=1
+        value=_diagnostics_snapshot_uncached()
+        _DIAGNOSTICS_SNAPSHOT_CACHE_VALUE=value
+        _DIAGNOSTICS_SNAPSHOT_CACHE_TS=time.monotonic()
+        result=dict(value)
+        result['diagnostics_cache']={
+            'hit':False,'age_seconds':0.0,'ttl_seconds':DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS,
+            'hits':int(_DIAGNOSTICS_SNAPSHOT_CACHE_HITS),'misses':int(_DIAGNOSTICS_SNAPSHOT_CACHE_MISSES),
+        }
+        return result
+
 def diagnostics_report() -> str:
     d = diagnostics_snapshot()
     memory_line = f"Memory: {d['memory_bytes']} bytes" if int(d.get('memory_bytes',0) or 0) > 0 else f"Memory: unavailable ({d.get('memory_error') or 'unknown error'})"
@@ -11870,6 +11909,7 @@ def diagnostics_report() -> str:
     conn=d['connections']; engine=(d.get('downloads') or {}).get('engine') or {}
     if str(engine.get('name') or '').casefold() == 'sabnzbd':
         lines.append(f"Download engine: SABnzbd {engine.get('version','')} built-in; ready={engine.get('ready',False)}; live_connections={conn.get('active',0)}; allocated_connections={conn.get('capacity',0)}; provider_workers={conn.get('runtime_servers',0)}/{conn.get('expected_servers',0)} runtime, {conn.get('configured_servers',0)}/{conn.get('expected_servers',0)} configured; provider_summary={conn.get('provider_summary','')}; localhost_only={engine.get('localhost_only',True)}; last_error={engine.get('last_error','')}")
+        lines.append(f"SAB warnings: current_engine={len(conn.get('engine_warnings') or [])}; resolved_historical={int(conn.get('resolved_engine_warning_count',0) or 0)}; resolved_examples={' | '.join(str(x) for x in (conn.get('resolved_engine_warnings') or [])[:2]) or 'none'}")
         tel=(d.get('downloads') or {}).get('telemetry') or {}
         downloads_diag=d.get('downloads') or {}
         durable_counts=downloads_diag.get('durable_terminal_counts') if isinstance(downloads_diag.get('durable_terminal_counts'),dict) else {}
@@ -11895,12 +11935,19 @@ def diagnostics_report() -> str:
         )
         lines.append(f"Active-card continuity: bridges={int(tel.get('active_card_continuity_bridges',0) or 0)}; last_bridge_ts={float(tel.get('active_card_continuity_last_ts',0) or 0):.3f}")
         lines.append(
+            "Raw SAB slot overlap: "
+            f"episodes={int(tel.get('raw_sab_active_overlap_episodes',0) or 0)}; "
+            f"samples={int(tel.get('raw_sab_active_overlap_samples',0) or 0)}; "
+            f"active={bool(tel.get('raw_sab_active_overlap_active',False))}; "
+            f"slots_reporting_active={int(tel.get('sab_slots_reporting_active',0) or 0)}; "
+            f"foreground_id={str(tel.get('foreground_transfer_id','') or '')}; "
+            f"examples={','.join(str(x) for x in (tel.get('sab_active_slot_examples') or [])[:3]) or 'none'}"
+        )
+        lines.append(
             "Multi-active normalization: "
-            f"episodes={int(tel.get('multiple_active_slot_corrections',0) or 0)}; "
-            f"samples={int(tel.get('multiple_active_slot_samples',0) or 0)}; "
-            f"active={bool(tel.get('multiple_active_slot_active',False))}; "
-            f"current_has_sab_overlap={bool(tel.get('multiple_active_slot_current_has_sab_overlap',False))}; "
-            f"current_has_visible_correction={bool(tel.get('multiple_active_slot_current_has_visible_correction',False))}; "
+            f"visible_correction_episodes={int(tel.get('visible_multi_active_corrections',tel.get('multiple_active_slot_corrections',0)) or 0)}; "
+            f"visible_samples={int(tel.get('visible_multi_active_samples',tel.get('multiple_active_slot_samples',0)) or 0)}; "
+            f"visible_active={bool(tel.get('visible_multi_active_active',tel.get('multiple_active_slot_active',False)))}; "
             f"current_signature={str(tel.get('multiple_active_slot_current_signature','') or '')}; "
             f"last_signature={str(tel.get('multiple_active_slot_last_signature','') or '')}"
         )
@@ -12695,7 +12742,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 DIAGNOSTICS.provider_result(p.get('host',''), int(p.get('port',563)), ok=False, latency_ms=latency, error=str(exc))
                 DIAGNOSTICS.event('warning','provider',f"Provider health probe failed: {exc}", provider=p.get('name') or p.get('host'))
                 results.append({"id": p.get("id"), "ok": False, "latency_ms": latency, "error": str(exc)})
-        return self._json(200, {"results": results, "diagnostics": diagnostics_snapshot()})
+        return self._json(200, {"results": results, "diagnostics": diagnostics_snapshot(force=True)})
 
     def save_provider_api(self, data: dict[str, Any]):
         host = str(data.get("host", "")).strip()

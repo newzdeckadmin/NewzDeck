@@ -671,6 +671,7 @@ class MediaAutomationEngine:
         self._scan_merge_conflicts = 0
         self._downgrades_blocked = 0
         self._existing_quality_recovered = 0
+        self._cross_episode_fingerprint_imports_blocked = 0
         self._target_integrity_last_ts = 0.0
         self._grab_reservations_pruned = 0
         self._grab_reservation_invalid_pruned = 0
@@ -694,6 +695,7 @@ class MediaAutomationEngine:
             'scan_merge_conflicts':'_scan_merge_conflicts',
             'downgrades_blocked':'_downgrades_blocked',
             'existing_quality_recovered':'_existing_quality_recovered',
+            'cross_episode_fingerprint_imports_blocked':'_cross_episode_fingerprint_imports_blocked',
         }.get(str(field or ''))
         if not attr:
             return
@@ -708,6 +710,7 @@ class MediaAutomationEngine:
                 'scan_merge_conflicts':int(self._scan_merge_conflicts),
                 'downgrades_blocked':int(self._downgrades_blocked),
                 'existing_quality_recovered':int(self._existing_quality_recovered),
+                'cross_episode_fingerprint_imports_blocked':int(self._cross_episode_fingerprint_imports_blocked),
                 'grab_reservations_pruned':int(self._grab_reservations_pruned),
                 'grab_reservation_invalid_pruned':int(self._grab_reservation_invalid_pruned),
                 'grab_reservation_cleanup_last_ts':float(self._grab_reservation_cleanup_last_ts or 0),
@@ -4874,6 +4877,97 @@ class MediaAutomationEngine:
                 inspections.append({'source':str(e['source']),'identified':f"{title} S{int(e['season']):02d}E{int(e['episode']):02d} — {e['episode_title']}",'quality':e['quality'],'action':e['action'],'destination':str(e['dest']),'reason':e['reason']})
         return {'entries':entries,'inspections':inspections,'error':''}
 
+    def _preimport_cross_episode_fingerprint_conflicts(self, item:dict[str,Any], entries:list[dict[str,Any]]) -> list[dict[str,Any]]:
+        """Detect byte-identical media assigned to different episodes before commit.
+
+        Library Integrity already reports this condition after the fact. v3.6.56
+        moves the same conservative proof in front of Smart Import so unattended
+        Automation cannot commit a second physical episode file whose bytes are
+        already owned by another episode of the same TV title. The downloaded SAB
+        output is preserved for Needs Review; no library file is deleted or replaced.
+        """
+        if str(item.get('kind') or '')!='tv':
+            return []
+        existing_by_fp:dict[str,list[dict[str,Any]]]={}
+        for season in item.get('seasons') or []:
+            sn=int(season.get('season_number') or 0)
+            for ep in season.get('episodes') or []:
+                if not ep.get('has_file') or not str(ep.get('file_path') or '').strip():
+                    continue
+                path=Path(str(ep.get('file_path') or ''))
+                fp=str(ep.get('file_fingerprint') or '').strip()
+                # Do not hash the whole library during every import. Normal scans
+                # persist fingerprints; a candidate match is reverified physically
+                # below before it can block an incoming file.
+                if not fp or not path.exists():
+                    continue
+                existing_by_fp.setdefault(fp,[]).append({
+                    'season':sn,'episode':int(ep.get('episode_number') or 0),
+                    'path':str(path),'name':str(ep.get('name') or ''),
+                })
+
+        actionable=[]
+        for entry in entries:
+            if str(entry.get('action') or '') not in {'IMPORT','UPGRADE'}:
+                continue
+            if entry.get('season') is None or entry.get('episode') is None:
+                continue
+            source=Path(entry.get('source'))
+            fp=self._media_fingerprint(source) if source.exists() else ''
+            if not fp:
+                continue
+            actionable.append((entry,fp))
+
+        conflicts=[]; seen=set()
+        incoming_by_fp:dict[str,list[dict[str,Any]]]={}
+        for entry,fp in actionable:
+            target=(int(entry.get('season') or 0),int(entry.get('episode') or 0))
+            incoming_by_fp.setdefault(fp,[]).append(entry)
+            for existing in existing_by_fp.get(fp) or []:
+                other=(int(existing.get('season') or 0),int(existing.get('episode') or 0))
+                if other==target:
+                    continue
+                existing_path=Path(str(existing.get('path') or ''))
+                if not existing_path.exists() or self._media_fingerprint(existing_path)!=fp:
+                    # Persisted fingerprint became stale after an external file
+                    # replacement/removal; never block Smart Import on stale metadata.
+                    continue
+                key=(str(entry.get('source') or ''),target,other,fp)
+                if key in seen:
+                    continue
+                seen.add(key)
+                conflicts.append({
+                    'source':str(entry.get('source') or ''),'fingerprint':fp,
+                    'season':target[0],'episode':target[1],
+                    'conflicts_with_season':other[0],'conflicts_with_episode':other[1],
+                    'conflicts_with_path':str(existing.get('path') or ''),
+                    'reason':f'Incoming media is byte-identical to existing S{other[0]:02d}E{other[1]:02d} of the same TV title',
+                })
+        # Also block a bad season pack that contains two separately named episode
+        # files with identical bytes before either file reaches the library.
+        for fp,group in incoming_by_fp.items():
+            targets={(int(x.get('season') or 0),int(x.get('episode') or 0)) for x in group}
+            if len(targets)<=1:
+                continue
+            ordered=sorted(targets)
+            for entry in group:
+                target=(int(entry.get('season') or 0),int(entry.get('episode') or 0))
+                other=next((x for x in ordered if x!=target),None)
+                if other is None:
+                    continue
+                key=(str(entry.get('source') or ''),target,other,fp)
+                if key in seen:
+                    continue
+                seen.add(key)
+                conflicts.append({
+                    'source':str(entry.get('source') or ''),'fingerprint':fp,
+                    'season':target[0],'episode':target[1],
+                    'conflicts_with_season':other[0],'conflicts_with_episode':other[1],
+                    'conflicts_with_path':'',
+                    'reason':f'Two incoming episode files are byte-identical (also mapped to S{other[0]:02d}E{other[1]:02d})',
+                })
+        return conflicts
+
     def _enforce_no_downgrade(self, entries:list[dict[str,Any]], inspections:list[dict[str,Any]], profile:dict[str,Any]) -> None:
         """Revalidate physical destinations immediately before Smart Import commit."""
         for entry in entries:
@@ -5217,6 +5311,26 @@ class MediaAutomationEngine:
             plan=self._build_import_plan(item,context,files,root,profile)
             if plan.get('error'): return {'ok':False,'needs_attention':True,'reason':str(plan.get('error')),'inspection':plan.get('inspections') or []}
             entries=list(plan.get('entries') or []); inspections=list(plan.get('inspections') or [])
+            fingerprint_conflicts=self._preimport_cross_episode_fingerprint_conflicts(item,entries)
+            if fingerprint_conflicts:
+                self._note_target_integrity('cross_episode_fingerprint_imports_blocked',len(fingerprint_conflicts))
+                for conflict in fingerprint_conflicts:
+                    inspections.append({
+                        'source':str(conflict.get('source') or ''),
+                        'identified':f"{item.get('title') or 'TV'} S{int(conflict.get('season') or 0):02d}E{int(conflict.get('episode') or 0):02d}",
+                        'quality':'','action':'NEEDS_ATTENTION','destination':'',
+                        'reason':str(conflict.get('reason') or 'Incoming media duplicates another episode'),
+                        'fingerprint':str(conflict.get('fingerprint') or ''),
+                        'conflicts_with_season':conflict.get('conflicts_with_season'),
+                        'conflicts_with_episode':conflict.get('conflicts_with_episode'),
+                        'conflicts_with_path':str(conflict.get('conflicts_with_path') or ''),
+                    })
+                self._event('import-integrity-hold',f"Held Smart Import for {item.get('title')} because incoming media duplicates another episode",item_id=item.get('id'),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),conflicts=fingerprint_conflicts[:12],needs_review=True)
+                return {
+                    'ok':False,'needs_attention':True,'integrity_hold':True,
+                    'reason':'Smart Import was held for review because the incoming media is byte-identical to a different episode of the same TV title. The downloaded output was preserved.',
+                    'inspection':inspections,'fingerprint_conflicts':fingerprint_conflicts[:20],
+                }
             attention=[x for x in inspections if x.get('action')=='NEEDS_ATTENTION']
             if not entries:
                 self._event('import-inspection',f"Import Inspector found no safe target for {item.get('title')}",item_id=item.get('id'),season=context.get('season'),episode=context.get('episode'),season_pack=bool(context.get('season_pack')),inspections=inspections[:80],needs_attention=max(1,len(attention)),imported=0)

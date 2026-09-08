@@ -1,26 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.55",
-  "base_version": "3.6.54",
-  "release": "Terminal History Index & Diagnostics Efficiency",
-  "adapter_version": "3.6.55",
-  "name": "Terminal History Index & Diagnostics Efficiency",
+  "version": "3.6.56",
+  "base_version": "3.6.55",
+  "release": "Smart Import Duplicate Protection & Diagnostics Refinement",
+  "adapter_version": "3.6.56",
+  "name": "Smart Import Duplicate Protection & Diagnostics Refinement",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds a no-op terminal-history sync fast path so the 2-second completion monitor does not copy, sort, or rebuild the full durable history when no terminal row changed.",
-    "Makes a durable terminal-history mutation own exactly one index rebuild; removals no longer rebuild once before the write and again inside the write.",
-    "Adds terminal-history sync/no-op/rebuild-avoidance telemetry so full-load diagnostics can prove that unchanged passes stay cheap as history grows toward 5,000 rows.",
-    "Makes /api/diagnostics consume the scope-native Live snapshot and report operational tracked/presentable jobs separately from durable Completed/Failed/Cancelled history counts.",
-    "Reports unmeasured provider latency/success as N/A instead of 0 ms / None%, while preserving raw runtime connection state from the private SAB engine.",
-    "Retains current and last multi-active overlap signatures and identifies raw SAB overlap versus visible-card normalization without changing the one-foreground-package presentation rule.",
-    "Preserves private SABnzbd 5.1.2 transfer/repair/extraction authority plus all v3.6.54 compaction, v3.6.53 identity-gate, Smart Import, Library Integrity, Selected Episodes and runtime-handoff protections."
+    "Blocks unattended TV Smart Import before commit when incoming media is byte-identical to a different episode of the same library title; the downloaded output is preserved for Needs Review.",
+    "Detects identical bytes across two different episode files inside the same incoming season pack before either file is committed.",
+    "Demotes stale SAB engine warnings to resolved historical evidence when the exact named release is already owned by successful durable terminal history, without altering SAB logs.",
+    "Separates raw SAB per-slot Active overlap from actual visible-card corrections and bounds overlap examples instead of transporting long UUID signatures.",
+    "Caches one coherent /api/diagnostics generation for 1.5 seconds so JSON diagnostics and the text report can reuse expensive Downloads/Automation/storage aggregation.",
+    "Preserves the v3.6.55 terminal-history no-op fast path, private SABnzbd 5.1.2 authority, NZB identity gate, Smart Import ownership, Library Integrity and runtime handoff."
   ],
   "regression_guards": [
-    "Repeated unchanged terminal-history syncs must not increase terminal-history index rebuild or write counters.",
-    "One actual terminal-history mutation must produce one durable write and one index rebuild while preserving Completed/Failed counts and page-native history behavior.",
-    "Removing a durable history row must rebuild exactly once and keep the retained history/index consistent.",
-    "Diagnostics must use scope-native Live Downloads, expose durable terminal counts separately from operational tracked counts, and must not print 0 ms / None% for unmeasured providers.",
-    "Multi-active telemetry must retain the last overlap signature and expose whether the current overlap comes from raw SAB state, visible-card normalization, or both.",
-    "All v3.6.54 compaction/startup, v3.6.53 NZB identity, SAB 5.1.2, Library Integrity, Selected Episodes and earlier production guards remain mandatory."
+    "Incoming TV media matching another episode fingerprint must fail closed before Smart Import commit and preserve the source for review.",
+    "Two incoming episode targets with identical bytes must be detected before a season-pack transaction commits either file.",
+    "A stale SAB warning naming a durably Completed release must leave current engine_warnings while remaining available as resolved historical warning evidence.",
+    "Raw SAB Active-slot overlap must use bounded count/example telemetry and must not increment visible multi-active correction telemetry by itself.",
+    "Diagnostics snapshot/report requests within the short cache TTL must be able to reuse one coherent generation.",
+    "All v3.6.55 history-efficiency and durable diagnostics guards plus prior production regressions remain mandatory."
   ]
 }

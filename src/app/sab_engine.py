@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.55"
+ADAPTER_VERSION = "3.6.56"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -802,6 +802,10 @@ class SabDownloadManager:
         # an ordered ID vector instead of copying/sorting every history row.
         self._terminal_history_index: dict[str, list[str]] = {"completed": [], "failed": []}
         self._terminal_status_counts: dict[str, int] = {"completed": 0, "failed": 0, "cancelled": 0}
+        # v3.6.56: exact completed-release identifiers used to demote stale SAB
+        # warning text after authoritative terminal completion. Rebuilt only with
+        # durable history, so provider-health reads never scan all 5,000 rows.
+        self._terminal_resolved_warning_keys: set[str] = set()
         self._terminal_history_index_rebuilds = 0
         self._terminal_history_sync_runs = 0
         self._terminal_history_sync_noops = 0
@@ -1121,6 +1125,16 @@ class SabDownloadManager:
         self._multiple_active_slot_condition_since = 0.0
         self._multiple_active_slot_last_ts = 0.0
         self._multiple_active_slot_last_signature = ""
+        # v3.6.56: raw SAB per-slot status overlap is diagnostic evidence, not a
+        # user-visible correction. Keep it separate and bounded.
+        self._raw_sab_active_overlap_episodes = 0
+        self._raw_sab_active_overlap_samples = 0
+        self._raw_sab_active_overlap_active = False
+        self._raw_sab_active_overlap_since = 0.0
+        self._raw_sab_active_overlap_last_ts = 0.0
+        self._raw_sab_active_slot_count = 0
+        self._raw_sab_active_slot_examples: list[str] = []
+        self._raw_sab_foreground_id = ""
         self._progress_regression_corrections = 0
         self._progress_regression_last_ts = 0.0
         # v3.6.20: one authoritative private SAB identity. Historical identities
@@ -3893,6 +3907,28 @@ class SabDownloadManager:
             "direct unpack automatically enabled",
         ))
 
+    def _engine_warning_resolved_by_terminal_history(self, text: Any) -> bool:
+        """Return True when warning text names a release now durably completed.
+
+        SAB keeps historical warnings across NewzDeck service upgrades. A stale file
+        cleanup warning must not remain the current engine warning after that exact
+        release has completed successfully. Raw SAB logs remain untouched.
+        """
+        low=str(text or '').strip().casefold()
+        if not low:
+            return False
+        with self._terminal_history_lock:
+            keys=set(self._terminal_resolved_warning_keys)
+        if not keys:
+            return False
+        # SAB file warnings normally include the release output directory as one
+        # path segment. Exact segment matching avoids fuzzy title suppression.
+        for segment in re.split(r'[\\/]+',low):
+            candidate=segment.strip().strip('"\'')
+            if candidate in keys:
+                return True
+        return False
+
     def _provider_health_cached_snapshot(self) -> dict[str, Any]:
         now=time.time()
         if self._provider_health_cache:
@@ -3914,7 +3950,7 @@ class SabDownloadManager:
             "available":False,"runtime_state_known":False,"active_connections":0,
             "capacity":sum(int(x.get("connections") or 0) for x in enabled.values()),
             "servers":[],"errors":[],"warnings":[],"provider_warnings":[],
-            "engine_warnings":[],"engine_notices":[],"disk_error":"","summary":"",
+            "engine_warnings":[],"engine_notices":[],"resolved_engine_warnings":[],"resolved_engine_warning_count":0,"disk_error":"","summary":"",
             "expected_servers":len(enabled),"configured_servers":0,"runtime_servers":-1,
             "missing_config":[],"missing_runtime":[],"control_degraded":False,"control_error":"",
             "cache_age_seconds":0.0,"cache_source":"not-yet-refreshed",
@@ -3991,10 +4027,12 @@ class SabDownloadManager:
             if not warning_text:
                 warning_text = self._active_warnings(timeout=1.2)
 
-            provider_warnings = [x for x in warning_text if self._provider_warning_relevant(x)]
-            engine_notices = [x for x in warning_text if x not in provider_warnings and self._engine_warning_informational(x)]
-            engine_warnings = [x for x in warning_text if x not in provider_warnings and x not in engine_notices]
-            disk_error = next((x for x in warning_text if self._disk_warning(x)), "")
+            resolved_engine_warnings = [x for x in warning_text if self._engine_warning_resolved_by_terminal_history(x)]
+            current_warning_text = [x for x in warning_text if x not in resolved_engine_warnings]
+            provider_warnings = [x for x in current_warning_text if self._provider_warning_relevant(x)]
+            engine_notices = [x for x in current_warning_text if x not in provider_warnings and self._engine_warning_informational(x)]
+            engine_warnings = [x for x in current_warning_text if x not in provider_warnings and x not in engine_notices]
+            disk_error = next((x for x in current_warning_text if self._disk_warning(x)), "")
             summary = errors[0] if errors else (provider_warnings[0] if provider_warnings else "")
             if not summary and enabled_expected and missing_config:
                 names = ", ".join(str(enabled_expected[x].get("display_name") or x) for x in missing_config[:2])
@@ -4011,10 +4049,13 @@ class SabDownloadManager:
                 "capacity": reported_capacity or sum(int(x.get("connections") or 0) for x in enabled_expected.values()),
                 "servers": servers,
                 "errors": errors,
-                "warnings": warning_text,
+                "warnings": current_warning_text,
+                "raw_warnings": warning_text,
                 "provider_warnings": provider_warnings,
                 "engine_warnings": engine_warnings,
                 "engine_notices": engine_notices,
+                "resolved_engine_warnings": resolved_engine_warnings[:10],
+                "resolved_engine_warning_count": len(resolved_engine_warnings),
                 "disk_error": disk_error,
                 "summary": summary,
                 "expected_servers": len(enabled_expected),
@@ -4048,7 +4089,7 @@ class SabDownloadManager:
                     "active_connections": 0,
                     "capacity": sum(int(x.get("connections") or 0) for x in enabled_expected.values()),
                     "servers": [], "errors": [], "warnings": [],
-                    "provider_warnings": [], "engine_warnings": [], "engine_notices": [], "disk_error": "",
+                    "provider_warnings": [], "engine_warnings": [], "engine_notices": [], "resolved_engine_warnings": [], "resolved_engine_warning_count": 0, "disk_error": "",
                     "summary": "SAB status temporarily unavailable" if self._is_transient_control_error(exc) else str(exc),
                     "expected_servers": len(enabled_expected), "configured_servers": len(configured),
                     "runtime_servers": -1, "missing_config": [x for x in enabled_expected if x not in configured],
@@ -4885,7 +4926,7 @@ class SabDownloadManager:
     def _rebuild_terminal_history_indexes_locked(self) -> None:
         rows=self._terminal_history.get("rows") if isinstance(self._terminal_history,dict) else {}
         if not isinstance(rows,dict): rows={}
-        completed=[]; failed=[]; counts={"completed":0,"failed":0,"cancelled":0}
+        completed=[]; failed=[]; counts={"completed":0,"failed":0,"cancelled":0}; resolved_warning_keys:set[str]=set()
         # rows are already stored newest-first; preserve that durable order.
         for raw_id,row in rows.items():
             if not isinstance(row,dict): continue
@@ -4894,10 +4935,20 @@ class SabDownloadManager:
             status=str(row.get("status") or "").casefold()
             if status in counts: counts[status]+=1
             scope=self._terminal_history_scope_for_row(row)
-            if scope=="completed": completed.append(nzo_id)
+            if scope=="completed":
+                completed.append(nzo_id)
+                # A Completed terminal row is authoritative proof that an older SAB
+                # warning naming this exact release is no longer current. Build exact
+                # identifiers once with the history index rather than scanning rows
+                # on each provider-health request.
+                if status=="completed" and str(row.get("post_status") or "").casefold() not in {"failed","needs_attention","needs_tool","blocked","cancelled"}:
+                    for raw_key in (row.get("collection_name"),row.get("filename"),row.get("automation_release_title")):
+                        key=str(raw_key or "").strip().casefold()
+                        if len(key)>=8: resolved_warning_keys.add(key)
             elif scope=="failed": failed.append(nzo_id)
         self._terminal_history_index={"completed":completed,"failed":failed}
         self._terminal_status_counts=counts
+        self._terminal_resolved_warning_keys=resolved_warning_keys
         self._terminal_history_index_rebuilds+=1
 
     def _write_terminal_history(self) -> None:
@@ -7238,6 +7289,25 @@ class SabDownloadManager:
             self._multiple_active_slot_condition_since = now
             self._multiple_active_slot_last_ts = now
 
+    def _observe_raw_sab_active_overlap(self, active_ids:list[str], foreground_id:str, now:float) -> None:
+        """Track raw SAB slot-status overlap without calling it a UI correction."""
+        ids=[str(x or '').strip() for x in active_ids if str(x or '').strip()]
+        count=len(ids)
+        active=count>1
+        self._raw_sab_active_slot_count=count
+        self._raw_sab_active_slot_examples=ids[:3]
+        self._raw_sab_foreground_id=str(foreground_id or '')
+        if active:
+            self._raw_sab_active_overlap_samples+=1
+            if not self._raw_sab_active_overlap_active:
+                self._raw_sab_active_overlap_episodes+=1
+                self._raw_sab_active_overlap_since=now
+            self._raw_sab_active_overlap_active=True
+            self._raw_sab_active_overlap_last_ts=now
+        else:
+            self._raw_sab_active_overlap_active=False
+            self._raw_sab_active_overlap_since=0.0
+
     def _snapshot_uncached(self, scope_mode: str = "all") -> dict[str, Any]:
         scope_mode = "live" if str(scope_mode or "all").strip().casefold() == "live" else "all"
         now = time.time()
@@ -7378,9 +7448,8 @@ class SabDownloadManager:
         )
         explicit_active_ids = [str(x.get("nzo_id") or x.get("id") or "") for x in explicit_active_slots]
         foreground_id = explicit_active_ids[0] if explicit_active_ids else ""
-        multi_active_parts: list[str] = []
-        if len(explicit_active_ids) > 1:
-            multi_active_parts.append("sab:" + ",".join(explicit_active_ids))
+        self._observe_raw_sab_active_overlap(explicit_active_ids,foreground_id,now)
+        visible_multi_active_signature = ""
         # Keep SAB's aggregate Downloading state as a recovery signal, but do not use
         # that aggregate flag alone to promote an arbitrary Queued slot to Active.
         # v3.5.6 could therefore render a false Active package with 0 B/s / 0 sockets.
@@ -7884,9 +7953,10 @@ class SabDownloadManager:
                     c["speed_bps"] = 0
                     c["eta_seconds"] = 0
                     c["connections_used"] = 0
-            multi_active_parts.append("visible:" + ",".join(sorted(str(j.get("id") or "") for j in active_jobs_now)))
+            visible_ids=sorted(str(j.get("id") or "") for j in active_jobs_now if str(j.get("id") or ""))
+            visible_multi_active_signature=f"visible:{len(visible_ids)}:{keep_id}:" + ",".join(visible_ids[:3])
 
-        self._observe_multiple_active_condition("|".join(multi_active_parts), now)
+        self._observe_multiple_active_condition(visible_multi_active_signature, now)
 
         # Completed history must be deterministic and reverse-chronological. SAB's
         # queue/history responses and NewzDeck's tracked dictionary are not a stable
@@ -7952,6 +8022,8 @@ class SabDownloadManager:
                        "provider_warnings": list(provider_health.get("provider_warnings") or [])[:10],
                        "engine_warnings": list(provider_health.get("engine_warnings") or [])[:10],
                        "engine_notices": list(provider_health.get("engine_notices") or [])[:10],
+                       "resolved_engine_warnings": list(provider_health.get("resolved_engine_warnings") or [])[:10],
+                       "resolved_engine_warning_count": int(provider_health.get("resolved_engine_warning_count", 0) or 0),
                        "provider_health_cache_age_seconds": float(provider_health.get("cache_age_seconds", 0.0) or 0.0),
                        "provider_health_cache_source": str(provider_health.get("cache_source") or ""),
                        "disk_error": disk_error,
@@ -8046,6 +8118,17 @@ class SabDownloadManager:
                                 "multiple_active_slot_last_signature": str(self._multiple_active_slot_last_signature or ""),
                                 "multiple_active_slot_current_has_sab_overlap": bool("sab:" in str(self._multiple_active_slot_condition or "")),
                                 "multiple_active_slot_current_has_visible_correction": bool("visible:" in str(self._multiple_active_slot_condition or "")),
+                                "raw_sab_active_overlap_episodes": int(self._raw_sab_active_overlap_episodes),
+                                "raw_sab_active_overlap_samples": int(self._raw_sab_active_overlap_samples),
+                                "raw_sab_active_overlap_active": bool(self._raw_sab_active_overlap_active),
+                                "raw_sab_active_overlap_seconds": max(0.0, now - self._raw_sab_active_overlap_since) if self._raw_sab_active_overlap_since > 0 else 0.0,
+                                "raw_sab_active_overlap_last_ts": float(self._raw_sab_active_overlap_last_ts),
+                                "sab_slots_reporting_active": int(self._raw_sab_active_slot_count),
+                                "sab_active_slot_examples": list(self._raw_sab_active_slot_examples[:3]),
+                                "foreground_transfer_id": str(self._raw_sab_foreground_id or foreground_id or ""),
+                                "visible_multi_active_corrections": int(self._multiple_active_slot_corrections),
+                                "visible_multi_active_samples": int(self._multiple_active_slot_samples),
+                                "visible_multi_active_active": bool(self._multiple_active_slot_condition),
                                 "untracked_queue_grace_seconds": float(self._untracked_queue_grace_seconds),
                                 "untracked_queue_grace_suppressions": int(self._untracked_queue_grace_suppressions),
                                 "untracked_queue_pending": int(len(self._untracked_queue_first_seen_ts)),

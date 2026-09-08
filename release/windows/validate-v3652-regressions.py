@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.55 scope-native projection / probe-efficiency guards."""
+"""NewzDeck v3.6.56 scope-native projection / probe-efficiency guards."""
 from __future__ import annotations
 import ast
 import importlib.util
@@ -16,7 +16,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "publish-release-trigger.yml"
 
 sab_source = SAB.read_text(encoding="utf-8")
 for marker in (
-    'ADAPTER_VERSION = "3.6.55"',
+    'ADAPTER_VERSION = "3.6.56"',
     'def snapshot(self, scope: str = "all")',
     'snap=self.snapshot(scope="live" if mode=="live" else "all")',
     'def _snapshot_uncached(self, scope_mode: str = "all")',
@@ -29,7 +29,7 @@ for marker in (
     'sab_version_probe_cooldown_skips',
 ):
     if marker not in sab_source:
-        raise SystemExit(f"Missing v3.6.55 runtime marker: {marker}")
+        raise SystemExit(f"Missing v3.6.56 runtime marker: {marker}")
 
 # Structural guard: presentation state access is a single try-lock with no retry,
 # sleep, disk read, JSON parse or cross-process file lock.
@@ -40,10 +40,10 @@ def fn(name: str):
 refresh = fn("_refresh_shared_state_for_snapshot")
 refresh_text = ast.get_source_segment(sab_source, refresh) or ""
 if refresh_text.count("acquire(blocking=False)") != 1:
-    raise SystemExit("v3.6.55 state gate is not exactly one non-blocking lock attempt.")
+    raise SystemExit("v3.6.56 state gate is not exactly one non-blocking lock attempt.")
 for forbidden in ("time.sleep", "state_file", "state_lock_file", "_json_read", "_state_file_guard", "_try_state_file_guard"):
     if forbidden in refresh_text:
-        raise SystemExit(f"v3.6.55 presentation state gate contains forbidden work: {forbidden}")
+        raise SystemExit(f"v3.6.56 presentation state gate contains forbidden work: {forbidden}")
 
 # Structural guard: recent authenticated API success may bypass the sparse
 # version boundary only after this generation has already proven the pinned SAB
@@ -200,4 +200,4 @@ if WORKFLOW.exists():
         if f"python release/windows/{guard}" not in workflow:
             raise SystemExit(f"Release workflow does not run {guard}.")
 
-print("v3.6.55 regression guard passed (scope-native Live projection + zero-wait state gate + sparse SAB version boundary).")
+print("v3.6.56 regression guard passed (scope-native Live projection + zero-wait state gate + sparse SAB version boundary).")

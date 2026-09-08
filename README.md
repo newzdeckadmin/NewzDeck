@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.55** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.56** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.55_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.56_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.55 highlights
+## v3.6.56 highlights
 
-v3.6.55 is a focused efficiency and diagnostics release based on a sustained v3.6.54 download/Automation capture.
+v3.6.56 is a focused correctness and diagnostics refinement based on the first full-load v3.6.55 acceptance capture.
 
-- **No-op history sync fast path:** unchanged completion-monitor passes no longer copy, sort, or rebuild the durable Completed/Failed history index.
-- **One rebuild per real mutation:** a terminal-history write or removal owns the single index rebuild for that change, eliminating the duplicate rebuild path seen in v3.6.54.
-- **Durable diagnostic counts:** `/api/diagnostics` now uses the scope-native Live presentation and reports operational tracked/presentable jobs separately from durable Completed/Failed history counts.
-- **Honest provider measurements:** providers with no latency/success samples report N/A instead of a misleading `0 ms` / `None%`.
-- **Clearer overlap telemetry:** diagnostics retain current and last multi-active signatures and distinguish raw SAB overlap from visible-card normalization.
-- **Transfer stack preserved:** private SABnzbd 5.1.2 remains authoritative and the v3.6.54 compaction, v3.6.53 identity gate, Smart Import, Selected Episodes, Library Integrity, and runtime handoff protections remain unchanged.
+- **Pre-import cross-episode duplicate protection:** if an incoming TV file is byte-identical to a different episode already in the same library title, Smart Import stops before commit and preserves the download for Needs Review.
+- **Season-pack duplicate protection:** two incoming episode files with identical bytes are detected before either is committed.
+- **Recovered SAB warning handling:** stale warnings naming releases that later completed successfully are retained as historical evidence but no longer presented as current engine warnings.
+- **Clearer overlap telemetry:** raw SAB slot-status overlap is reported separately from actual visible Active-card correction, with bounded examples rather than long UUID signatures.
+- **Cheaper diagnostics:** JSON diagnostics and the text report can reuse one coherent 1.5-second snapshot generation.
+- **Existing safety preserved:** v3.6.55 terminal-history efficiency, v3.6.54 compaction, the v3.6.53 NZB identity gate, Smart Import ownership rules, and private SABnzbd 5.1.2 remain intact.
 
-See [the full v3.6.55 release notes](release/RELEASE_NOTES_v3.6.55.md).
+See [the full v3.6.56 release notes](release/RELEASE_NOTES_v3.6.56.md).
 
 ## Requirements
 
@@ -68,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.55_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.56_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
