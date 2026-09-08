@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.54"
+ADAPTER_VERSION = "3.6.55"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -784,9 +784,15 @@ class SabDownloadManager:
         # cross-runtime job ledger lock or scans hundreds of historical records.
         self._terminal_history_lock = threading.RLock()
         loaded_terminal = _json_read(self.terminal_history_file, {})
+        loaded_terminal_version = int(_num(loaded_terminal.get("version"), 0)) if isinstance(loaded_terminal, dict) else 0
         self._terminal_history = loaded_terminal if isinstance(loaded_terminal, dict) else {}
         self._terminal_history.setdefault("version", TERMINAL_HISTORY_VERSION)
         self._terminal_history.setdefault("rows", {})
+        loaded_terminal_rows = self._terminal_history.get("rows") if isinstance(self._terminal_history.get("rows"), dict) else {}
+        self._terminal_history_needs_normalization = bool(
+            loaded_terminal_version < TERMINAL_HISTORY_VERSION
+            or any(isinstance(row, dict) and "automation_context" in row for row in loaded_terminal_rows.values())
+        )
         self._terminal_history_writes = 0
         self._terminal_history_bootstrap_rows = 0
         self._terminal_history_pruned_rows = 0
@@ -797,6 +803,9 @@ class SabDownloadManager:
         self._terminal_history_index: dict[str, list[str]] = {"completed": [], "failed": []}
         self._terminal_status_counts: dict[str, int] = {"completed": 0, "failed": 0, "cancelled": 0}
         self._terminal_history_index_rebuilds = 0
+        self._terminal_history_sync_runs = 0
+        self._terminal_history_sync_noops = 0
+        self._terminal_history_sync_changed_rows = 0
         self._terminal_page_reads = 0
         self._terminal_page_rows_projected = 0
         self._tracked_terminal_retired_jobs = 0
@@ -805,6 +814,10 @@ class SabDownloadManager:
         self._presentation_index_publishes = 0
         self._presentation_index_last_ts = 0.0
         self._snapshot_state_patch_queue: queue.SimpleQueue[tuple[str,str]] = queue.SimpleQueue()
+        # Build the loaded durable index exactly once. Later completion-monitor sync
+        # passes can then return immediately when no terminal row actually changed.
+        with self._terminal_history_lock:
+            self._rebuild_terminal_history_indexes_locked()
         self._sync_terminal_history_from_state(persist=True)
         # The v3.6.53 migration intentionally kept historical terminal jobs in the
         # operational ledger. Once their compact durable rows are present, v3.6.54
@@ -1107,6 +1120,7 @@ class SabDownloadManager:
         self._multiple_active_slot_condition = ""
         self._multiple_active_slot_condition_since = 0.0
         self._multiple_active_slot_last_ts = 0.0
+        self._multiple_active_slot_last_signature = ""
         self._progress_regression_corrections = 0
         self._progress_regression_last_ts = 0.0
         # v3.6.20: one authoritative private SAB identity. Historical identities
@@ -2786,6 +2800,10 @@ class SabDownloadManager:
             'terminal_history_pruned_rows': int(self._terminal_history_pruned_rows),
             'terminal_history_last_write_ts': float(self._terminal_history_last_write_ts or 0.0),
             'terminal_history_index_rebuilds': int(self._terminal_history_index_rebuilds),
+            'terminal_history_sync_runs': int(self._terminal_history_sync_runs),
+            'terminal_history_sync_noops': int(self._terminal_history_sync_noops),
+            'terminal_history_sync_changed_rows': int(self._terminal_history_sync_changed_rows),
+            'terminal_history_index_rebuilds_avoided': int(self._terminal_history_sync_noops),
             'terminal_history_completed_index_rows': int(len(self._terminal_history_index.get("completed") or [])),
             'terminal_history_failed_index_rows': int(len(self._terminal_history_index.get("failed") or [])),
             'terminal_page_reads': int(self._terminal_page_reads),
@@ -4887,43 +4905,87 @@ class SabDownloadManager:
             payload={"version":TERMINAL_HISTORY_VERSION,"updated_ts":time.time(),"rows":dict(self._terminal_history.get("rows") or {})}
             _atomic_json_write(self.terminal_history_file,payload)
             self._terminal_history=payload
+            self._terminal_history_needs_normalization=False
             self._rebuild_terminal_history_indexes_locked()
             self._terminal_history_writes+=1
             self._terminal_history_last_write_ts=float(payload["updated_ts"])
 
     def _sync_terminal_history_from_state(self, *, persist:bool=True) -> int:
+        """Merge terminal operational rows without rescanning unchanged durable history.
+
+        The completion monitor calls this frequently. v3.6.54 still copied, sorted
+        and rebuilt the full terminal index on every no-op pass. v3.6.55 compares
+        only currently tracked operational jobs first and returns immediately when
+        neither row updates nor one-time history maintenance is required.
+        """
+        self._terminal_history_sync_runs+=1
         with self.lock:
             tracked={str(k):dict(v) for k,v in self._tracked().items() if isinstance(v,dict)}
+
         changed=0
         with self._terminal_history_lock:
-            rows=dict(self._terminal_history.get("rows") or {})
+            current_rows=self._terminal_history.get("rows") if isinstance(self._terminal_history,dict) else {}
+            if not isinstance(current_rows,dict):
+                current_rows={}
+            updates={}
             for nzo_id,meta in tracked.items():
                 summary=self._terminal_summary_from_meta(nzo_id,meta)
                 if summary is None: continue
-                previous=rows.get(nzo_id)
+                previous=current_rows.get(nzo_id)
                 if previous!=summary:
                     if previous is None: self._terminal_history_bootstrap_rows+=1
-                    rows[nzo_id]=summary; changed+=1
+                    updates[nzo_id]=summary
+
+            needs_maintenance=bool(
+                self._terminal_history_needs_normalization
+                or int(_num((self._terminal_history or {}).get("version"),0))!=TERMINAL_HISTORY_VERSION
+                or len(current_rows)>TERMINAL_HISTORY_MAX_ROWS
+            )
+            if not updates and not needs_maintenance:
+                self._terminal_history_sync_noops+=1
+                return 0
+
+            rows=dict(current_rows)
+            rows.update(updates)
+            changed+=len(updates)
+            if self._terminal_history_needs_normalization:
+                # This flag also means the normalized form is not yet proven durable.
+                # Count maintenance as pending work even if a prior failed write already
+                # normalized the in-memory rows, so the next persistent sync retries it.
+                changed+=1
+            if int(_num((self._terminal_history or {}).get("version"),0))!=TERMINAL_HISTORY_VERSION:
+                changed+=1
+
             ordered=sorted(rows.items(),key=lambda kv:(float(_num((kv[1] or {}).get("completed_ts"),0)),float(_num((kv[1] or {}).get("created_ts"),0)),kv[0]),reverse=True)
             if len(ordered)>TERMINAL_HISTORY_MAX_ROWS:
                 self._terminal_history_pruned_rows+=len(ordered)-TERMINAL_HISTORY_MAX_ROWS
                 ordered=ordered[:TERMINAL_HISTORY_MAX_ROWS]; changed+=1
-            # Normalize carried v1 rows opportunistically so full Automation context
-            # never remains in the compact v2 history file after the next write.
-            normalized=[]
-            for nzo_id,row in ordered:
-                if isinstance(row,dict) and "automation_context" in row:
-                    row=dict(row); ctx=dict(row.pop("automation_context",{}) or {})
-                    label,release,destination=_automation_identity(ctx)
-                    row.setdefault("automation_source",str(ctx.get("source") or ""))
-                    row.setdefault("automation_label",label); row.setdefault("automation_release_title",release)
-                    row.setdefault("automation_destination",destination)
-                    row.setdefault("display_name",label or str(row.get("collection_name") or row.get("filename") or "NZB package"))
-                    row.setdefault("source_filename",str(row.get("filename") or "")); changed+=1
-                normalized.append((nzo_id,row))
-            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":dict(normalized)}
-            self._rebuild_terminal_history_indexes_locked()
-        if changed and persist: self._write_terminal_history()
+
+            if self._terminal_history_needs_normalization:
+                normalized=[]
+                for nzo_id,row in ordered:
+                    if isinstance(row,dict) and "automation_context" in row:
+                        row=dict(row); ctx=dict(row.pop("automation_context",{}) or {})
+                        label,release,destination=_automation_identity(ctx)
+                        row.setdefault("automation_source",str(ctx.get("source") or ""))
+                        row.setdefault("automation_label",label); row.setdefault("automation_release_title",release)
+                        row.setdefault("automation_destination",destination)
+                        row.setdefault("display_name",label or str(row.get("collection_name") or row.get("filename") or "NZB package"))
+                        row.setdefault("source_filename",str(row.get("filename") or "")); changed+=1
+                    normalized.append((nzo_id,row))
+                ordered=normalized
+
+            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":dict(ordered)}
+
+        # Keep a pending normalization flag set until a persistent write actually
+        # succeeds. If the atomic write raises, a later sync must retry instead of
+        # silently treating the in-memory v2 normalization as durable.
+        self._terminal_history_sync_changed_rows+=max(0,int(changed))
+        if changed and persist:
+            self._write_terminal_history()
+        elif changed:
+            with self._terminal_history_lock:
+                self._rebuild_terminal_history_indexes_locked()
         return changed
 
     def _remove_terminal_history_ids(self, ids:list[str]) -> int:
@@ -4932,9 +4994,11 @@ class SabDownloadManager:
             rows=dict(self._terminal_history.get("rows") or {})
             for raw_id in ids:
                 if rows.pop(str(raw_id),None) is not None: removed+=1
-            self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":rows}
-            self._rebuild_terminal_history_indexes_locked()
-        if removed: self._write_terminal_history()
+            if removed:
+                self._terminal_history={"version":TERMINAL_HISTORY_VERSION,"rows":rows}
+        if removed:
+            # _write_terminal_history owns the single rebuild for this mutation.
+            self._write_terminal_history()
         self._publish_presentation_index()
         return removed
 
@@ -7170,6 +7234,7 @@ class SabDownloadManager:
         if signature != self._multiple_active_slot_condition:
             self._multiple_active_slot_corrections += 1
             self._multiple_active_slot_condition = signature
+            self._multiple_active_slot_last_signature = signature
             self._multiple_active_slot_condition_since = now
             self._multiple_active_slot_last_ts = now
 
@@ -7977,6 +8042,10 @@ class SabDownloadManager:
                                 "multiple_active_slot_active": bool(self._multiple_active_slot_condition),
                                 "multiple_active_slot_condition_seconds": max(0.0, now - self._multiple_active_slot_condition_since) if self._multiple_active_slot_condition_since > 0 else 0.0,
                                 "multiple_active_slot_last_ts": float(self._multiple_active_slot_last_ts),
+                                "multiple_active_slot_current_signature": str(self._multiple_active_slot_condition or ""),
+                                "multiple_active_slot_last_signature": str(self._multiple_active_slot_last_signature or ""),
+                                "multiple_active_slot_current_has_sab_overlap": bool("sab:" in str(self._multiple_active_slot_condition or "")),
+                                "multiple_active_slot_current_has_visible_correction": bool("visible:" in str(self._multiple_active_slot_condition or "")),
                                 "untracked_queue_grace_seconds": float(self._untracked_queue_grace_seconds),
                                 "untracked_queue_grace_suppressions": int(self._untracked_queue_grace_suppressions),
                                 "untracked_queue_pending": int(len(self._untracked_queue_first_seen_ts)),

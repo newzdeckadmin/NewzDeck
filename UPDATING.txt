@@ -1,12 +1,12 @@
-NewzDeck v3.6.54
-Downloads History Compaction & Automation Startup Efficiency
+NewzDeck v3.6.55
+Terminal History Index & Diagnostics Efficiency
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.54 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.55 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
-On first v3.6.54 startup, existing terminal rows are normalized into the v2 compact history schema. Finalized Completed jobs that already have durable history rows are retired from `sab-engine\newzdeck-jobs.json`; failed/actionable/import-in-progress jobs remain there for Retry and recovery behavior.
+v3.6.55 does not change the private SABnzbd transfer/repair/extraction stack or user-data layout. It optimizes how NewzDeck synchronizes its durable terminal-history index and makes diagnostics distinguish operational state from durable history accurately.
 
-The durable `sab-engine\terminal-history.json` remains capped at the newest 5,000 terminal rows. Existing settings, providers, Automation state, statistics, queue ownership, user data, and private SABnzbd 5.1.2 are preserved.
+Existing settings, providers, Automation state, durable terminal history, download statistics, queue ownership, user data, and private SABnzbd 5.1.2 are preserved.
 
 Portable users should close NewzDeck and extract the new Portable ZIP to a fresh folder. User data remains outside the application directory.

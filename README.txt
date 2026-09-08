@@ -1,10 +1,11 @@
-NewzDeck v3.6.54
-Downloads History Compaction & Automation Startup Efficiency
+NewzDeck v3.6.55
+Terminal History Index & Diagnostics Efficiency
 
-New in v3.6.54:
-- Finalized Completed jobs are retired from the cross-runtime operational ledger after their durable terminal-history row is safely committed. Failed, cancelled, retryable, importing, cleanup-pending, and other actionable jobs remain operational.
-- Durable terminal history now owns cached Completed/Failed indexes and status counts, so a 50-row page no longer copies and sorts the full 5,000-row history.
-- Completed pages no longer transport every matching UUID, and compact terminal rows carry flattened Automation identity while rich SAB/PAR2 stage history stays lazy behind Details.
-- SAB recent History cannot re-adopt a finalized job already owned by NewzDeck terminal history.
-- Automation sidebar counts are cached against library/profile/config file signatures and local date. Startup count probes stop after the first populated response; full-summary warm retries stop after success.
-- Preserves the v3.6.53 NZB identity gate, next-candidate recovery, Smart Import protections, copy-on-write Live Downloads presentation, sampler evidence, and private SABnzbd 5.1.2.
+New in v3.6.55:
+- Unchanged terminal-history sync passes return before copying, sorting, or rebuilding the durable Completed/Failed index.
+- Real terminal-history mutations now own exactly one index rebuild, removing the duplicate rebuild path seen during sustained v3.6.54 operation.
+- New terminal-history sync/no-op/rebuild telemetry makes long-history efficiency directly observable.
+- /api/diagnostics now uses scope-native Live Downloads and reports operational tracked/presentable jobs separately from durable Completed/Failed/Cancelled counts.
+- Unmeasured provider latency/success is reported as N/A instead of 0 ms / None%.
+- Multi-active diagnostics retain current/last overlap signatures and distinguish raw SAB overlap from visible-card normalization.
+- Preserves v3.6.54 compaction/startup efficiency, v3.6.53 NZB identity/Smart Import safeguards, and private SABnzbd 5.1.2 authority.

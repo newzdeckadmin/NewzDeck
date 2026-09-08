@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.54** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.55** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.54_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.55_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.54 highlights
+## v3.6.55 highlights
 
-v3.6.54 is a scale and efficiency release based on a full-load diagnostic captured during an active SABnzbd download.
+v3.6.55 is a focused efficiency and diagnostics release based on a sustained v3.6.54 download/Automation capture.
 
-- **Bounded operational history:** finalized Completed jobs retire from the cross-runtime operational ledger only after durable NewzDeck terminal-history ownership is established.
-- **Page-native Completed/Failed history:** cached indexes let a 50-row page slice directly without repeatedly copying and sorting the full retained history.
-- **Smaller Completed responses:** Completed pages no longer transport every historical matching UUID; rich SAB/PAR2 detail remains lazy behind Details.
-- **No SAB History resurrection:** recent SAB History cannot re-adopt a finalized job already represented in durable NewzDeck terminal history.
-- **Faster Automation startup:** sidebar counts are cached against the relevant library/configuration signatures and startup probes stop after trustworthy success.
-- **Existing safety preserved:** the v3.6.53 NZB identity gate, next-candidate recovery, Smart Import protections, Live Downloads presentation model, sampler evidence, and private SABnzbd 5.1.2 remain intact.
+- **No-op history sync fast path:** unchanged completion-monitor passes no longer copy, sort, or rebuild the durable Completed/Failed history index.
+- **One rebuild per real mutation:** a terminal-history write or removal owns the single index rebuild for that change, eliminating the duplicate rebuild path seen in v3.6.54.
+- **Durable diagnostic counts:** `/api/diagnostics` now uses the scope-native Live presentation and reports operational tracked/presentable jobs separately from durable Completed/Failed history counts.
+- **Honest provider measurements:** providers with no latency/success samples report N/A instead of a misleading `0 ms` / `None%`.
+- **Clearer overlap telemetry:** diagnostics retain current and last multi-active signatures and distinguish raw SAB overlap from visible-card normalization.
+- **Transfer stack preserved:** private SABnzbd 5.1.2 remains authoritative and the v3.6.54 compaction, v3.6.53 identity gate, Smart Import, Selected Episodes, Library Integrity, and runtime handoff protections remain unchanged.
 
-See [the full v3.6.54 release notes](release/RELEASE_NOTES_v3.6.54.md).
+See [the full v3.6.55 release notes](release/RELEASE_NOTES_v3.6.55.md).
 
 ## Requirements
 
@@ -68,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.54_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.55_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

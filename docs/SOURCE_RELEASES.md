@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.54
+## Current release: v3.6.55
 
-**v3.6.54 is the current stable production release.**
+**v3.6.55 is the current stable production release.**
 
-The `v3.6.54` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.55` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.55 - Terminal History Index & Diagnostics Efficiency.** Prevents unchanged completion-monitor passes from copying/sorting/rebuilding durable history, makes one real history mutation own one index rebuild, aligns diagnostics with durable terminal counts, reports unmeasured provider statistics as N/A, and clarifies multi-active overlap provenance while preserving the private SABnzbd 5.1.2 transfer stack.
 
 - **v3.6.54 - Downloads History Compaction & Automation Startup Efficiency.** Compacts finalized Completed jobs out of the operational ledger after durable history ownership, adds page-native terminal indexes and smaller Completed payloads, prevents SAB History resurrection, and reduces repeated Automation startup work while preserving the v3.6.53 correctness stack.
 

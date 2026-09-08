@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.54"
+APP_VERSION = "3.6.55"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11763,9 +11763,19 @@ def _diagnostic_downloads_snapshot(snap: dict[str,Any]) -> dict[str,Any]:
         selected.append(row); seen.add(ident)
     fields=('id','display_name','name','status','post_status','post_progress','post_message','import_status','health','expected_bytes','downloaded_bytes','speed_bps','eta_seconds','failed_parts','retry_count','created_ts','started_ts','completed_ts','automation_label','automation_release_title','automation_source')
     compact=[{key:row.get(key) for key in fields if key in row} for row in selected[:50]]
+    telemetry=snap.get('telemetry',{}) if isinstance(snap.get('telemetry'),dict) else {}
+    counts=dict(snap.get('counts') or {})
+    durable_terminal_counts={
+        'completed':int(counts.get('completed',0) or 0),
+        'failed':int(counts.get('failed',0) or 0),
+        'cancelled':int(counts.get('cancelled',0) or 0),
+    }
     return {
-        'counts':snap.get('counts',{}),'speed_bps':snap.get('total_speed_bps',0),'concurrent_downloads':snap.get('concurrent_downloads',0),
-        'telemetry':snap.get('telemetry',{}),'statistics':snap.get('statistics',{}),'engine':snap.get('engine',{}),
+        'counts':counts,'speed_bps':snap.get('total_speed_bps',0),'concurrent_downloads':snap.get('concurrent_downloads',0),
+        'telemetry':telemetry,'statistics':snap.get('statistics',{}),'engine':snap.get('engine',{}),
+        'operational_tracked_jobs':int(telemetry.get('presentation_index_tracked_total',len(rows)) or 0),
+        'operational_presentable_jobs':int(telemetry.get('presentation_index_active_jobs',len(rows)) or 0),
+        'durable_terminal_counts':durable_terminal_counts,'collection_scope':'live',
         'collection_count':len(rows),'collections_included':len(compact),'collections_truncated':len(compact)<len(rows),'collections':compact,
     }
 
@@ -11787,12 +11797,18 @@ def diagnostics_snapshot() -> dict[str, Any]:
         key = DIAGNOSTICS.provider_key(p.get('host',''), int(p.get('port',563)))
         m = metrics.get(key, {})
         successes, failures = int(m.get('successes',0)), int(m.get('failures',0)); total = successes + failures
-        avg = (float(m.get('latency_sum',0)) / max(1,int(m.get('latency_samples',0)))) if m.get('latency_samples') else 0
+        latency_samples = int(m.get('latency_samples',0) or 0)
+        latency_measured = latency_samples > 0
+        avg = (float(m.get('latency_sum',0)) / latency_samples) if latency_measured else None
         pool = pool_by_id.get(str(p.get('id')), {})
         providers.append({
             'id': p.get('id',''), 'name': p.get('name') or p.get('host','Provider'), 'host': p.get('host',''), 'port': p.get('port',563), 'ssl': bool(p.get('ssl',True)), 'role': _provider_role(p), 'priority': max(1,int(p.get('priority',10) or 10)),
             'configured_connections': int(p.get('connections',20) or 20), 'status': 'connected' if pool.get('open') else ('error' if failures and float(m.get('last_error_ts',0)) > float(m.get('last_ok',0)) else 'standby'),
-            'last_latency_ms': m.get('last_latency_ms',0), 'average_latency_ms': round(avg,1), 'success_rate': round(successes*100/total,1) if total else None,
+            'last_latency_ms': round(float(m.get('last_latency_ms',0) or 0),1) if latency_measured else None,
+            'average_latency_ms': round(float(avg),1) if avg is not None else None,
+            'latency_measured': bool(latency_measured), 'measurement_samples': latency_samples,
+            'success_rate': round(successes*100/total,1) if total else None, 'success_rate_measured': bool(total),
+            'measurement_state': 'measured' if (latency_measured or total) else 'unmeasured',
             'successes': successes, 'failures': failures, 'reconnects': int(m.get('reconnects',0)), 'bytes': int(m.get('bytes',0)), 'last_error': m.get('last_error',''), 'last_error_ts': m.get('last_error_ts',0),
             'pool': pool,
         })
@@ -11803,7 +11819,7 @@ def diagnostics_snapshot() -> dict[str, Any]:
         disk_info = {'total':0,'used':0,'free':0,'path':str(DOWNLOAD_DIR)}
     with GROUP_SEARCH_MANAGER.lock:
         searches = [GROUP_SEARCH_MANAGER._public(j) for j in GROUP_SEARCH_MANAGER.jobs.values() if j.get('status') in {'queued','scanning','cancelling'}]
-    snap = DOWNLOAD_MANAGER.snapshot()
+    snap = DOWNLOAD_MANAGER.snapshot(scope="live")
     if str((snap.get('engine') or {}).get('name') or '').casefold() == 'sabnzbd':
         pool_stats = snap.get('connections') or pool_stats
         # v3.6.49: SAB is the authoritative transfer engine, so provider health in
@@ -11855,7 +11871,39 @@ def diagnostics_report() -> str:
     if str(engine.get('name') or '').casefold() == 'sabnzbd':
         lines.append(f"Download engine: SABnzbd {engine.get('version','')} built-in; ready={engine.get('ready',False)}; live_connections={conn.get('active',0)}; allocated_connections={conn.get('capacity',0)}; provider_workers={conn.get('runtime_servers',0)}/{conn.get('expected_servers',0)} runtime, {conn.get('configured_servers',0)}/{conn.get('expected_servers',0)} configured; provider_summary={conn.get('provider_summary','')}; localhost_only={engine.get('localhost_only',True)}; last_error={engine.get('last_error','')}")
         tel=(d.get('downloads') or {}).get('telemetry') or {}
+        downloads_diag=d.get('downloads') or {}
+        durable_counts=downloads_diag.get('durable_terminal_counts') if isinstance(downloads_diag.get('durable_terminal_counts'),dict) else {}
+        lines.append(
+            "Downloads state: "
+            f"operational_tracked={int(downloads_diag.get('operational_tracked_jobs',0) or 0)}; "
+            f"operational_presentable={int(downloads_diag.get('operational_presentable_jobs',0) or 0)}; "
+            f"live_collections={int(downloads_diag.get('collection_count',0) or 0)}; "
+            f"durable_completed={int(durable_counts.get('completed',0) or 0)}; "
+            f"durable_failed={int(durable_counts.get('failed',0) or 0)}; "
+            f"durable_cancelled={int(durable_counts.get('cancelled',0) or 0)}; "
+            f"collection_scope={str(downloads_diag.get('collection_scope') or 'live')}"
+        )
+        lines.append(
+            "Terminal history efficiency: "
+            f"rows={int(tel.get('terminal_history_rows',0) or 0)}; "
+            f"writes={int(tel.get('terminal_history_writes',0) or 0)}; "
+            f"sync_runs={int(tel.get('terminal_history_sync_runs',0) or 0)}; "
+            f"sync_noops={int(tel.get('terminal_history_sync_noops',0) or 0)}; "
+            f"changed_rows={int(tel.get('terminal_history_sync_changed_rows',0) or 0)}; "
+            f"index_rebuilds={int(tel.get('terminal_history_index_rebuilds',0) or 0)}; "
+            f"rebuilds_avoided={int(tel.get('terminal_history_index_rebuilds_avoided',0) or 0)}"
+        )
         lines.append(f"Active-card continuity: bridges={int(tel.get('active_card_continuity_bridges',0) or 0)}; last_bridge_ts={float(tel.get('active_card_continuity_last_ts',0) or 0):.3f}")
+        lines.append(
+            "Multi-active normalization: "
+            f"episodes={int(tel.get('multiple_active_slot_corrections',0) or 0)}; "
+            f"samples={int(tel.get('multiple_active_slot_samples',0) or 0)}; "
+            f"active={bool(tel.get('multiple_active_slot_active',False))}; "
+            f"current_has_sab_overlap={bool(tel.get('multiple_active_slot_current_has_sab_overlap',False))}; "
+            f"current_has_visible_correction={bool(tel.get('multiple_active_slot_current_has_visible_correction',False))}; "
+            f"current_signature={str(tel.get('multiple_active_slot_current_signature','') or '')}; "
+            f"last_signature={str(tel.get('multiple_active_slot_last_signature','') or '')}"
+        )
         lines.append(
             "Downloads visibility continuity: "
             f"bridges={int(tel.get('visibility_continuity_bridges',0) or 0)}; "
@@ -11975,7 +12023,11 @@ def diagnostics_report() -> str:
         lines.append(f"Library integrity audit: unavailable ({exc})")
     lines.append('Providers:')
     for p in d['providers']:
-        lines.append(f"- {p['name']} ({p['host']}:{p['port']}): {p['status']}, latency={p.get('last_latency_ms',0)}ms, success={p.get('success_rate')}%, reconnects={p.get('reconnects',0)}, last_error={p.get('last_error','')}")
+        latency = p.get('last_latency_ms')
+        success = p.get('success_rate')
+        latency_text = f"{float(latency):.0f}ms" if latency is not None and bool(p.get('latency_measured')) else "N/A"
+        success_text = f"{float(success):.1f}%" if success is not None and bool(p.get('success_rate_measured')) else "N/A"
+        lines.append(f"- {p['name']} ({p['host']}:{p['port']}): {p['status']}, latency={latency_text}, success={success_text}, samples={int(p.get('measurement_samples',0) or 0)}, reconnects={p.get('reconnects',0)}, last_error={p.get('last_error','')}")
     lines.append('Recent events:')
     for e in d['events'][:20]: lines.append(f"- {datetime.fromtimestamp(e.get('ts',0)).isoformat(timespec='seconds')} [{e.get('level')}] {e.get('area')}: {e.get('message')}")
     return '\n'.join(lines)
