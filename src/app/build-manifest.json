@@ -1,27 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.51",
-  "base_version": "3.6.50",
-  "release": "Heavy-Load Snapshot & Handoff Hardening",
-  "adapter_version": "3.6.51",
-  "name": "Heavy-Load Snapshot & Handoff Hardening",
+  "version": "3.6.52",
+  "base_version": "3.6.51",
+  "release": "Scope-Native Downloads Projection & SAB Probe Efficiency",
+  "adapter_version": "3.6.52",
+  "name": "Scope-Native Downloads Projection & SAB Probe Efficiency",
   "sab_version": "5.1.2",
   "changes": [
-    "Removes cross-process ledger file reads, JSON decoding and state merges from Downloads snapshot rendering; the 25 ms presentation budget now covers only bounded access to the already-synchronized in-memory ledger while strict background workers retain authoritative disk reconciliation.",
-    "Moves live engine-status probing/identity reads to the background engine coordinator and makes Downloads snapshots consume cached engine health, eliminating another heavy-load localhost/disk hotspot from the foreground request path.",
-    "Splits card/collection/statistics projection into its own snapshot timing phase so the former catch-all other phase is actionable under load, while retaining p50/p90/p95/p99 and worst-build attribution.",
-    "Adds a four-second newly-submitted SAB handoff grace: live SAB jobs are still surfaced immediately, but a normal submit-to-ledger race no longer emits a false missing-ledger warning or consistency mismatch unless ownership remains missing beyond the grace window.",
-    "Changes multiple-active-slot correction telemetry from per-poll inflation to distinct overlap episodes, while separately counting observed overlap samples and duration.",
-    "Corrects legacy downloads.json compaction telemetry so an already-compacted no-op reports the real current file size instead of incorrectly reporting zero bytes after compaction.",
-    "Preserves the v3.6.50 Queue/History sampler, deferred persistence, installer cleanup and Automation candidate aging; v3.6.49 bounded Downloads data plane, strict Smart Import ownership, Library Integrity protections, Selected Episodes/PAR2 visibility and private SABnzbd 5.1.2 remain intact."
+    "Makes routine Live Downloads projection scope-native: only terminal records still visible in SAB History (or the existing brief Completed continuity bridge) contribute to global terminal counts, while retired ledger-only history and Completed/Failed card/collection dictionaries are not materialized before the Live API filters them away.",
+    "Changes the presentation state gate from a retry/sleep loop to one non-blocking in-memory lock attempt, eliminating scheduler-driven overshoot now that disk/JSON reconciliation is already background-only.",
+    "Uses recent authenticated SAB API success to bypass redundant fingerprints only after the pinned SAB generation is already proven; unknown/older generations still reach strict upgrade identity checks, while proven-current fingerprints establish a five-minute sparse boundary.",
+    "Adds scope-native projection telemetry for requested scope, Live-native build count, terminal records skipped from Live projection and last projected job count.",
+    "Preserves v3.6.51 cached engine status, SAB ownership handoff grace and episode-based overlap telemetry; v3.6.50 Queue/History sampling/deferred persistence, v3.6.49 bounded Downloads data plane, strict Smart Import ownership, Library Integrity, Selected Episodes/PAR2 visibility and private SABnzbd 5.1.2 remain intact."
   ],
   "regression_guards": [
-    "All established automation identity, Library Integrity, quality, Selected Episodes, PAR2/repair, v3.6.49 data-plane and v3.6.50 sampler/state-lock regressions remain mandatory.",
-    "v3.6.51 structurally forbids _refresh_shared_state_for_snapshot from reading the ledger file, entering the cross-process ledger guard or merging shared states; a held local lock must still return within the bounded presentation budget.",
-    "Snapshot rendering must use engine_status_cached while the background engine loop refreshes the full engine-status cache.",
-    "Synthetic handoff tests require a newly surfaced SAB slot to stay warning-free during the four-second ownership grace and require a persistent orphan to emit at most one warning after grace.",
-    "Multiple-active telemetry tests require repeated samples of one overlap condition to count as one correction episode until the condition clears.",
-    "Legacy compaction no-op tests require bytes_after to equal the actual unchanged legacy file size.",
-    "The release workflow runs the carried-forward v3.6.50 guard and the new v3.6.51 regression guard before any Windows release assets are built."
+    "All established automation identity, Library Integrity, quality, Selected Episodes, PAR2/repair, v3.6.49 data-plane, v3.6.50 sampler/state-lock and v3.6.51 heavy-load guards remain mandatory.",
+    "v3.6.52 structurally requires snapshot_view(scope=live) to request snapshot(scope=live), and the Live-native builder must skip terminal-only projection while retaining only the terminal counts the established full presentation would expose.",
+    "A synthetic 250 visible Completed + 100 retired ledger-only Completed + 10 Live fixture must return exactly 10 Live jobs, report exactly 250 Completed globally, skip at least 350 terminal projections and mark scope_native_projection=true.",
+    "The presentation state gate must perform exactly one non-blocking local-lock attempt with no sleep/retry loop or disk access.",
+    "ensure_running may bypass the version boundary on recent authenticated API success only when the running SAB generation is already proven current; unknown generations must still reach the boundary, and a proven current version must set the sparse recheck cooldown.",
+    "The release workflow runs the carried v3.6.50 and v3.6.51 guards plus the new v3.6.52 guard before any Windows release assets are built."
   ]
 }

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.51"
+ADAPTER_VERSION = "3.6.52"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -796,6 +796,14 @@ class SabDownloadManager:
         self._engine_status_ts = 0.0
         self._last_snapshot: dict[str, Any] | None = None
         self._last_snapshot_ts = 0.0
+        # v3.6.52: one latest coherent snapshot remains the compatibility cache, but
+        # it is tagged by projection scope. Routine Live polling may therefore build
+        # only live/non-terminal cards without accidentally serving that bounded view
+        # to Completed/Failed callers that require the full terminal history.
+        self._last_snapshot_scope = "all"
+        self._snapshot_scope_native_live_builds = 0
+        self._snapshot_scope_native_terminal_skips = 0
+        self._snapshot_scope_native_last_projected_jobs = 0
         # v3.5.37 Live Downloads: serialize snapshot generation so fast foreground
         # polling never launches overlapping Queue/History reads that can complete
         # out of order. v3.6.48 reduces visible polling pressure and keeps a slightly
@@ -886,6 +894,12 @@ class SabDownloadManager:
         self._sab_version_probe_last_ts = 0.0
         self._running_sab_version = ""
         self._sab_version_upgrade_next_ts = 0.0
+        # v3.6.52: once the pinned SAB version has been proven, do not fingerprint
+        # the same localhost process every three-second engine-loop pass. API/auth
+        # traffic already proves liveness; the full version fingerprint is a startup,
+        # recovery and sparse boundary check.
+        self._sab_version_current_recheck_seconds = 300.0
+        self._sab_version_probe_cooldown_skips = 0
         self._sab_version_upgrade_attempts = 0
         self._sab_version_upgrade_successes = 0
         self._sab_version_upgrade_deferred = 0
@@ -1430,35 +1444,30 @@ class SabDownloadManager:
                 disk = _json_read(self.state_file, {})
                 self.state = self._merge_shared_states(disk, self.state)
 
-    def _refresh_shared_state_for_snapshot(self, max_wait_seconds: float = 0.025) -> bool:
-        """Bound presentation access to the already-synchronized in-memory ledger.
+    def _refresh_shared_state_for_snapshot(self, max_wait_seconds: float = 0.0) -> bool:
+        """Attempt the in-memory presentation gate exactly once and never wait.
 
-        v3.6.50 bounded lock acquisition but still read/decoded/merged the multi-MB
-        cross-process jobs JSON after acquiring the locks, so a nominal 25 ms budget
-        reached 562 ms under active downloads. Strict background workers continue to
-        own cross-process disk reconciliation. The HTTP snapshot path now performs no
-        ledger file I/O and no JSON merge at all; it only waits briefly for the local
-        in-memory state lock, then falls back to the last coherent memory view.
+        v3.6.51 removed ledger disk/JSON work, but a 2 ms retry sleep could still
+        overshoot the nominal budget by more than 100 ms when Windows/Python was
+        heavily scheduled. Presentation already owns a coherent previous snapshot,
+        so waiting has no correctness benefit: acquire once or immediately fall back.
+        Strict background workers retain authoritative state synchronization.
         """
         started = time.monotonic()
-        deadline = started + max(0.0, float(max_wait_seconds or 0.0))
-        while True:
-            if self.lock.acquire(blocking=False):
-                try:
-                    elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
-                    self._snapshot_shared_state_last_ms = elapsed
-                    self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
-                    return True
-                finally:
-                    self.lock.release()
-            if time.monotonic() >= deadline:
+        if self.lock.acquire(blocking=False):
+            try:
                 elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
                 self._snapshot_shared_state_last_ms = elapsed
                 self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
-                self._snapshot_shared_state_lock_skips += 1
-                self._snapshot_shared_state_lock_skip_last_ts = time.time()
-                return False
-            time.sleep(0.002)
+                return True
+            finally:
+                self.lock.release()
+        elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
+        self._snapshot_shared_state_last_ms = elapsed
+        self._snapshot_shared_state_max_ms = max(self._snapshot_shared_state_max_ms, elapsed)
+        self._snapshot_shared_state_lock_skips += 1
+        self._snapshot_shared_state_lock_skip_last_ts = time.time()
+        return False
 
     def _save_state(self) -> None:
         """Merge and save without allowing another NewzDeck runtime to clobber jobs."""
@@ -2697,6 +2706,8 @@ class SabDownloadManager:
             'sab_version_probes': int(self._sab_version_probes),
             'sab_version_probe_failures': int(self._sab_version_probe_failures),
             'sab_version_probe_last_ts': float(self._sab_version_probe_last_ts or 0.0),
+            'sab_version_probe_cooldown_skips': int(self._sab_version_probe_cooldown_skips),
+            'sab_version_current_recheck_seconds': float(self._sab_version_current_recheck_seconds),
             'sab_runtime_auth_probes': int(self._sab_runtime_auth_probes),
             'sab_runtime_auth_failures': int(self._sab_runtime_auth_failures),
             'sab_runtime_auth_last_ts': float(self._sab_runtime_auth_last_ts or 0.0),
@@ -3289,6 +3300,7 @@ class SabDownloadManager:
         """
         now = time.time()
         if now < float(self._sab_version_upgrade_next_ts or 0.0):
+            self._sab_version_probe_cooldown_skips += 1
             return False
         try:
             ident = self._load_engine_identity()
@@ -3303,6 +3315,7 @@ class SabDownloadManager:
             return False
         self._running_sab_version = version
         if version == SAB_VERSION:
+            self._sab_version_upgrade_next_ts = now + self._sab_version_current_recheck_seconds
             return False
 
         self._sab_version_upgrade_attempts += 1
@@ -3571,13 +3584,17 @@ class SabDownloadManager:
         reused unless a fresh generation explicitly invalidated the sync signature.
         """
         now = time.time()
-        if self._upgrade_running_sab_if_needed():
-            self._launch()
-            self._last_api_success_ts = time.time()
+        # Recent authenticated traffic can bypass the version boundary only after
+        # this generation has already been proven as the pinned SAB version. An
+        # unknown/older generation must still reach the strict upgrade boundary.
+        if (self._last_api_success_ts > 0 and now - self._last_api_success_ts <= 5.0
+                and self._running_sab_version == SAB_VERSION):
             self._ensure_probe_miss_since = 0.0
             self._ensure_probe_miss_count = 0
             return True
-        if self._last_api_success_ts > 0 and now - self._last_api_success_ts <= 5.0:
+        if self._upgrade_running_sab_if_needed():
+            self._launch()
+            self._last_api_success_ts = time.time()
             self._ensure_probe_miss_since = 0.0
             self._ensure_probe_miss_count = 0
             return True
@@ -6422,9 +6439,11 @@ class SabDownloadManager:
             "snapshot_p95_ms":pct(0.95),"snapshot_p99_ms":pct(0.99),
         }
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, scope: str = "all") -> dict[str, Any]:
+        scope_mode = "live" if str(scope or "all").strip().casefold() == "live" else "all"
         now = time.time()
-        if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
+        same_scope_cache = bool(self._last_snapshot is not None and self._last_snapshot_scope == scope_mode)
+        if same_scope_cache and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
             return self._last_snapshot
 
         # v3.6.41: once a coherent presentation exists, a second HTTP caller does
@@ -6433,15 +6452,19 @@ class SabDownloadManager:
         # serialized SAB control traffic. The returned copy is presentation-only;
         # it never drives reconciliation or destructive queue decisions.
         wait_started = time.monotonic()
-        if self._last_snapshot is not None:
+        if same_scope_cache:
             acquired = self._snapshot_lock.acquire(timeout=0.08)
         else:
+            # A cached snapshot for another scope cannot safely satisfy this caller.
+            # Scope changes are user-driven and infrequent, so wait for the current
+            # builder once rather than returning the wrong category shape.
             acquired = self._snapshot_lock.acquire()
         lock_wait_ms = max(0.0, (time.monotonic() - wait_started) * 1000.0)
         if not acquired:
             self._snapshot_lock_busy_returns += 1
             self._snapshot_lock_busy_last_ts = time.time()
             stale = dict(self._last_snapshot or {})
+            stale["snapshot_scope"] = scope_mode
             stale["snapshot_stale"] = True
             stale["snapshot_stale_reason"] = "snapshot-build-in-progress"
             stale["snapshot_stale_age_seconds"] = max(0.0, time.time() - float(self._last_snapshot_ts or 0.0))
@@ -6477,10 +6500,11 @@ class SabDownloadManager:
 
         try:
             now = time.time()
-            if self._last_snapshot is not None and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
+            same_scope_cache = bool(self._last_snapshot is not None and self._last_snapshot_scope == scope_mode)
+            if same_scope_cache and now - self._last_snapshot_ts < self._snapshot_cache_seconds:
                 return self._last_snapshot
             build_started = time.monotonic()
-            result = self._snapshot_uncached()
+            result = self._snapshot_uncached(scope_mode=scope_mode)
             build_ms = max(0.0, (time.monotonic() - build_started) * 1000.0)
             self._snapshot_last_build_ms = build_ms
             if build_ms > self._snapshot_max_build_ms:
@@ -6506,6 +6530,7 @@ class SabDownloadManager:
             decorated["snapshot_seq"] = self._snapshot_sequence
             decorated["snapshot_generated_ts"] = time.time()
             decorated["snapshot_stale"] = False
+            decorated["snapshot_scope"] = scope_mode
             telemetry = dict(decorated.get("telemetry") or {})
             telemetry.update({
                 "snapshot_lock_busy_returns": int(self._snapshot_lock_busy_returns),
@@ -6535,6 +6560,7 @@ class SabDownloadManager:
             })
             decorated["telemetry"] = telemetry
             self._last_snapshot = decorated
+            self._last_snapshot_scope = scope_mode
             self._last_snapshot_ts = time.time()
             return decorated
         finally:
@@ -6548,8 +6574,8 @@ class SabDownloadManager:
         and parsed on every live refresh. Completed/Failed pages remain accessible in
         deterministic chunks without changing queue authority or reconciliation.
         """
-        snap=self.snapshot()
         mode=str(scope or "all").strip().casefold()
+        snap=self.snapshot(scope="live" if mode=="live" else "all")
         if mode in {"all","full"}:
             result=dict(snap)
             result["view"]={"scope":"all","offset":0,"limit":len(snap.get("jobs") or []),"total":len(snap.get("jobs") or []),"has_more":False}
@@ -6577,6 +6603,7 @@ class SabDownloadManager:
         result["jobs"]=page
         result["collections"]=collections
         result["view"]={"scope":mode,"offset":start,"limit":size,"returned":len(page),"total":total,"has_more":start+len(page)<total,
+                        "scope_native_projection": bool(mode=="live" and str(snap.get("snapshot_scope") or "") == "live"),
                         "matching_ids":[str(job.get("id") or "") for job in selected if str(job.get("id") or "")]}
         return result
 
@@ -6747,9 +6774,10 @@ class SabDownloadManager:
             self._multiple_active_slot_condition_since = now
             self._multiple_active_slot_last_ts = now
 
-    def _snapshot_uncached(self) -> dict[str, Any]:
+    def _snapshot_uncached(self, scope_mode: str = "all") -> dict[str, Any]:
+        scope_mode = "live" if str(scope_mode or "all").strip().casefold() == "live" else "all"
         now = time.time()
-        self._refresh_shared_state_for_snapshot(max_wait_seconds=0.025)
+        self._refresh_shared_state_for_snapshot(max_wait_seconds=0.0)
         engine_started = time.monotonic()
         engine = self.engine_status_cached()
         engine_ms = max(0.0, (time.monotonic() - engine_started) * 1000.0)
@@ -6764,7 +6792,16 @@ class SabDownloadManager:
             jobs: list[dict[str, Any]] = []
             collections: list[dict[str, Any]] = []
             counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
+            terminal_skips = 0
+            terminal_counts = {"completed": 0, "failed": 0, "cancelled": 0}
             for nzo_id, meta in tracked.items():
+                prior = self._job_last_view.get(nzo_id) or {}
+                terminal_hint = str(meta.get("terminal_status") or prior.get("status") or "").casefold()
+                post_hint = str(meta.get("post_status") or prior.get("post_status") or "").casefold()
+                if scope_mode == "live" and terminal_hint in terminal_counts and post_hint not in {"queued", "waiting", "verifying", "repairing", "extracting", "importing", "needs_password", "needs_tool", "needs_attention", "blocked", "failed", "cancelled"}:
+                    terminal_counts[terminal_hint] += 1
+                    terminal_skips += 1
+                    continue
                 # Reconstruct from durable ledger state.  A fresh process has no
                 # _job_last_view yet, so completed/imported records must not fall
                 # through to a synthetic Queued placeholder while SAB reconnects.
@@ -6775,6 +6812,12 @@ class SabDownloadManager:
                 counts[status if status in counts else "queued"] += 1
             jobs.sort(key=self._display_order_key)
             collections.sort(key=self._display_order_key)
+            for terminal_status, terminal_count in terminal_counts.items():
+                counts[terminal_status] += int(terminal_count)
+            if scope_mode == "live":
+                self._snapshot_scope_native_live_builds += 1
+                self._snapshot_scope_native_terminal_skips += terminal_skips
+                self._snapshot_scope_native_last_projected_jobs = len(jobs)
             configured_capacity = sum(max(1, _clamp_int(p.get("connections"), 1, 100, 20) - (min(3, max(0, _clamp_int(p.get("connections"), 1, 100, 20) - 1)) if p.get("use_browsing", True) else 0)) for p in self.providers_getter() if isinstance(p, dict) and p.get("enabled", True) and p.get("use_downloads", True))
             result = {"paused": bool(self.state.get("paused")), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
                       "folder": str(self.download_dir_getter()), "total_speed_bps": 0, "average_speed_bps": 0,
@@ -6830,7 +6873,7 @@ class SabDownloadManager:
             self._snapshot_sab_reconcile_max_ms = max(self._snapshot_sab_reconcile_max_ms, sab_reconcile_ms)
             self._last_error = str(exc)
             coherent_age = now - float(self._last_coherent_sab_snapshot_ts or 0.0)
-            if self._last_snapshot is not None and coherent_age <= 1.5:
+            if self._last_snapshot is not None and self._last_snapshot_scope == scope_mode and coherent_age <= 1.5:
                 self._sab_read_stale_uses += 1
                 stale = dict(self._last_snapshot)
                 stale["paused"] = bool(self.state.get("paused", False))
@@ -6924,6 +6967,8 @@ class SabDownloadManager:
         jobs: list[dict[str, Any]] = []
         collections: list[dict[str, Any]] = []
         counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
+        terminal_counts = {"completed": 0, "failed": 0, "cancelled": 0}
+        terminal_skips = 0
         with self.lock:
             tracked = dict(self._tracked())
 
@@ -6962,6 +7007,37 @@ class SabDownloadManager:
                 aggregate_owner_id = candidates[0][1]
 
         for nzo_id, meta in tracked.items():
+            queue_slot = queue_by.get(nzo_id)
+            history_slot = hist_by.get(nzo_id)
+            history_status = str((history_slot or {}).get("status") or "").casefold()
+            prior = self._job_last_view.get(nzo_id) or {}
+            prior_status_hint = str(prior.get("status") or "").casefold()
+            terminal_hint = str(meta.get("terminal_status") or "").casefold()
+            if not terminal_hint and history_status in terminal_counts:
+                terminal_hint = history_status
+            if not terminal_hint and prior_status_hint in terminal_counts:
+                terminal_hint = prior_status_hint
+            post_hint = str(meta.get("post_status") or prior.get("post_status") or "").casefold()
+            active_post_hint = post_hint in {"queued", "waiting", "verifying", "repairing", "extracting", "importing", "needs_password", "needs_tool", "needs_attention", "blocked", "failed", "cancelled"}
+            # v3.6.52 scope-native Live projection: terminal-only tracked history
+            # does not build heavyweight job/collection dictionaries merely to be
+            # thrown away by snapshot_view(). Global KPIs must still match the full
+            # presentation, though: NewzDeck's durable ledger intentionally retains
+            # older imported records after SAB History ages them out, and those retired
+            # ledger-only records are not visible cards/counts in a healthy full view.
+            # Count only a terminal SAB History row, or the existing brief Completed
+            # continuity case where a prior visible Completed card bridges one History
+            # omission. A live Queue echo or non-terminal History/post-processing state
+            # always remains projected so visibility/cleanup invariants are preserved.
+            terminal_history = history_status if history_status in terminal_counts else ""
+            history_nonterminal = bool(history_slot is not None and not terminal_history)
+            if scope_mode == "live" and queue_slot is None and not history_nonterminal and terminal_hint in terminal_counts and not active_post_hint:
+                if terminal_history:
+                    terminal_counts[terminal_history] += 1
+                elif history_slot is None and terminal_hint == "completed" and prior_status_hint == "completed":
+                    terminal_counts["completed"] += 1
+                terminal_skips += 1
+                continue
             if bool(meta.get("pending_submit")):
                 job = self._offline_job_from_meta(nzo_id, meta, now)
                 job["status"] = "queued"
@@ -6970,10 +7046,7 @@ class SabDownloadManager:
                 collections.append(self._collection_from_job(job, meta))
                 counts["queued"] += 1
                 continue
-            queue_slot = queue_by.get(nzo_id)
-            history_slot = hist_by.get(nzo_id)
-            history_status = str((history_slot or {}).get("status") or "").casefold()
-            prior_status = str((self._job_last_view.get(nzo_id) or {}).get("status") or "").casefold()
+            prior_status = str(prior.get("status") or "").casefold()
 
             # Completion is monotonic for a SAB NZO id. During SAB's queue→history
             # handoff the same id can transiently appear in both feeds, or a stale
@@ -7338,6 +7411,8 @@ class SabDownloadManager:
         # SAB's aggregate mbleft is diagnostic input only; it must never create a
         # "94 GB remaining / 0 Active / 0 Queued" contradiction.
         counts = {"queued": 0, "downloading": 0, "retry_wait": 0, "cancelling": 0, "completed": 0, "failed": 0, "cancelled": 0}
+        for terminal_status, terminal_count in terminal_counts.items():
+            counts[terminal_status] += int(terminal_count)
         for visible_job in jobs:
             visible_status = str(visible_job.get("status") or "queued")
             counts[visible_status if visible_status in counts else "queued"] += 1
@@ -7406,11 +7481,20 @@ class SabDownloadManager:
         projection_ms = max(0.0, (time.monotonic() - projection_started) * 1000.0)
         self._snapshot_projection_last_ms = projection_ms
         self._snapshot_projection_max_ms = max(self._snapshot_projection_max_ms, projection_ms)
+        if scope_mode == "live":
+            self._snapshot_scope_native_live_builds += 1
+            self._snapshot_scope_native_terminal_skips += terminal_skips
+            self._snapshot_scope_native_last_projected_jobs = len(jobs)
         result = {"paused": bool(self.state.get("paused", False)), "jobs": jobs, "counts": counts, "concurrent_downloads": 1,
                   "folder": str(self.download_dir_getter()), "total_speed_bps": total_speed, "average_speed_bps": total_speed,
                   "remaining_bytes": remaining, "queue_eta_seconds": eta, "post_processing_active": post_active,
                   "connections": connections, "collections": collections,
                   "telemetry": {"engine_label": f"SABnzbd {SAB_VERSION} built-in engine • adapter {ADAPTER_VERSION}", "network_rate_bps": total_speed,
+                                "snapshot_projection_scope": scope_mode,
+                                "snapshot_scope_native_live": bool(scope_mode == "live"),
+                                "snapshot_scope_native_live_builds": int(self._snapshot_scope_native_live_builds),
+                                "snapshot_scope_native_terminal_skips": int(self._snapshot_scope_native_terminal_skips),
+                                "snapshot_scope_native_last_projected_jobs": int(self._snapshot_scope_native_last_projected_jobs),
                                 "raw_network_rate_bps": _kb_to_bps(qroot.get("kbpersec")),
                                 "speed_estimated": bool(presentation.get("estimated", False)),
                                 "progress_rate_bps": int(presentation.get("progress_bps", 0) or 0),
