@@ -1,25 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.57",
-  "base_version": "3.6.56",
-  "release": "Import Hold Semantics & Downloads Count Integrity",
-  "adapter_version": "3.6.57",
-  "name": "Import Hold Semantics & Downloads Count Integrity",
+  "version": "3.6.58",
+  "base_version": "3.6.57",
+  "release": "Automation Runtime Reconciliation & State Efficiency",
+  "adapter_version": "3.6.58",
+  "name": "Automation Runtime Reconciliation & State Efficiency",
   "sab_version": "5.1.2",
   "changes": [
-    "Makes durable Completed/Failed counts use the same presentation classification as the page-native history indexes while retaining raw SAB transfer outcomes separately.",
-    "Classifies duplicate-media Smart Import failures explicitly as import_integrity_hold and preserves the structured reason/fingerprint in durable history and Details.",
-    "Blacklists the exact release that produced a proven cross-episode fingerprint conflict so Automation will not download the same bad post again.",
-    "After two distinct releases produce the same conflicting fingerprint for one target, pauses unattended searching for that target as an Integrity Hold while preserving manual review/retry paths.",
-    "Surfaces active Integrity Holds in Automation Health and clears the active target hold after a later verified successful import.",
-    "Preserves v3.6.56 pre-import fingerprint protection, v3.6.55 terminal-history efficiency, diagnostics caching, recovered-warning handling, private SABnzbd 5.1.2 authority and runtime handoff."
+    "Prunes old Automation runtime targets whose canonical item IDs no longer exist in a valid authoritative media-library.json, with a 24-hour grace window and fail-safe parsing.",
+    "Gives library-proven imported/satisfied target states semantic precedence over stale searching/queueing/queued/grabbed/waiting writes while allowing a real newer grab action to proceed.",
+    "Adds Automation runtime efficiency telemetry for target/orphan counts, runtime bytes, prune counts, reclaimed bytes and stale-state demotions blocked.",
+    "Normalizes unmistakable legacy v3.6.56 duplicate-content hold history to failure_class=import_integrity_hold without reconstructing or reactivating current target policy state.",
+    "Measures server-side diagnostics report construction time explicitly before considering formatted-report caching.",
+    "Preserves v3.6.57 Integrity Hold/count semantics, v3.6.55 no-op terminal-history efficiency, private SABnzbd 5.1.2 authority and the established Windows runtime handoff."
   ],
   "regression_guards": [
-    "A completed SAB transfer with failed Smart Import must count in the Failed presentation scope without losing the raw transfer-completed count.",
-    "One integrity-hold release must be blacklisted exactly once and automatic Automation may continue to the next candidate.",
-    "Two distinct releases with the same conflicting fingerprint must set the target Integrity Hold and unattended cycles must skip that target.",
-    "A later successful import must clear the active target Integrity Hold while preserving historical blacklist/hold evidence.",
-    "Held downloads must expose failure_class=import_integrity_hold and the explicit Smart Import held-for-review log message.",
-    "All v3.6.56 duplicate-protection/diagnostics guards and v3.6.55 history-efficiency guards remain mandatory."
+    "Old parseable orphan targets are pruned only when media-library.json parses successfully; recent or unparseable target records remain fail-safe.",
+    "A stale later scheduler write cannot demote a library-proven imported TV episode back to grabbed/queued/searching/waiting.",
+    "A genuinely newer grab with last_grab_ts after the final imported/satisfied timestamp is not suppressed.",
+    "Legacy byte-identical Smart Import held-for-review terminal evidence normalizes historically without creating active Automation holds.",
+    "Diagnostics expose automation runtime efficiency, stale-state reconciliation counters and diagnostics_report_build_ms timing.",
+    "All v3.6.57/v3.6.56/v3.6.55 guards remain mandatory and SAB transfer/repair/extraction behavior is unchanged."
   ]
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.57 NZB identity, durable history and presentation-index guards."""
+"""NewzDeck v3.6.58 NZB identity, durable history and presentation-index guards."""
 from __future__ import annotations
 import importlib.util, json, pathlib, tempfile, time, ast
 
@@ -11,7 +11,7 @@ def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path); mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod
 auto=load('v3653_auto',AUTO); sab=load('v3653_sab',SAB)
 
-if sab.ADAPTER_VERSION!='3.6.57': raise SystemExit(f'Wrong adapter version: {sab.ADAPTER_VERSION}')
+if sab.ADAPTER_VERSION!='3.6.58': raise SystemExit(f'Wrong adapter version: {sab.ADAPTER_VERSION}')
 
 def nzb(subjects):
     body=['<?xml version="1.0" encoding="utf-8"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">']
@@ -101,7 +101,7 @@ sab_source=SAB.read_text(encoding='utf-8')
 if 'self._sync_terminal_history_from_state(persist=True)' not in sab_source:
     raise SystemExit('Startup does not persist any durable-ledger terminal-history reconciliation.')
 for marker in ('terminal-history.json','TERMINAL_HISTORY_MAX_ROWS = 5000','_presentation_index_snapshot','_queue_snapshot_state_patch','_drain_snapshot_state_patches','history_source":"newzdeck-terminal-index','lazy_details','queue_sampler_last_failure_error','queue_sampler_failure_reasons','_validate_automation_output_episode_identity'):
-    if marker not in sab_source: raise SystemExit(f'Missing v3.6.57 runtime marker: {marker}')
+    if marker not in sab_source: raise SystemExit(f'Missing v3.6.58 runtime marker: {marker}')
 # Retained sampler failure survives a success publish.
 with tempfile.TemporaryDirectory(prefix='newzdeck-v3653-sampler-') as td:
     mgr=make_mgr(pathlib.Path(td)); mgr._queue_sampler_last_failure_error='transport busy'; mgr._queue_sampler_last_failure_ts=123.0; mgr._queue_sampler_failure_reasons={'RuntimeError: busy':3}
@@ -124,7 +124,7 @@ for marker in ('live.pop("terminal_status",None)', 'live.pop("completed_ts",None
 
 # Live rendering may retain full-path locks for compatibility, but every direct
 # state lock inside _snapshot_uncached must sit behind a non-Live branch. The
-# v3.6.57 active presentation path itself is sourced from the copy-on-write index.
+# v3.6.58 active presentation path itself is sourced from the copy-on-write index.
 snapshot_start=sab_source.index('    def _snapshot_uncached(self, scope_mode: str = "all")')
 snapshot_end=sab_source.index('    def _ids(self, job_id: str', snapshot_start)
 snapshot_text=sab_source[snapshot_start:snapshot_end]
@@ -135,11 +135,11 @@ for required in ('if scope_mode == "live":\n                presentation_index=s
         raise SystemExit('Live snapshot no longer consumes the published presentation index at every ledger decision point.')
 
 server_source=SERVER.read_text(encoding='utf-8'); js=JS.read_text(encoding='utf-8')
-for marker in ('APP_VERSION = "3.6.57"','detail_id=str((query.get("id")','snapshot_view(scope,limit=limit,offset=offset,detail_id=detail_id)'):
+for marker in ('APP_VERSION = "3.6.58"','detail_id=str((query.get("id")','snapshot_view(scope,limit=limit,offset=offset,detail_id=detail_id)'):
     if marker not in server_source: raise SystemExit(f'Missing server detail/paging marker: {marker}')
-for marker in ("const UI_VERSION = '3.6.57';",'downloadHistoryOffset:0','downloadHistoryLoaded:[]','scope=detail&id=','job.details_loaded===false',"state.downloadHistoryOffset=(state.downloadHistoryLoaded||[]).length"):
+for marker in ("const UI_VERSION = '3.6.58';",'downloadHistoryOffset:0','downloadHistoryLoaded:[]','scope=detail&id=','job.details_loaded===false',"state.downloadHistoryOffset=(state.downloadHistoryLoaded||[]).length"):
     if marker not in js: raise SystemExit(f'Missing durable-history UI marker: {marker}')
 if WORKFLOW.exists() and 'python release/windows/validate-v3653-regressions.py' not in WORKFLOW.read_text(encoding='utf-8'):
-    raise SystemExit('Release workflow does not run the v3.6.57 guard.')
+    raise SystemExit('Release workflow does not run the v3.6.58 guard.')
 
-print('v3.6.57 regression guard passed (998-file disguised pack rejection + output fail-closed + 620-row durable history + active presentation index + retained sampler failures).')
+print('v3.6.58 regression guard passed (998-file disguised pack rejection + output fail-closed + 620-row durable history + active presentation index + retained sampler failures).')

@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.57"
+APP_VERSION = "3.6.58"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11796,6 +11796,33 @@ _DIAGNOSTICS_SNAPSHOT_CACHE_TS = 0.0
 _DIAGNOSTICS_SNAPSHOT_CACHE_VALUE: dict[str,Any]|None = None
 _DIAGNOSTICS_SNAPSHOT_CACHE_HITS = 0
 _DIAGNOSTICS_SNAPSHOT_CACHE_MISSES = 0
+# v3.6.58: measure report construction separately from the cached diagnostics
+# snapshot. This intentionally does not cache the formatted report yet; evidence
+# should prove formatting is the remaining cost before changing behavior.
+_DIAGNOSTICS_REPORT_TIMING_LOCK = threading.RLock()
+_DIAGNOSTICS_REPORT_BUILD_COUNT = 0
+_DIAGNOSTICS_REPORT_BUILD_LAST_MS = 0.0
+_DIAGNOSTICS_REPORT_BUILD_MAX_MS = 0.0
+_DIAGNOSTICS_REPORT_BUILD_LAST_TS = 0.0
+
+def _diagnostics_report_timing_snapshot() -> dict[str,Any]:
+    with _DIAGNOSTICS_REPORT_TIMING_LOCK:
+        return {
+            'diagnostics_report_build_count':int(_DIAGNOSTICS_REPORT_BUILD_COUNT),
+            'diagnostics_report_build_ms':round(float(_DIAGNOSTICS_REPORT_BUILD_LAST_MS or 0.0),3),
+            'diagnostics_report_build_max_ms':round(float(_DIAGNOSTICS_REPORT_BUILD_MAX_MS or 0.0),3),
+            'diagnostics_report_build_last_ts':float(_DIAGNOSTICS_REPORT_BUILD_LAST_TS or 0.0),
+        }
+
+def _record_diagnostics_report_build(elapsed_ms:float) -> dict[str,Any]:
+    global _DIAGNOSTICS_REPORT_BUILD_COUNT,_DIAGNOSTICS_REPORT_BUILD_LAST_MS
+    global _DIAGNOSTICS_REPORT_BUILD_MAX_MS,_DIAGNOSTICS_REPORT_BUILD_LAST_TS
+    with _DIAGNOSTICS_REPORT_TIMING_LOCK:
+        _DIAGNOSTICS_REPORT_BUILD_COUNT+=1
+        _DIAGNOSTICS_REPORT_BUILD_LAST_MS=max(0.0,float(elapsed_ms or 0.0))
+        _DIAGNOSTICS_REPORT_BUILD_MAX_MS=max(float(_DIAGNOSTICS_REPORT_BUILD_MAX_MS or 0.0),_DIAGNOSTICS_REPORT_BUILD_LAST_MS)
+        _DIAGNOSTICS_REPORT_BUILD_LAST_TS=time.time()
+        return _diagnostics_report_timing_snapshot()
 
 def _diagnostics_snapshot_uncached() -> dict[str, Any]:
     base = DIAGNOSTICS.snapshot(); metrics = base.get('providers', {})
@@ -11866,8 +11893,10 @@ def _diagnostics_snapshot_uncached() -> dict[str, Any]:
         'searches': searches, 'events': base.get('events',[])[:80], 'desktop_mode': DESKTOP_MODE, 'ffmpeg': bool(_ffmpeg_path()),
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
-        'automation_target_integrity': MEDIA_AUTOMATION.target_integrity_telemetry() if 'MEDIA_AUTOMATION' in globals() else {'stale_auto_grabs_suppressed':0,'scan_merge_conflicts':0,'downgrades_blocked':0,'existing_quality_recovered':0,'last_event_ts':0},
+        'automation_target_integrity': MEDIA_AUTOMATION.target_integrity_telemetry() if 'MEDIA_AUTOMATION' in globals() else {'stale_auto_grabs_suppressed':0,'scan_merge_conflicts':0,'downgrades_blocked':0,'existing_quality_recovered':0,'stale_state_demotions_blocked':0,'last_event_ts':0},
+        'automation_runtime_efficiency': MEDIA_AUTOMATION.automation_runtime_efficiency() if 'MEDIA_AUTOMATION' in globals() else {'runtime_target_records':0,'automation_runtime_bytes':0},
         'automation_storage': MEDIA_AUTOMATION.storage_health_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'roots':[],'low_roots':[]},
+        'diagnostics_report_timing': _diagnostics_report_timing_snapshot(),
     }
 
 
@@ -11904,6 +11933,9 @@ def diagnostics_snapshot(*, force:bool=False) -> dict[str, Any]:
 
 def diagnostics_report() -> str:
     d = diagnostics_snapshot()
+    # Measure only server-side report construction after the diagnostics snapshot
+    # has been obtained, so a cache miss cannot be mistaken for formatting cost.
+    report_started=time.perf_counter()
     memory_line = f"Memory: {d['memory_bytes']} bytes" if int(d.get('memory_bytes',0) or 0) > 0 else f"Memory: unavailable ({d.get('memory_error') or 'unknown error'})"
     lines = [f"NewzDeck Diagnostics v{APP_VERSION}", f"Generated: {datetime.now().isoformat(timespec='seconds')}", f"Uptime: {d['uptime_seconds']}s", memory_line]
     disk=d['storage']['disk']; lines.append(f"Download disk free: {disk.get('free',0)} / {disk.get('total',0)} bytes")
@@ -11937,7 +11969,8 @@ def diagnostics_report() -> str:
             f"sync_noops={int(tel.get('terminal_history_sync_noops',0) or 0)}; "
             f"changed_rows={int(tel.get('terminal_history_sync_changed_rows',0) or 0)}; "
             f"index_rebuilds={int(tel.get('terminal_history_index_rebuilds',0) or 0)}; "
-            f"rebuilds_avoided={int(tel.get('terminal_history_index_rebuilds_avoided',0) or 0)}"
+            f"rebuilds_avoided={int(tel.get('terminal_history_index_rebuilds_avoided',0) or 0)}; "
+            f"legacy_integrity_holds_normalized={int(tel.get('terminal_history_integrity_holds_normalized',0) or 0)}"
         )
         lines.append(f"Active-card continuity: bridges={int(tel.get('active_card_continuity_bridges',0) or 0)}; last_bridge_ts={float(tel.get('active_card_continuity_last_ts',0) or 0):.3f}")
         lines.append(
@@ -12056,7 +12089,22 @@ def diagnostics_report() -> str:
         f"cross_episode_fingerprint_imports_blocked={int(integrity.get('cross_episode_fingerprint_imports_blocked',0) or 0)}; "
         f"integrity_hold_releases_blacklisted={int(integrity.get('integrity_hold_releases_blacklisted',0) or 0)}; "
         f"integrity_hold_targets_paused={int(integrity.get('integrity_hold_targets_paused',0) or 0)}; "
+        f"stale_state_demotions_blocked={int(integrity.get('stale_state_demotions_blocked',0) or 0)}; "
         f"last_event_ts={float(integrity.get('last_event_ts',0) or 0):.3f}"
+    )
+    runtime_eff=d.get('automation_runtime_efficiency') if isinstance(d.get('automation_runtime_efficiency'),dict) else {}
+    prune=runtime_eff.get('prune') if isinstance(runtime_eff.get('prune'),dict) else {}
+    lines.append(
+        "Automation runtime efficiency: "
+        f"targets={int(runtime_eff.get('runtime_target_records',0) or 0)}; "
+        f"valid={runtime_eff.get('valid_current_library_target_records')}; "
+        f"orphans={runtime_eff.get('orphan_target_records')}; "
+        f"orphan_ratio={runtime_eff.get('orphan_ratio')}; "
+        f"runtime_bytes={int(runtime_eff.get('automation_runtime_bytes',0) or 0)}; "
+        f"pruned_last={int(prune.get('orphan_targets_pruned',0) or 0)}; "
+        f"bytes_reclaimed_last={int(prune.get('orphan_target_bytes_reclaimed',0) or 0)}; "
+        f"lifetime_pruned={int(prune.get('lifetime_orphan_targets_pruned',0) or 0)}; "
+        f"last_prune_ts={float(prune.get('last_prune_ts',0) or 0):.3f}"
     )
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")
     storage_health=d.get('automation_storage') if isinstance(d.get('automation_storage'),dict) else {}
@@ -12086,7 +12134,13 @@ def diagnostics_report() -> str:
         lines.append(f"- {p['name']} ({p['host']}:{p['port']}): {p['status']}, latency={latency_text}, success={success_text}, samples={int(p.get('measurement_samples',0) or 0)}, reconnects={p.get('reconnects',0)}, last_error={p.get('last_error','')}")
     lines.append('Recent events:')
     for e in d['events'][:20]: lines.append(f"- {datetime.fromtimestamp(e.get('ts',0)).isoformat(timespec='seconds')} [{e.get('level')}] {e.get('area')}: {e.get('message')}")
-    return '\n'.join(lines)
+    report='\n'.join(lines)
+    timing=_record_diagnostics_report_build((time.perf_counter()-report_started)*1000.0)
+    return report + ("\nDiagnostics report timing: "
+        f"diagnostics_report_build_ms={float(timing.get('diagnostics_report_build_ms',0) or 0):.3f}; "
+        f"builds={int(timing.get('diagnostics_report_build_count',0) or 0)}; "
+        f"max_ms={float(timing.get('diagnostics_report_build_max_ms',0) or 0):.3f}; "
+        f"last_build_ts={float(timing.get('diagnostics_report_build_last_ts',0) or 0):.3f}")
 
 def _user_safe_error_message(exc: Exception, *, operation: str = "request") -> str:
     """Translate transport/OS exceptions into stable user-facing messages."""

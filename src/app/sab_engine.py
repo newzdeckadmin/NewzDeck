@@ -25,11 +25,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.6.57"
+ADAPTER_VERSION = "3.6.58"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
-TERMINAL_HISTORY_VERSION = 2
+TERMINAL_HISTORY_VERSION = 3
 TERMINAL_HISTORY_MAX_ROWS = 5000
 STATISTICS_ACCOUNTED_MAX_ROWS = 20000
 AUTOMATION_MEDIA_EXTS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg"}
@@ -815,6 +815,10 @@ class SabDownloadManager:
         self._terminal_history_sync_runs = 0
         self._terminal_history_sync_noops = 0
         self._terminal_history_sync_changed_rows = 0
+        # v3.6.58: one-time schema-v3 maintenance classifies unmistakable legacy
+        # v3.6.56 Smart Import duplicate holds without changing live Automation state.
+        self._terminal_history_integrity_holds_normalized = 0
+        self._terminal_history_integrity_hold_normalization_last_ts = 0.0
         self._terminal_page_reads = 0
         self._terminal_page_rows_projected = 0
         self._tracked_terminal_retired_jobs = 0
@@ -2822,6 +2826,8 @@ class SabDownloadManager:
             'terminal_history_sync_runs': int(self._terminal_history_sync_runs),
             'terminal_history_sync_noops': int(self._terminal_history_sync_noops),
             'terminal_history_sync_changed_rows': int(self._terminal_history_sync_changed_rows),
+            'terminal_history_integrity_holds_normalized': int(self._terminal_history_integrity_holds_normalized),
+            'terminal_history_integrity_hold_normalization_last_ts': float(self._terminal_history_integrity_hold_normalization_last_ts or 0.0),
             'terminal_history_index_rebuilds_avoided': int(self._terminal_history_sync_noops),
             'terminal_history_completed_index_rows': int(len(self._terminal_history_index.get("completed") or [])),
             'terminal_history_failed_index_rows': int(len(self._terminal_history_index.get("failed") or [])),
@@ -4922,6 +4928,32 @@ class SabDownloadManager:
         }
         return row
 
+    def _normalize_legacy_integrity_hold_row(self, row:dict[str,Any]) -> tuple[dict[str,Any],bool]:
+        """Classify only unmistakable historical duplicate-content Smart Import holds.
+
+        Historical evidence and current Automation policy are intentionally separate:
+        this migration changes the compact terminal row only. It does not reconstruct
+        an active target hold, blacklist, fingerprint, or retry state that is not
+        already present in the historical record.
+        """
+        if not isinstance(row,dict) or str(row.get('failure_class') or '').strip():
+            return row,False
+        evidence=' | '.join(str(row.get(k) or '') for k in ('post_message','error','release_failure_reason')).casefold()
+        legacy=(
+            'smart import' in evidence
+            and 'held for review' in evidence
+            and ('byte-identical' in evidence or 'byte identical' in evidence)
+        )
+        if not legacy:
+            return row,False
+        out=dict(row)
+        out['failure_class']='import_integrity_hold'
+        out['historical_integrity_hold_normalized']=True
+        out['historical_integrity_hold_normalized_ts']=time.time()
+        self._terminal_history_integrity_holds_normalized+=1
+        self._terminal_history_integrity_hold_normalization_last_ts=time.time()
+        return out,True
+
     @staticmethod
     def _terminal_history_scope_for_row(row:dict[str,Any]) -> str:
         status=str(row.get("status") or "").casefold(); post=str(row.get("post_status") or "").casefold()
@@ -5035,6 +5067,9 @@ class SabDownloadManager:
                         row.setdefault("automation_destination",destination)
                         row.setdefault("display_name",label or str(row.get("collection_name") or row.get("filename") or "NZB package"))
                         row.setdefault("source_filename",str(row.get("filename") or "")); changed+=1
+                    if isinstance(row,dict):
+                        row,hold_changed=self._normalize_legacy_integrity_hold_row(row)
+                        if hold_changed: changed+=1
                     normalized.append((nzo_id,row))
                 ordered=normalized
 

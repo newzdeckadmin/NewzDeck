@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.57 terminal-history index and diagnostics efficiency guards."""
+"""NewzDeck v3.6.58 terminal-history index and diagnostics efficiency guards."""
 from __future__ import annotations
 import importlib.util
 import json
@@ -19,12 +19,12 @@ def load(name,path):
     return mod
 
 sab=load('v3655_sab',SAB)
-if sab.ADAPTER_VERSION!='3.6.57':
+if sab.ADAPTER_VERSION!='3.6.58':
     raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
-if sab.TERMINAL_HISTORY_VERSION!=2 or sab.TERMINAL_HISTORY_MAX_ROWS!=5000:
-    raise SystemExit('v3.6.57 changed the durable terminal-history v2/5,000-row contract.')
+if sab.TERMINAL_HISTORY_VERSION!=3 or sab.TERMINAL_HISTORY_MAX_ROWS!=5000:
+    raise SystemExit('v3.6.58 changed the durable terminal-history v3/5,000-row contract.')
 if sab.STATISTICS_ACCOUNTED_MAX_ROWS!=20000:
-    raise SystemExit('v3.6.57 changed the 20,000-ID statistics accounting boundary.')
+    raise SystemExit('v3.6.58 changed the 20,000-ID statistics accounting boundary.')
 
 def make_mgr(root:pathlib.Path):
     return sab.SabDownloadManager(
@@ -34,7 +34,7 @@ def make_mgr(root:pathlib.Path):
     )
 
 # v3.6.54 full-load diagnostics showed 1,077 index rebuilds but only 22 durable
-# writes. Seed an already-valid v2 history and prove frequent no-op completion
+# writes. Seed an already-valid v3 history and prove frequent no-op completion
 # monitor syncs neither copy into a write nor rebuild the cached page index.
 with tempfile.TemporaryDirectory(prefix='newzdeck-v3655-history-noop-') as td:
     root=pathlib.Path(td)
@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3655-history-noop-') as td:
             'created_ts':1000+i,'completed_ts':2000+i,'details_loaded':False,
         }
     (engine_root/'terminal-history.json').write_text(
-        json.dumps({'version':2,'updated_ts':1,'rows':rows}),encoding='utf-8'
+        json.dumps({'version':3,'updated_ts':1,'rows':rows}),encoding='utf-8'
     )
     (engine_root/'newzdeck-jobs.json').write_text(
         json.dumps({'version':2,'paused':False,'jobs':{
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3655-history-noop-') as td:
     initial_writes=mgr._terminal_history_writes
     initial_noops=mgr._terminal_history_sync_noops
     if initial_rebuilds!=1:
-        raise SystemExit(f'Loaded v2 history should build its cached index once, got {initial_rebuilds}.')
+        raise SystemExit(f'Loaded v3 history should build its cached index once, got {initial_rebuilds}.')
     if len(mgr._terminal_history_index.get('completed') or [])!=100:
         raise SystemExit('Loaded v2 Completed index did not contain all 100 rows.')
 
@@ -162,7 +162,7 @@ js=JS.read_text(encoding='utf-8')
 index=INDEX.read_text(encoding='utf-8')
 
 for marker in (
-    'ADAPTER_VERSION = "3.6.57"',
+    'ADAPTER_VERSION = "3.6.58"',
     '_terminal_history_sync_runs',
     '_terminal_history_sync_noops',
     '_terminal_history_sync_changed_rows',
@@ -178,10 +178,10 @@ for marker in (
     'multiple_active_slot_current_has_visible_correction',
 ):
     if marker not in sab_source:
-        raise SystemExit(f'Missing v3.6.57 history/overlap marker: {marker}')
+        raise SystemExit(f'Missing v3.6.58 history/overlap marker: {marker}')
 
 for marker in (
-    'APP_VERSION = "3.6.57"',
+    'APP_VERSION = "3.6.58"',
     'snap = DOWNLOAD_MANAGER.snapshot(scope="live")',
     "'durable_terminal_counts':durable_terminal_counts",
     "'operational_tracked_jobs':int(telemetry.get('presentation_index_tracked_total'",
@@ -193,7 +193,7 @@ for marker in (
     '"Multi-active normalization: "',
 ):
     if marker not in server_source:
-        raise SystemExit(f'Missing v3.6.57 diagnostics marker: {marker}')
+        raise SystemExit(f'Missing v3.6.58 diagnostics marker: {marker}')
 for forbidden in (
     "snap = DOWNLOAD_MANAGER.snapshot()\n",
     "latency={p.get('last_latency_ms',0)}ms",
@@ -202,14 +202,14 @@ for forbidden in (
     if forbidden in server_source:
         raise SystemExit(f'Stale v3.6.54 diagnostics behavior remains: {forbidden!r}')
 
-if "const UI_VERSION = '3.6.57';" not in js:
-    raise SystemExit('UI version is not 3.6.57.')
-if '3.6.57-import-hold-count-integrity' not in index:
-    raise SystemExit('Static asset cache identity is not v3.6.57.')
+if "const UI_VERSION = '3.6.58';" not in js:
+    raise SystemExit('UI version is not 3.6.58.')
+if '3.6.58-automation-runtime-reconciliation' not in index:
+    raise SystemExit('Static asset cache identity is not v3.6.58.')
 manifest=json.loads(MANIFEST.read_text(encoding='utf-8'))
-if manifest.get('version')!='3.6.57' or manifest.get('adapter_version')!='3.6.57' or manifest.get('base_version')!='3.6.56':
+if manifest.get('version')!='3.6.58' or manifest.get('adapter_version')!='3.6.58' or manifest.get('base_version')!='3.6.57':
     raise SystemExit(f'Build manifest identity is wrong: {manifest.get("version")}/{manifest.get("adapter_version")}/{manifest.get("base_version")}')
 if WORKFLOW.exists() and 'python release/windows/validate-v3655-regressions.py' not in WORKFLOW.read_text(encoding='utf-8'):
-    raise SystemExit('Canonical release workflow does not run the v3.6.57 regression guard.')
+    raise SystemExit('Canonical release workflow does not run the v3.6.58 regression guard.')
 
-print('v3.6.57 regression guard passed (no-op history fast path + one rebuild per mutation + durable diagnostic counts + N/A provider measurements + overlap provenance).')
+print('v3.6.58 regression guard passed (no-op history fast path + one rebuild per mutation + durable diagnostic counts + N/A provider measurements + overlap provenance).')

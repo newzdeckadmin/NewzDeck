@@ -574,7 +574,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.35'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.58'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -674,6 +674,9 @@ class MediaAutomationEngine:
         self._cross_episode_fingerprint_imports_blocked = 0
         self._integrity_hold_releases_blacklisted = 0
         self._integrity_hold_targets_paused = 0
+        # v3.6.58: semantic runtime reconciliation prevents stale scheduler writes
+        # from demoting library-proven imported/satisfied targets back to transit states.
+        self._stale_state_demotions_blocked = 0
         self._target_integrity_last_ts = 0.0
         self._grab_reservations_pruned = 0
         self._grab_reservation_invalid_pruned = 0
@@ -681,10 +684,21 @@ class MediaAutomationEngine:
         # v3.6.38: for a short post-start window, persisted active-target hints
         # protect Automation while SAB queue/history ownership is reconstructed.
         self._automation_process_started_ts = time.time()
+        # v3.6.58: runtime-target pruning is bounded and conservative. A missing
+        # library target must be at least one day old before it can be retired, and
+        # malformed/unparseable target keys are never deleted automatically.
+        self._runtime_orphan_prune_grace_seconds = 24 * 3600
+        self._runtime_orphan_prune_interval_seconds = 30 * 60
+        self._runtime_orphan_prune_last_attempt_ts = 0.0
+        self._runtime_orphan_prune_last_summary: dict[str,Any] = {}
 
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
+            pass
+        try:
+            self._prune_orphan_runtime_targets(force=True)
+        except Exception:
             pass
         try:
             self._prune_grab_reservations(force=True)
@@ -700,6 +714,7 @@ class MediaAutomationEngine:
             'cross_episode_fingerprint_imports_blocked':'_cross_episode_fingerprint_imports_blocked',
             'integrity_hold_releases_blacklisted':'_integrity_hold_releases_blacklisted',
             'integrity_hold_targets_paused':'_integrity_hold_targets_paused',
+            'stale_state_demotions_blocked':'_stale_state_demotions_blocked',
         }.get(str(field or ''))
         if not attr:
             return
@@ -717,6 +732,7 @@ class MediaAutomationEngine:
                 'cross_episode_fingerprint_imports_blocked':int(self._cross_episode_fingerprint_imports_blocked),
                 'integrity_hold_releases_blacklisted':int(self._integrity_hold_releases_blacklisted),
                 'integrity_hold_targets_paused':int(self._integrity_hold_targets_paused),
+                'stale_state_demotions_blocked':int(self._stale_state_demotions_blocked),
                 'grab_reservations_pruned':int(self._grab_reservations_pruned),
                 'grab_reservation_invalid_pruned':int(self._grab_reservation_invalid_pruned),
                 'grab_reservation_cleanup_last_ts':float(self._grab_reservation_cleanup_last_ts or 0),
@@ -862,9 +878,129 @@ class MediaAutomationEngine:
         if not isinstance(x.get('targets'),dict): x['targets']={}
         return x
 
+    @staticmethod
+    def _runtime_target_parts(key:str) -> dict[str,Any]:
+        text=str(key or '').strip()
+        m=re.fullmatch(r'tv:([^:]+):s(\d{1,2})e(\d{1,3})',text,re.I)
+        if m:
+            return {'kind':'tv','item_id':m.group(1),'season':int(m.group(2)),'episode':int(m.group(3)),'season_pack':False}
+        m=re.fullmatch(r'tv:([^:]+):s(\d{1,2}):pack',text,re.I)
+        if m:
+            return {'kind':'tv','item_id':m.group(1),'season':int(m.group(2)),'episode':None,'season_pack':True}
+        m=re.fullmatch(r'movie:([^:]+)',text,re.I)
+        if m:
+            return {'kind':'movie','item_id':m.group(1),'season':None,'episode':None,'season_pack':False}
+        return {}
+
+    def _runtime_library_snapshot_for_prune(self) -> tuple[list[dict[str,Any]]|None,set[str]]:
+        """Read the authoritative persisted media library without fail-open deletion.
+
+        `_read()` intentionally returns defaults on malformed JSON, which is correct for
+        most UI paths but unsafe for destructive cleanup. Runtime pruning therefore
+        requires the file to exist and parse as an actual JSON list before removing
+        anything.
+        """
+        try:
+            if not self.library_file.exists():
+                return None,set()
+            parsed=json.loads(self.library_file.read_text(encoding='utf-8'))
+            if not isinstance(parsed,list):
+                return None,set()
+            rows=[x for x in parsed if isinstance(x,dict)]
+            return rows,{str(x.get('id') or '').strip() for x in rows if str(x.get('id') or '').strip()}
+        except Exception:
+            return None,set()
+
+    def _prune_orphan_targets_in_value(self, value:dict[str,Any], *, force:bool=False) -> dict[str,Any]:
+        now=time.time()
+        if not force and now-float(self._runtime_orphan_prune_last_attempt_ts or 0)<float(self._runtime_orphan_prune_interval_seconds):
+            return value
+        self._runtime_orphan_prune_last_attempt_ts=now
+        library,valid_ids=self._runtime_library_snapshot_for_prune()
+        if library is None:
+            return value
+        targets=value.get('targets') if isinstance(value.get('targets'),dict) else {}
+        before_count=len(targets)
+        before_bytes=len(json.dumps(value,ensure_ascii=False,separators=(',',':')).encode('utf-8'))
+        kept={}; orphan_seen=0; pruned=0
+        for key,rec in targets.items():
+            if not isinstance(rec,dict):
+                continue
+            parts=self._runtime_target_parts(str(key))
+            item_id=str(parts.get('item_id') or '')
+            if not item_id or item_id in valid_ids:
+                kept[str(key)]=rec
+                continue
+            orphan_seen+=1
+            stamp=self._runtime_target_stamp(rec)
+            # Fail safe: no trustworthy age means retain. Recently deleted/re-added
+            # targets also get a full-day grace window before cleanup.
+            if stamp<=0 or now-stamp<float(self._runtime_orphan_prune_grace_seconds):
+                kept[str(key)]=rec
+                continue
+            pruned+=1
+        value['targets']=kept
+        after_bytes=len(json.dumps(value,ensure_ascii=False,separators=(',',':')).encode('utf-8'))
+        summary={
+            'runtime_targets_before':before_count,
+            'runtime_targets_after':len(kept),
+            'valid_library_target_records':sum(1 for key in kept if str(self._runtime_target_parts(key).get('item_id') or '') in valid_ids),
+            'orphan_targets_seen':orphan_seen,
+            'orphan_targets_pruned':pruned,
+            'orphan_target_bytes_reclaimed':max(0,before_bytes-after_bytes),
+            'last_prune_ts':now,
+            'grace_seconds':int(self._runtime_orphan_prune_grace_seconds),
+        }
+        prior=value.get('runtime_prune') if isinstance(value.get('runtime_prune'),dict) else {}
+        summary['lifetime_orphan_targets_pruned']=int(prior.get('lifetime_orphan_targets_pruned') or 0)+pruned
+        summary['lifetime_orphan_target_bytes_reclaimed']=int(prior.get('lifetime_orphan_target_bytes_reclaimed') or 0)+max(0,before_bytes-after_bytes)
+        value['runtime_prune']=summary
+        self._runtime_orphan_prune_last_summary=dict(summary)
+        return value
+
+    def _prune_orphan_runtime_targets(self, *, force:bool=False) -> dict[str,Any]:
+        with self.runtime_update_lock:
+            value=self._auto_runtime()
+            before=json.dumps(value,ensure_ascii=False,separators=(',',':'))
+            value=self._prune_orphan_targets_in_value(value,force=force)
+            after=json.dumps(value,ensure_ascii=False,separators=(',',':'))
+            if after!=before:
+                _write_compact(self.automation_runtime_file,value)
+            return dict(value.get('runtime_prune') or {})
+
+    def automation_runtime_efficiency(self) -> dict[str,Any]:
+        """Bounded diagnostics for persistent Automation target state."""
+        try:
+            rt=self._auto_runtime(); targets=rt.get('targets') if isinstance(rt.get('targets'),dict) else {}
+            library,valid_ids=self._runtime_library_snapshot_for_prune()
+            valid=0; orphan=0; unclassified=0
+            if library is not None:
+                for key in targets:
+                    item_id=str(self._runtime_target_parts(str(key)).get('item_id') or '')
+                    if not item_id: unclassified+=1
+                    elif item_id in valid_ids: valid+=1
+                    else: orphan+=1
+            size=int(self.automation_runtime_file.stat().st_size) if self.automation_runtime_file.exists() else 0
+            total=len(targets)
+            prune=rt.get('runtime_prune') if isinstance(rt.get('runtime_prune'),dict) else dict(self._runtime_orphan_prune_last_summary)
+            return {
+                'runtime_target_records':total,
+                'valid_current_library_target_records':valid if library is not None else None,
+                'orphan_target_records':orphan if library is not None else None,
+                'unclassified_target_records':unclassified if library is not None else None,
+                'orphan_ratio':round(orphan/total,4) if library is not None and total else (0.0 if library is not None else None),
+                'automation_runtime_bytes':size,
+                'prune':copy.deepcopy(prune),
+                'stale_state_demotions_blocked':int(self._stale_state_demotions_blocked),
+                'last_reconciliation_ts':float(self._target_integrity_last_ts or 0),
+            }
+        except Exception as exc:
+            return {'error':str(exc),'runtime_target_records':0,'automation_runtime_bytes':0}
+
     def _save_auto_runtime(self, value):
         with self.runtime_update_lock:
             if not isinstance(value,dict): value={}
+            value=self._prune_orphan_targets_in_value(value)
             targets=value.get('targets') if isinstance(value.get('targets'),dict) else {}
             cutoff=time.time()-(45*86400)
             cleaned={}
@@ -910,6 +1046,59 @@ class MediaAutomationEngine:
                 except Exception: pass
         return max(stamps or [0.0])
 
+    def _runtime_target_library_satisfied(self, key:str, library_by_id:dict[str,dict[str,Any]]|None=None) -> bool:
+        parts=self._runtime_target_parts(key)
+        item_id=str(parts.get('item_id') or '')
+        if not item_id: return False
+        if library_by_id is None:
+            library_by_id={str(x.get('id') or ''):x for x in self._library() if isinstance(x,dict) and str(x.get('id') or '')}
+        item=library_by_id.get(item_id)
+        if not item: return False
+        if parts.get('kind')=='movie':
+            movie_file=item.get('movie_file')
+            return bool(isinstance(movie_file,dict) and str(movie_file.get('path') or '').strip())
+        if bool(parts.get('season_pack')):
+            # A season pack can contain a moving set of aired/monitored episodes.
+            # Avoid claiming whole-pack semantic completion from partial state.
+            return False
+        season=parts.get('season'); episode=parts.get('episode')
+        sr=next((x for x in item.get('seasons',[]) if isinstance(x,dict) and int(x.get('season_number') or 0)==int(season or 0)),None)
+        ep=next((x for x in (sr or {}).get('episodes',[]) if isinstance(x,dict) and int(x.get('episode_number') or 0)==int(episode or 0)),None)
+        return bool((ep or {}).get('has_file'))
+
+    @staticmethod
+    def _merge_runtime_blacklist(primary:dict[str,Any], secondary:dict[str,Any]) -> dict[str,Any]:
+        out=copy.deepcopy(primary)
+        existing=[x for x in out.get('blacklist') or [] if isinstance(x,dict)]
+        seen={(str(x.get('guid') or '').casefold(),str(x.get('title') or '').casefold(),str(x.get('collection_id') or '')) for x in existing}
+        for row in secondary.get('blacklist') or []:
+            if not isinstance(row,dict): continue
+            sig=(str(row.get('guid') or '').casefold(),str(row.get('title') or '').casefold(),str(row.get('collection_id') or ''))
+            if sig not in seen:
+                existing.append(copy.deepcopy(row)); seen.add(sig)
+        if existing: out['blacklist']=existing[-80:]
+        return out
+
+    def _runtime_semantic_winner(self, key:str, left:dict[str,Any], right:dict[str,Any], library_by_id:dict[str,dict[str,Any]]|None=None) -> dict[str,Any]|None:
+        final={'imported','satisfied'}
+        transient={'searching','queueing','queued','grabbed','waiting'}
+        ls=str(left.get('status') or '').casefold(); rs=str(right.get('status') or '').casefold()
+        if not (((ls in final) and (rs in transient)) or ((rs in final) and (ls in transient))):
+            return None
+        if not self._runtime_target_library_satisfied(key,library_by_id):
+            return None
+        final_rec=left if ls in final else right
+        transient_rec=right if ls in final else left
+        final_stamp=float(final_rec.get('updated_ts') or 0)
+        real_grab_ts=float(transient_rec.get('last_grab_ts') or 0)
+        # A real queue/grab action after the final state is allowed to proceed. Merely
+        # obtaining a later scheduler/search timestamp is not enough to demote a
+        # library-proven import, which is the v3.6.57 race observed in diagnostics.
+        if real_grab_ts>final_stamp:
+            return None
+        self._note_target_integrity('stale_state_demotions_blocked')
+        return self._merge_runtime_blacklist(final_rec,transient_rec)
+
     def _merge_auto_runtime_concurrent(self, value:dict[str,Any]) -> dict[str,Any]:
         """Merge newer concurrent target/maintenance state before a long cycle saves.
 
@@ -923,28 +1112,37 @@ class MediaAutomationEngine:
             merged=dict(value or {})
             targets=merged.get('targets') if isinstance(merged.get('targets'),dict) else {}
             latest_targets=latest.get('targets') if isinstance(latest.get('targets'),dict) else {}
+            semantic_library_by_id:dict[str,dict[str,Any]]|None=None
             for key,newer in latest_targets.items():
                 if not isinstance(newer,dict): continue
                 current=targets.get(key) if isinstance(targets.get(key),dict) else None
-                if current is None or self._runtime_target_stamp(newer)>self._runtime_target_stamp(current):
+                if current is None:
                     targets[str(key)]=copy.deepcopy(newer)
+                    continue
+                ls=str(current.get('status') or '').casefold(); rs=str(newer.get('status') or '').casefold()
+                needs_semantic=((ls in {'imported','satisfied'} and rs in {'searching','queueing','queued','grabbed','waiting'}) or (rs in {'imported','satisfied'} and ls in {'searching','queueing','queued','grabbed','waiting'}))
+                if needs_semantic and semantic_library_by_id is None:
+                    semantic_library_by_id={str(x.get('id') or ''):x for x in self._library() if isinstance(x,dict) and str(x.get('id') or '')}
+                semantic=self._runtime_semantic_winner(str(key),current,newer,semantic_library_by_id) if needs_semantic else None
+                if semantic is not None:
+                    targets[str(key)]=semantic
+                    continue
+                if self._runtime_target_stamp(newer)>self._runtime_target_stamp(current):
+                    targets[str(key)]=self._merge_runtime_blacklist(newer,current)
                     continue
                 # Blacklists are append-only safety memory. Preserve a concurrent
                 # failed-release record even when the scheduler updated another
                 # field on the same target slightly later.
-                existing=[x for x in current.get('blacklist') or [] if isinstance(x,dict)]
-                seen={(str(x.get('guid') or '').casefold(),str(x.get('title') or '').casefold(),str(x.get('collection_id') or '')) for x in existing}
-                for row in newer.get('blacklist') or []:
-                    if not isinstance(row,dict): continue
-                    sig=(str(row.get('guid') or '').casefold(),str(row.get('title') or '').casefold(),str(row.get('collection_id') or ''))
-                    if sig not in seen:
-                        existing.append(copy.deepcopy(row)); seen.add(sig)
-                if existing: current['blacklist']=existing[-80:]
+                targets[str(key)]=self._merge_runtime_blacklist(current,newer)
             merged['targets']=targets
             merged['handled_failure_collections']=list(dict.fromkeys(
                 [str(x) for x in latest.get('handled_failure_collections') or []] +
                 [str(x) for x in merged.get('handled_failure_collections') or []]
             ))[-500:]
+            latest_prune=latest.get('runtime_prune') if isinstance(latest.get('runtime_prune'),dict) else {}
+            merged_prune=merged.get('runtime_prune') if isinstance(merged.get('runtime_prune'),dict) else {}
+            if float(latest_prune.get('last_prune_ts') or 0)>float(merged_prune.get('last_prune_ts') or 0):
+                merged['runtime_prune']=copy.deepcopy(latest_prune)
             for ts_key,result_key in (
                 ('last_library_scan_ts','last_library_scan_result'),
                 ('last_metadata_refresh_ts','last_metadata_result'),

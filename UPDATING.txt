@@ -1,14 +1,14 @@
-NewzDeck v3.6.57
-Import Hold Semantics & Downloads Count Integrity
+NewzDeck v3.6.58
+Automation Runtime Reconciliation & State Efficiency
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.57 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.58 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
-Existing settings, providers, Automation state, queue ownership, durable terminal history, statistics and private SABnzbd 5.1.2 are preserved.
+Existing settings, providers, Automation library, queue ownership, durable Downloads history, statistics and private SABnzbd 5.1.2 state are preserved.
 
-v3.6.57 changes only NewzDeck presentation/import policy around integrity-held media: raw SAB transfer outcomes remain authoritative, while Completed/Failed UI counts reflect the final NewzDeck presentation result. Proven bad duplicate-content releases are remembered per target, and repeated identical conflicts pause unattended retries for manual review.
+v3.6.58 is a narrow Automation runtime-state release. It removes only old orphaned target-runtime records after authoritative library validation, blocks stale semantic state demotions, normalizes unmistakable historical integrity-hold classification, and adds diagnostics report timing. It does not redesign SAB transfer, repair, extraction or retry behavior.
 
 PORTABLE NEWZDECK
 -----------------
-Close NewzDeck and extract the v3.6.57 Portable ZIP to a fresh folder. User data remains outside the application directory.
+Close NewzDeck and extract the v3.6.58 Portable ZIP to a fresh folder. User data remains outside the application directory.
