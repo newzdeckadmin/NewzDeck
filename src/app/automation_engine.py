@@ -574,7 +574,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.59'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.60'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -648,6 +648,20 @@ class MediaAutomationEngine:
         self._metadata_cache_read_ms_max = 0.0
         self._metadata_cache_write_ms_total = 0.0
         self._metadata_cache_write_ms_max = 0.0
+        # v3.6.60: metadata responses update the process-local cache immediately,
+        # but bursts are persisted by one short-delay atomic flush instead of one
+        # multi-megabyte rewrite per response. Dirty records remain authoritative
+        # in memory until the flush succeeds, and a cross-process lock + signature
+        # reload merges any service/desktop peer change before the compact write.
+        self._metadata_cache_dirty: dict[str,dict[str,Any]] = {}
+        self._metadata_cache_flush_timer: threading.Timer|None = None
+        self._metadata_cache_flush_delay_seconds = 0.75
+        self._metadata_cache_write_requests = 0
+        self._metadata_cache_pending_write_requests = 0
+        self._metadata_cache_coalesced_write_requests = 0
+        self._metadata_cache_flush_deferrals = 0
+        self._metadata_cache_flush_failures = 0
+        self._metadata_cache_last_flush_ts = 0.0
         self.activity_lock = threading.RLock()
         self.discover_home_cache_lock = threading.RLock()
         self.discover_home_cache: dict[str,Any]|None = None
@@ -671,6 +685,18 @@ class MediaAutomationEngine:
             'background_refresh_failed':0,'background_refresh_timeouts':0,'background_refresh_coalesced':0,
             'background_refresh_deferred':0,
         }
+        # v3.6.60: Discover decoration previously called _library() for every card,
+        # repeatedly parsing and scanning a multi-megabyte media-library.json. Keep
+        # one signature-aware index with direct metadata/TMDB/title lookup maps.
+        self.discover_library_index_lock = threading.RLock()
+        self._discover_library_index_signature: tuple[int,int]|None = None
+        self._discover_library_index: dict[str,Any]|None = None
+        self._discover_library_index_hits = 0
+        self._discover_library_index_misses = 0
+        self._discover_library_index_builds = 0
+        self._discover_library_index_build_ms_total = 0.0
+        self._discover_library_index_build_ms_max = 0.0
+        self._discover_library_index_last_build_ts = 0.0
         # Discover uses stale-while-revalidate rather than making the UI wait on a
         # cold/slow TMDB aggregate every time the Home or For You tab is opened.
         # Refresh work is single-flight inside this process and additionally guarded
@@ -2544,6 +2570,52 @@ class MediaAutomationEngine:
         except OSError:
             return -1,0
 
+    @contextlib.contextmanager
+    def _metadata_cache_write_process_guard(self):
+        """Non-blocking cross-process guard for coalesced metadata-cache flushes."""
+        path=self.data_dir / '.metadata-cache-write.lock'
+        fh=None;acquired=False
+        try:
+            path.parent.mkdir(parents=True,exist_ok=True)
+            fh=path.open('a+b')
+            fh.seek(0,os.SEEK_END)
+            if fh.tell()<=0:
+                fh.write(b'0');fh.flush()
+            fh.seek(0)
+            try:
+                if os.name=='nt':
+                    import msvcrt
+                    msvcrt.locking(fh.fileno(),msvcrt.LK_NBLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+                acquired=True
+            except OSError:
+                acquired=False
+            yield acquired
+        finally:
+            if acquired and fh is not None:
+                try:
+                    fh.seek(0)
+                    if os.name=='nt':
+                        import msvcrt
+                        msvcrt.locking(fh.fileno(),msvcrt.LK_UNLCK,1)
+                    else:
+                        import fcntl
+                        fcntl.flock(fh.fileno(),fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            if fh is not None:
+                try: fh.close()
+                except OSError: pass
+
+    @staticmethod
+    def _metadata_cache_trim(cache:dict[str,Any]) -> dict[str,Any]:
+        if len(cache)<=500:
+            return cache
+        rows=sorted(cache.items(),key=lambda kv:float((kv[1] or {}).get('ts') or 0),reverse=True)[:400]
+        return dict(rows)
+
     def _metadata_cache(self):
         signature=self._metadata_cache_file_signature()
         if self._metadata_cache_memory is not None and signature==self._metadata_cache_signature:
@@ -2552,6 +2624,11 @@ class MediaAutomationEngine:
         started=time.perf_counter()
         x=_read(self.metadata_cache_file,{})
         value=x if isinstance(x,dict) else {}
+        # A peer may have updated the disk file while this process still has
+        # unflushed records. Overlay those dirty records after the reload so local
+        # successful metadata responses cannot disappear from the live cache.
+        if self._metadata_cache_dirty:
+            value=dict(value); value.update(self._metadata_cache_dirty)
         elapsed=max(0.0,(time.perf_counter()-started)*1000.0)
         self._metadata_cache_memory_misses+=1
         self._metadata_cache_disk_reads+=1
@@ -2560,6 +2637,56 @@ class MediaAutomationEngine:
         self._metadata_cache_memory=value
         self._metadata_cache_signature=signature
         return value
+
+    def _schedule_metadata_cache_flush_locked(self) -> None:
+        current=self._metadata_cache_flush_timer
+        if current is not None and current.is_alive():
+            return
+        timer=threading.Timer(max(0.05,float(self._metadata_cache_flush_delay_seconds or 0.75)),self._metadata_cache_flush_worker)
+        timer.daemon=True
+        self._metadata_cache_flush_timer=timer
+        timer.start()
+
+    def _metadata_cache_flush_worker(self) -> None:
+        try:
+            self._flush_metadata_cache_now()
+        finally:
+            with self.metadata_cache_lock:
+                self._metadata_cache_flush_timer=None
+                if self._metadata_cache_dirty:
+                    self._schedule_metadata_cache_flush_locked()
+
+    def _flush_metadata_cache_now(self) -> bool:
+        """Persist all dirty cache records in one peer-safe compact atomic write."""
+        with self.metadata_cache_lock:
+            if not self._metadata_cache_dirty:
+                return True
+            with self._metadata_cache_write_process_guard() as acquired:
+                if not acquired:
+                    self._metadata_cache_flush_deferrals+=1
+                    return False
+                try:
+                    # _metadata_cache() compares the current disk signature with
+                    # the last observed one; a peer change is parsed and then local
+                    # dirty records are overlaid before this process persists.
+                    cache=dict(self._metadata_cache())
+                    cache.update(self._metadata_cache_dirty)
+                    cache=self._metadata_cache_trim(cache)
+                    started=time.perf_counter()
+                    _write_compact(self.metadata_cache_file,cache)
+                    elapsed=max(0.0,(time.perf_counter()-started)*1000.0)
+                except Exception:
+                    self._metadata_cache_flush_failures+=1
+                    return False
+                self._metadata_cache_writes+=1
+                self._metadata_cache_write_ms_total+=elapsed
+                self._metadata_cache_write_ms_max=max(self._metadata_cache_write_ms_max,elapsed)
+                self._metadata_cache_last_flush_ts=time.time()
+                self._metadata_cache_dirty.clear()
+                self._metadata_cache_pending_write_requests=0
+                self._metadata_cache_memory=cache
+                self._metadata_cache_signature=self._metadata_cache_file_signature()
+                return True
 
     def _cache_record(self, key:str, max_age:int=86400) -> tuple[Any|None,float|None]:
         with self.metadata_cache_lock:
@@ -2580,21 +2707,17 @@ class MediaAutomationEngine:
     def _cache_put(self, key: str, value):
         try:
             with self.metadata_cache_lock:
-                # _metadata_cache() revalidates the on-disk signature first, so a
-                # desktop/service peer update is merged before this process writes.
                 cache=dict(self._metadata_cache())
-                cache[str(key)]={'ts':time.time(),'value':value}
-                if len(cache)>500:
-                    rows=sorted(cache.items(),key=lambda kv:float((kv[1] or {}).get('ts') or 0),reverse=True)[:400]
-                    cache=dict(rows)
-                started=time.perf_counter()
-                _write_compact(self.metadata_cache_file,cache)
-                elapsed=max(0.0,(time.perf_counter()-started)*1000.0)
-                self._metadata_cache_writes+=1
-                self._metadata_cache_write_ms_total+=elapsed
-                self._metadata_cache_write_ms_max=max(self._metadata_cache_write_ms_max,elapsed)
+                rec={'ts':time.time(),'value':value}
+                cache[str(key)]=rec
+                cache=self._metadata_cache_trim(cache)
                 self._metadata_cache_memory=cache
-                self._metadata_cache_signature=self._metadata_cache_file_signature()
+                self._metadata_cache_dirty[str(key)]=rec
+                self._metadata_cache_write_requests+=1
+                self._metadata_cache_pending_write_requests+=1
+                if self._metadata_cache_pending_write_requests>1:
+                    self._metadata_cache_coalesced_write_requests+=1
+                self._schedule_metadata_cache_flush_locked()
         except Exception:
             pass
         return value
@@ -2613,8 +2736,11 @@ class MediaAutomationEngine:
     def _discover_percentile(values:list[float], fraction:float) -> float:
         rows=sorted(max(0.0,float(x or 0.0)) for x in values)
         if not rows: return 0.0
-        index=max(0,min(len(rows)-1,int(round((len(rows)-1)*max(0.0,min(1.0,float(fraction)))))))
-        return round(rows[index],3)
+        # Linear interpolation keeps tiny samples honest: for two measurements,
+        # p50 is their midpoint instead of whichever side Python round() selects.
+        position=(len(rows)-1)*max(0.0,min(1.0,float(fraction)))
+        lower=int(position); upper=min(len(rows)-1,lower+1); weight=position-lower
+        return round(rows[lower]+((rows[upper]-rows[lower])*weight),3)
 
     def _discover_detail_note(self, field:str, amount:int=1) -> None:
         with self.discover_perf_lock:
@@ -2626,9 +2752,27 @@ class MediaAutomationEngine:
             cache_stats={
                 'bytes':int(signature[1]),'memory_hits':int(self._metadata_cache_memory_hits),
                 'memory_misses':int(self._metadata_cache_memory_misses),'disk_reads':int(self._metadata_cache_disk_reads),
-                'writes':int(self._metadata_cache_writes),'read_ms_total':round(self._metadata_cache_read_ms_total,3),
-                'read_ms_max':round(self._metadata_cache_read_ms_max,3),'write_ms_total':round(self._metadata_cache_write_ms_total,3),
-                'write_ms_max':round(self._metadata_cache_write_ms_max,3),
+                # 'writes' remains the actual physical compact-write count for
+                # v3.6.59 Collector compatibility; write_requests can be much higher.
+                'writes':int(self._metadata_cache_writes),'write_requests':int(self._metadata_cache_write_requests),
+                'coalesced_write_requests':int(self._metadata_cache_coalesced_write_requests),
+                'pending_write_requests':int(self._metadata_cache_pending_write_requests),
+                'dirty_keys':len(self._metadata_cache_dirty),'flush_deferrals':int(self._metadata_cache_flush_deferrals),
+                'flush_failures':int(self._metadata_cache_flush_failures),'last_flush_ts':float(self._metadata_cache_last_flush_ts or 0),
+                'flush_delay_ms':round(float(self._metadata_cache_flush_delay_seconds or 0)*1000.0,3),
+                'read_ms_total':round(self._metadata_cache_read_ms_total,3),'read_ms_max':round(self._metadata_cache_read_ms_max,3),
+                'write_ms_total':round(self._metadata_cache_write_ms_total,3),'write_ms_max':round(self._metadata_cache_write_ms_max,3),
+            }
+        with self.discover_library_index_lock:
+            lib_signature=self._discover_library_file_signature()
+            lib_index=self._discover_library_index or {}
+            library_stats={
+                'bytes':int(lib_signature[1]),'records':int(lib_index.get('records') or 0),
+                'hits':int(self._discover_library_index_hits),'misses':int(self._discover_library_index_misses),
+                'builds':int(self._discover_library_index_builds),
+                'build_ms_total':round(self._discover_library_index_build_ms_total,3),
+                'build_ms_max':round(self._discover_library_index_build_ms_max,3),
+                'last_build_ts':float(self._discover_library_index_last_build_ts or 0),
             }
         with self.discover_perf_lock:
             routes={}
@@ -2636,11 +2780,12 @@ class MediaAutomationEngine:
                 samples=list(rec.get('samples') or [])
                 routes[key]={
                     'count':int(rec.get('count') or 0),'errors':int(rec.get('errors') or 0),
+                    'sample_count':len(samples),'avg_ms':round(sum(samples)/len(samples),3) if samples else 0.0,
                     'p50_ms':self._discover_percentile(samples,0.50),'p95_ms':self._discover_percentile(samples,0.95),
                     'max_ms':round(float(rec.get('max_ms') or 0.0),3),
                 }
             detail=dict(self._discover_detail_perf)
-        return {'metadata_cache':cache_stats,'routes':routes,'detail':detail,'detail_refresh_limit':2}
+        return {'metadata_cache':cache_stats,'library_index':library_stats,'routes':routes,'detail':detail,'detail_refresh_limit':2}
 
     def _metadata_cloud_state(self) -> dict[str,Any]:
         value=_read(self.metadata_cloud_state_file,{})
@@ -3427,15 +3572,62 @@ class MediaAutomationEngine:
         if provider and ident: return f'{provider}:{ident}'
         return f"{str(item.get('kind') or '')}:{_norm(item.get('title'))}:{item.get('year') or ''}"
 
+    def _discover_library_file_signature(self) -> tuple[int,int]:
+        try:
+            st=self.library_file.stat()
+            return int(st.st_mtime_ns),int(st.st_size)
+        except OSError:
+            return -1,0
+
+    def _discover_library_index_snapshot(self) -> dict[str,Any]:
+        signature=self._discover_library_file_signature()
+        with self.discover_library_index_lock:
+            if self._discover_library_index is not None and signature==self._discover_library_index_signature:
+                self._discover_library_index_hits+=1
+                return self._discover_library_index
+            self._discover_library_index_misses+=1
+            started=time.perf_counter()
+            library=self._library()
+            # _library() can perform a one-time legacy title normalization write;
+            # capture the post-read signature so that migration does not force an
+            # unnecessary second index build on the very next card.
+            signature=self._discover_library_file_signature()
+            by_provider:dict[tuple[str,str],dict[str,Any]]={}
+            by_tmdb:dict[str,dict[str,Any]]={}
+            by_title:dict[str,list[dict[str,Any]]]={}
+            records=0
+            for lib in library:
+                if not isinstance(lib,dict): continue
+                records+=1
+                provider=str(lib.get('metadata_provider') or '').strip().lower()
+                ident=str(lib.get('metadata_id') or '').strip()
+                if provider and ident: by_provider.setdefault((provider,ident),lib)
+                tmdb=str(lib.get('tmdb_id') or '').strip()
+                if tmdb: by_tmdb.setdefault(tmdb,lib)
+                title=_norm(lib.get('title'))
+                if title: by_title.setdefault(title,[]).append(lib)
+            elapsed=max(0.0,(time.perf_counter()-started)*1000.0)
+            index={'records':records,'library':library,'by_provider':by_provider,'by_tmdb':by_tmdb,'by_title':by_title}
+            self._discover_library_index=index
+            self._discover_library_index_signature=signature
+            self._discover_library_index_builds+=1
+            self._discover_library_index_build_ms_total+=elapsed
+            self._discover_library_index_build_ms_max=max(self._discover_library_index_build_ms_max,elapsed)
+            self._discover_library_index_last_build_ts=time.time()
+            return index
+
     def _discover_library_status(self,item:dict[str,Any]):
         provider=str(item.get('provider') or '').lower(); ident=str(item.get('metadata_id') or '')
         title=_norm(item.get('title')); year=item.get('year'); found=None
-        for lib in self._library():
-            lp=str(lib.get('metadata_provider') or '').lower(); li=str(lib.get('metadata_id') or '')
-            if ident and lp==provider and li==ident: found=lib; break
-            if provider=='tmdb' and str(item.get('tmdb_id') or '') and str(lib.get('tmdb_id') or '')==str(item.get('tmdb_id') or ''): found=lib; break
-            if title and _norm(lib.get('title'))==title and (not year or not lib.get('year') or int(lib.get('year'))==int(year)):
-                found=lib; break
+        index=self._discover_library_index_snapshot()
+        if ident:
+            found=(index.get('by_provider') or {}).get((provider,ident))
+        if found is None and provider=='tmdb' and str(item.get('tmdb_id') or ''):
+            found=(index.get('by_tmdb') or {}).get(str(item.get('tmdb_id') or ''))
+        if found is None and title:
+            for lib in list((index.get('by_title') or {}).get(title) or []):
+                if not year or not lib.get('year') or int(lib.get('year'))==int(year):
+                    found=lib; break
         if not found: return {'in_library':False,'library_id':'','monitored':False,'wanted':False,'has_file':False}
         wanted=False;has_file=False
         if found.get('kind')=='movie':
@@ -3481,7 +3673,7 @@ class MediaAutomationEngine:
             for genre in genres or []:
                 k=str(genre or '').strip().casefold()
                 if k: taste[k]=taste.get(k,0)+weight
-        for lib in self._library(): add_genres(lib.get('genres') or [],3)
+        for lib in list(self._discover_library_index_snapshot().get('library') or []): add_genres(lib.get('genres') or [],3)
         for rec in (ds.get('liked') or {}).values():
             if isinstance(rec,dict): add_genres(rec.get('genres') or [],7)
         scored=[];seen=set()
@@ -3506,7 +3698,7 @@ class MediaAutomationEngine:
             seen.add(k);seeds.append((kind,tid,weight))
         for rec in (ds.get('liked') or {}).values():
             if isinstance(rec,dict) and str(rec.get('provider') or '').lower()=='tmdb': add('tv' if rec.get('kind')=='tv' else 'movie',rec.get('metadata_id') or rec.get('tmdb_id'),4)
-        for lib in reversed(self._library()):
+        for lib in reversed(list(self._discover_library_index_snapshot().get('library') or [])):
             if str(lib.get('metadata_provider') or '').lower()=='tmdb' or lib.get('tmdb_id'): add('tv' if lib.get('kind')=='tv' else 'movie',lib.get('tmdb_id') or lib.get('metadata_id'),3)
         viewed=sorted((ds.get('viewed') or {}).values(),key=lambda x:float((x or {}).get('ts') or 0),reverse=True)
         for rec in viewed:
@@ -3664,7 +3856,7 @@ class MediaAutomationEngine:
     def _discover_taste_signature(self) -> str:
         ds=self._discover_state()
         libs=[]
-        for item in self._library():
+        for item in list(self._discover_library_index_snapshot().get('library') or []):
             if not isinstance(item,dict): continue
             libs.append((str(item.get('kind') or ''),str(item.get('tmdb_id') or item.get('metadata_id') or item.get('id') or ''),str(item.get('title') or '')))
         payload={

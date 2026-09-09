@@ -1,25 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.59",
-  "base_version": "3.6.58",
-  "release": "Discover Responsiveness & Metadata Cache Efficiency",
-  "adapter_version": "3.6.59",
-  "name": "Discover Responsiveness & Metadata Cache Efficiency",
+  "version": "3.6.60",
+  "base_version": "3.6.59",
+  "release": "Discover Library Index & Cache Write Coalescing",
+  "adapter_version": "3.6.60",
+  "name": "Discover Library Index & Cache Write Coalescing",
   "sab_version": "5.1.2",
   "changes": [
-    "Returns persisted Discover title detail immediately with stale-while-revalidate instead of blocking on a slow metadata-cloud refresh when usable cached detail already exists.",
-    "Keeps metadata-cache.json parsed in a signature-aware process-local cache, revalidates before writes for desktop/service coexistence, and writes compact JSON to reduce multi-megabyte parse/write amplification.",
-    "Bounds Discover detail refreshes to two concurrent background tasks and reduces true cold detail network budget from 18 seconds to 8 seconds.",
-    "Separates hover prefetch from explicit title views so prefetch never changes For You viewed-history feedback.",
-    "Adds Discover route/cache/detail performance telemetry to diagnostics without changing Metadata Server v0.3.3 or private SABnzbd 5.1.2 behavior.",
-    "Preserves v3.6.58 Automation runtime reconciliation, orphan pruning, semantic state precedence and all established download/import protections."
+    "Builds one signature-aware Discover library lookup index per media-library.json generation so card decoration no longer reparses and linearly scans the multi-megabyte Automation library for every title.",
+    "Updates metadata-cache.json in memory immediately but coalesces bursty cache puts into one short-delay compact atomic disk flush instead of rewriting the entire cache once per metadata response.",
+    "Uses a cross-process metadata-cache flush lock and signature reload so desktop/service peer changes are merged before a coalesced write while dirty local responses remain available in memory.",
+    "Extends Discover diagnostics with library-index build/hit timing and metadata-cache write-request/coalescing/dirty/flush telemetry.",
+    "Uses interpolated Discover percentiles and adds average/sample counts so tiny diagnostic samples are not misrepresented.",
+    "Preserves v3.6.59 stale-while-revalidate detail, prefetch/view separation, Metadata Server v0.3.3, v3.6.58 Automation reconciliation, and private SABnzbd 5.1.2."
   ],
   "regression_guards": [
-    "Repeated metadata-cache reads reuse the parsed in-memory snapshot; an external file change is reloaded before a local write so peer-process entries are preserved.",
-    "Metadata-cache writes are compact and retain the existing 500-entry/400-entry trim policy.",
-    "Stale persisted Discover detail returns immediately and schedules bounded background refresh; a true cold detail request uses an 8-second cloud budget.",
-    "Hover prefetch requests do not record a viewed-history event, while explicit opens do.",
-    "Discover diagnostics expose Home/Browse/Detail route percentiles plus metadata-cache and detail-refresh counters.",
-    "All v3.6.58 and earlier regression guards remain mandatory; SAB transfer/repair/extraction architecture is unchanged."
+    "Repeated Discover library-status lookups parse/build the library index once, then reuse it until the media-library.json signature changes; direct metadata/TMDB/title matching keeps the previous semantics.",
+    "Multiple metadata cache puts remain immediately readable from memory and persist through one explicit coalesced flush, with peer-process records merged before the write.",
+    "Metadata cache write telemetry distinguishes write requests from actual disk writes and exposes coalesced requests, dirty keys, deferrals and failures.",
+    "Two-sample Discover p50 uses the interpolated midpoint and route telemetry exposes average/sample counts.",
+    "All v3.6.59 and earlier regression guards remain mandatory; SAB transfer/repair/extraction architecture and terminal-history schema remain unchanged."
   ]
 }

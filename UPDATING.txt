@@ -1,14 +1,14 @@
-NewzDeck v3.6.59
-Discover Responsiveness & Metadata Cache Efficiency
+NewzDeck v3.6.60
+Discover Library Index & Cache Write Coalescing
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.59 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.60 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
 Existing settings, providers, Automation library/runtime state, queue ownership, durable Downloads history, statistics and private SABnzbd 5.1.2 state are preserved.
 
-v3.6.59 is a narrow Discover responsiveness release. It optimizes the desktop metadata cache, serves stale title detail immediately while refreshing in the background, bounds cold detail waits, separates hover prefetch from explicit viewed-history feedback, and adds Discover performance diagnostics. It does not redesign Metadata Server v0.3.3, SAB transfer, repair, extraction, retry, Smart Import, or Automation runtime reconciliation.
+v3.6.60 is a narrow Discover local-data-path performance release. It indexes the Automation library for fast Discover decoration and coalesces metadata-cache persistence so bursts do not rewrite the whole cache for every response. It does not redesign Metadata Server v0.3.3, SAB transfer, repair, extraction, retry, Smart Import, or Automation runtime reconciliation.
 
 PORTABLE NEWZDECK
 -----------------
-Close NewzDeck and extract the v3.6.59 Portable ZIP to a fresh folder. User data remains outside the application directory.
+Close NewzDeck and extract the v3.6.60 Portable ZIP to a fresh folder. User data remains outside the application directory.

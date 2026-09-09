@@ -1,11 +1,10 @@
-NewzDeck v3.6.59
-Discover Responsiveness & Metadata Cache Efficiency
+NewzDeck v3.6.60
+Discover Library Index & Cache Write Coalescing
 
-New in v3.6.59:
-- Discover title details use stale-while-revalidate: persisted detail renders immediately while stale metadata refreshes in the background.
-- metadata-cache.json is held in a signature-aware process-local parsed cache instead of being reparsed for every lookup.
-- Cache writes use compact JSON and revalidate the shared file before writing so desktop/service peers cannot be overwritten by stale process state.
-- True cold Discover detail calls use an 8-second cloud budget and background detail refresh is capped at two concurrent requests.
-- Hover prefetch waits longer, is concurrency-bounded, and no longer counts as a viewed title for For You personalization.
-- Diagnostics expose Discover route latency, detail source/refresh counters, and metadata-cache read/write cost.
-- Preserves v3.6.58 Automation reconciliation and private SABnzbd 5.1.2 behavior.
+New in v3.6.60:
+- Discover library status now uses a signature-aware lookup index instead of reparsing and scanning media-library.json for every card.
+- metadata-cache.json updates remain immediately available in memory while bursty metadata responses are coalesced into one compact atomic disk flush.
+- Coalesced cache flushes use a cross-process lock and signature reload so service/desktop peer entries are merged before persistence.
+- Diagnostics expose library-index build/hit timing plus cache write requests, actual writes, coalesced requests, dirty keys and flush outcomes.
+- Discover percentile reporting now interpolates tiny samples and includes average/sample counts.
+- Preserves v3.6.59 stale detail rendering, hover-prefetch/view semantics, Metadata Server v0.3.3, v3.6.58 Automation reconciliation and private SABnzbd 5.1.2.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.59 terminal-history index and diagnostics efficiency guards."""
+"""NewzDeck v3.6.60 terminal-history index and diagnostics efficiency guards."""
 from __future__ import annotations
 import importlib.util
 import json
@@ -19,12 +19,12 @@ def load(name,path):
     return mod
 
 sab=load('v3655_sab',SAB)
-if sab.ADAPTER_VERSION!='3.6.59':
+if sab.ADAPTER_VERSION!='3.6.60':
     raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
 if sab.TERMINAL_HISTORY_VERSION!=3 or sab.TERMINAL_HISTORY_MAX_ROWS!=5000:
-    raise SystemExit('v3.6.59 changed the durable terminal-history v3/5,000-row contract.')
+    raise SystemExit('v3.6.60 changed the durable terminal-history v3/5,000-row contract.')
 if sab.STATISTICS_ACCOUNTED_MAX_ROWS!=20000:
-    raise SystemExit('v3.6.59 changed the 20,000-ID statistics accounting boundary.')
+    raise SystemExit('v3.6.60 changed the 20,000-ID statistics accounting boundary.')
 
 def make_mgr(root:pathlib.Path):
     return sab.SabDownloadManager(
@@ -162,7 +162,7 @@ js=JS.read_text(encoding='utf-8')
 index=INDEX.read_text(encoding='utf-8')
 
 for marker in (
-    'ADAPTER_VERSION = "3.6.59"',
+    'ADAPTER_VERSION = "3.6.60"',
     '_terminal_history_sync_runs',
     '_terminal_history_sync_noops',
     '_terminal_history_sync_changed_rows',
@@ -178,10 +178,10 @@ for marker in (
     'multiple_active_slot_current_has_visible_correction',
 ):
     if marker not in sab_source:
-        raise SystemExit(f'Missing v3.6.59 history/overlap marker: {marker}')
+        raise SystemExit(f'Missing v3.6.60 history/overlap marker: {marker}')
 
 for marker in (
-    'APP_VERSION = "3.6.59"',
+    'APP_VERSION = "3.6.60"',
     'snap = DOWNLOAD_MANAGER.snapshot(scope="live")',
     "'durable_terminal_counts':durable_terminal_counts",
     "'operational_tracked_jobs':int(telemetry.get('presentation_index_tracked_total'",
@@ -193,7 +193,7 @@ for marker in (
     '"Multi-active normalization: "',
 ):
     if marker not in server_source:
-        raise SystemExit(f'Missing v3.6.59 diagnostics marker: {marker}')
+        raise SystemExit(f'Missing v3.6.60 diagnostics marker: {marker}')
 for forbidden in (
     "snap = DOWNLOAD_MANAGER.snapshot()\n",
     "latency={p.get('last_latency_ms',0)}ms",
@@ -202,14 +202,14 @@ for forbidden in (
     if forbidden in server_source:
         raise SystemExit(f'Stale v3.6.54 diagnostics behavior remains: {forbidden!r}')
 
-if "const UI_VERSION = '3.6.59';" not in js:
-    raise SystemExit('UI version is not 3.6.59.')
-if '3.6.59-discover-responsiveness-metadata-cache-efficiency' not in index:
-    raise SystemExit('Static asset cache identity is not v3.6.59.')
+if "const UI_VERSION = '3.6.60';" not in js:
+    raise SystemExit('UI version is not 3.6.60.')
+if '3.6.60-discover-library-index-cache-write-coalescing' not in index:
+    raise SystemExit('Static asset cache identity is not v3.6.60.')
 manifest=json.loads(MANIFEST.read_text(encoding='utf-8'))
-if manifest.get('version')!='3.6.59' or manifest.get('adapter_version')!='3.6.59' or manifest.get('base_version')!='3.6.58':
+if manifest.get('version')!='3.6.60' or manifest.get('adapter_version')!='3.6.60' or manifest.get('base_version')!='3.6.59':
     raise SystemExit(f'Build manifest identity is wrong: {manifest.get("version")}/{manifest.get("adapter_version")}/{manifest.get("base_version")}')
 if WORKFLOW.exists() and 'python release/windows/validate-v3655-regressions.py' not in WORKFLOW.read_text(encoding='utf-8'):
-    raise SystemExit('Canonical release workflow does not run the v3.6.59 regression guard.')
+    raise SystemExit('Canonical release workflow does not run the v3.6.60 regression guard.')
 
-print('v3.6.59 regression guard passed (no-op history fast path + one rebuild per mutation + durable diagnostic counts + N/A provider measurements + overlap provenance).')
+print('v3.6.60 regression guard passed (no-op history fast path + one rebuild per mutation + durable diagnostic counts + N/A provider measurements + overlap provenance).')

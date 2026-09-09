@@ -31,7 +31,7 @@ class DummyDownloadManager:
 
 
 def make_auto(root: Path):
-    return auto.MediaAutomationEngine(root, lambda value: value, lambda value: value, DummyDownloadManager(), lambda: [], version='3.6.59')
+    return auto.MediaAutomationEngine(root, lambda value: value, lambda value: value, DummyDownloadManager(), lambda: [], version='3.6.60')
 
 
 def check(condition: bool, message: str):
@@ -70,6 +70,7 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3659-metadata-cache-') as td:
     time.sleep(0.01)
     (root / 'metadata-cache.json').write_text(json.dumps(peer, indent=2), encoding='utf-8')
     engine._cache_put('cloud:local', {'local': True})
+    check(engine._flush_metadata_cache_now() is True, 'v3.6.60 coalesced cache flush failed while preserving v3.6.59 peer-merge semantics.')
     persisted = json.loads((root / 'metadata-cache.json').read_text(encoding='utf-8'))
     check('cloud:peer' in persisted and 'cloud:local' in persisted, 'Signature-aware cache write overwrote peer-process state.')
     raw = (root / 'metadata-cache.json').read_text(encoding='utf-8')
@@ -132,20 +133,20 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3659-telemetry-') as td:
 app_js = (APP / 'static' / 'app.js').read_text(encoding='utf-8')
 server_text = (APP / 'server.py').read_text(encoding='utf-8')
 index_html = (APP / 'static' / 'index.html').read_text(encoding='utf-8')
-check("const UI_VERSION = '3.6.59'" in app_js, 'UI version marker is not v3.6.59.')
+check("const UI_VERSION = '3.6.60'" in app_js, 'UI version marker is not v3.6.60.')
 check('discoverDetailPrefetchLimit:2' in app_js and '},650)' in app_js and 'fetchDiscoverDetail(item,{prefetch:true})' in app_js, 'Hover-prefetch dwell/concurrency guard is missing.')
 check("interaction='open'" in app_js and "interaction:'open'" not in app_js, 'Discover interaction payload helper changed unexpectedly.')
 check('renderDiscoverDetailPreview' in app_js, 'Progressive Discover detail preview is missing.')
 check("'discover_performance': MEDIA_AUTOMATION.discover_performance_snapshot()" in server_text, 'Discover performance is missing from diagnostics JSON.')
 check('Discover performance:' in server_text and "_discover_response('detail'" in server_text, 'Discover route/report telemetry wiring is missing.')
-check('3.6.59-discover-responsiveness-metadata-cache-efficiency' in index_html, 'v3.6.59 static cache identity marker is missing.')
+check('3.6.60-discover-library-index-cache-write-coalescing' in index_html, 'v3.6.60 static cache identity marker is missing.')
 
 # 6. Release identities stay coherent while SAB behavior/version remains unchanged.
 manifest = json.loads((APP / 'build-manifest.json').read_text(encoding='utf-8'))
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.59', 'version.txt is not v3.6.59.')
-check(manifest.get('version') == '3.6.59' and manifest.get('base_version') == '3.6.58', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.59' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.59', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
-check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.59 changed SAB 5.1.2 or terminal-history schema unexpectedly.')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.60', 'version.txt is not v3.6.60.')
+check(manifest.get('version') == '3.6.60' and manifest.get('base_version') == '3.6.59', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.60' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.60', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.60 changed SAB 5.1.2 or terminal-history schema unexpectedly.')
 
-print('v3.6.59 regression guard: PASS')
+print('v3.6.60 regression guard: PASS')

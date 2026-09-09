@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.59"
+APP_VERSION = "3.6.60"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -12108,7 +12108,7 @@ def diagnostics_report() -> str:
         f"last_prune_ts={float(prune.get('last_prune_ts',0) or 0):.3f}"
     )
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")
-    discover=d.get('discover_performance') if isinstance(d.get('discover_performance'),dict) else {}; routes=discover.get('routes') if isinstance(discover.get('routes'),dict) else {}; detail=discover.get('detail') if isinstance(discover.get('detail'),dict) else {}; mcache=discover.get('metadata_cache') if isinstance(discover.get('metadata_cache'),dict) else {}
+    discover=d.get('discover_performance') if isinstance(d.get('discover_performance'),dict) else {}; routes=discover.get('routes') if isinstance(discover.get('routes'),dict) else {}; detail=discover.get('detail') if isinstance(discover.get('detail'),dict) else {}; mcache=discover.get('metadata_cache') if isinstance(discover.get('metadata_cache'),dict) else {}; lindex=discover.get('library_index') if isinstance(discover.get('library_index'),dict) else {}
     lines.append(
         "Discover performance: "
         f"home_p95_ms={float((routes.get('home') or {}).get('p95_ms',0) or 0):.3f}; "
@@ -12117,8 +12117,10 @@ def diagnostics_report() -> str:
         f"detail_explicit={int(detail.get('explicit_requests',0) or 0)}; prefetch={int(detail.get('prefetch_requests',0) or 0)}; "
         f"detail_memory_hits={int(detail.get('memory_hits',0) or 0)}; persistent_hits={int(detail.get('persistent_hits',0) or 0)}; cold_cloud={int(detail.get('cold_cloud_calls',0) or 0)}; "
         f"refresh_started={int(detail.get('background_refresh_started',0) or 0)}; refresh_completed={int(detail.get('background_refresh_completed',0) or 0)}; refresh_failed={int(detail.get('background_refresh_failed',0) or 0)}; "
-        f"metadata_cache_bytes={int(mcache.get('bytes',0) or 0)}; cache_memory_hits={int(mcache.get('memory_hits',0) or 0)}; cache_disk_reads={int(mcache.get('disk_reads',0) or 0)}; cache_writes={int(mcache.get('writes',0) or 0)}; "
-        f"cache_read_max_ms={float(mcache.get('read_ms_max',0) or 0):.3f}; cache_write_max_ms={float(mcache.get('write_ms_max',0) or 0):.3f}"
+        f"metadata_cache_bytes={int(mcache.get('bytes',0) or 0)}; cache_memory_hits={int(mcache.get('memory_hits',0) or 0)}; cache_disk_reads={int(mcache.get('disk_reads',0) or 0)}; "
+        f"cache_write_requests={int(mcache.get('write_requests',0) or 0)}; cache_writes={int(mcache.get('writes',0) or 0)}; cache_coalesced={int(mcache.get('coalesced_write_requests',0) or 0)}; cache_dirty_keys={int(mcache.get('dirty_keys',0) or 0)}; "
+        f"cache_read_max_ms={float(mcache.get('read_ms_max',0) or 0):.3f}; cache_write_max_ms={float(mcache.get('write_ms_max',0) or 0):.3f}; "
+        f"library_index_records={int(lindex.get('records',0) or 0)}; library_index_hits={int(lindex.get('hits',0) or 0)}; library_index_builds={int(lindex.get('builds',0) or 0)}; library_index_build_max_ms={float(lindex.get('build_ms_max',0) or 0):.3f}"
     )
     storage_health=d.get('automation_storage') if isinstance(d.get('automation_storage'),dict) else {}
     low_roots=list(storage_health.get('low_roots') or [])

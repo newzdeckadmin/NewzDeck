@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.59** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.60** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.59_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.60_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.59 highlights
+## v3.6.60 highlights
 
-v3.6.59 is a focused Discover responsiveness and metadata-cache efficiency release based on real v3.6.58 diagnostics.
+v3.6.60 is a focused Discover local-data-path performance release based on the first v3.6.59 production telemetry.
 
-- **Instant stale detail rendering:** recent persisted title details render immediately while bounded background refresh checks the cloud.
-- **Faster metadata cache access:** the desktop reuses one signature-aware parsed metadata cache instead of reparsing a multi-megabyte JSON file on every lookup.
-- **Safer hover prefetch:** hover dwell is increased and prefetch concurrency is bounded; prefetches no longer count as deliberate title views for For You personalization.
-- **Bounded cold detail requests:** true cold title-detail cloud waits are reduced from 18 seconds to an 8-second desktop budget.
-- **Discover performance telemetry:** Diagnostics now expose Home/Browse/Detail latency, explicit-open versus prefetch activity, cache sources, refresh outcomes, and metadata-cache read/write cost.
-- **Existing safety preserved:** v3.6.58 Automation reconciliation, Smart Import/Integrity Hold behavior, Windows runtime handoff, Metadata Server v0.3.3, and private SABnzbd 5.1.2 remain intact.
+- **Fast library-status decoration:** Discover builds one signature-aware library lookup index per media-library.json generation instead of reparsing/scanning the Automation library for every card.
+- **Coalesced metadata persistence:** metadata responses update memory immediately while bursts are collapsed into one short-delay compact atomic cache write.
+- **Peer-safe flushes:** service/desktop cache writers use a cross-process guard and merge peer changes before persistence.
+- **More useful telemetry:** Diagnostics now expose library-index build/hit timing and cache write requests versus actual/coalesced disk writes.
+- **Honest tiny-sample statistics:** p50/p95 use interpolation and routes expose average/sample counts.
+- **Existing safety preserved:** v3.6.59 stale-detail/prefetch semantics, Metadata Server v0.3.3, v3.6.58 Automation reconciliation, Windows runtime handoff, and private SABnzbd 5.1.2 remain intact.
 
-See [the full v3.6.59 release notes](release/RELEASE_NOTES_v3.6.59.md).
+See [the full v3.6.60 release notes](release/RELEASE_NOTES_v3.6.60.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.59_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.60_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
