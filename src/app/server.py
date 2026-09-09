@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.62"
+APP_VERSION = "3.6.63"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -418,7 +418,7 @@ ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
 ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
-# v3.6.62: preserve bounded OVER/XOVER ranges and reuse first-paint headers. Production evidence from
+# v3.6.63: preserve bounded OVER/XOVER ranges/seed reuse while adding render/thumbnail trace telemetry. Evidence from
 # a 2,000-header All Posts page showed a real 15-second overview timeout while
 # thumbnail decode itself averaged only tens of milliseconds. First paint is one
 # newest-first chunk; deeper page/package reconstruction continues in background.
@@ -429,7 +429,7 @@ BROWSE_LARGE_PAGE_THRESHOLD = 1000
 _BROWSER_PERF_LOCK = threading.RLock()
 _BROWSER_PERF_SAMPLE_LIMIT = 240
 _BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
-_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "preview", "viewer_preload"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "preview", "viewer_preload"}
 _BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
@@ -474,10 +474,13 @@ def note_browser_performance_samples(items: Any) -> dict[str, Any]:
             continue
         mode = _browse_mode(item.get("mode"))
         _browse_perf_add(_BROWSER_PERF_CLIENT, mode, stage, value); accepted += 1
+        reason = re.sub(r"[^a-z0-9_-]+", "-", str(item.get("reason") or "unspecified").strip().casefold()).strip("-")[:48] or "unspecified"
         if stage == "render":
-            reason = re.sub(r"[^a-z0-9_-]+", "-", str(item.get("reason") or "unspecified").strip().casefold()).strip("-")[:48] or "unspecified"
             _browse_perf_add(_BROWSER_PERF_CLIENT, mode, f"render_reason_{reason}", value)
             _browse_perf_counter(mode, f"render_reason_{reason}", 1)
+        elif stage.startswith("thumbnail_"):
+            _browse_perf_add(_BROWSER_PERF_CLIENT, mode, f"{stage}_reason_{reason}", value)
+            _browse_perf_counter(mode, f"client_{stage}_reason_{reason}", 1)
         if item.get("ok") is False:
             _browse_perf_counter(mode, f"client_{stage}_failures", 1)
     return {"ok": True, "accepted": accepted}
@@ -509,7 +512,7 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
@@ -13444,10 +13447,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             try:
                 result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb, cancel_check, parallel_lanes, mode, perf_mode=mode, perf_stage_prefix="thumbnail")
             except Exception as exc:
+                info = preview_error_info(exc)
                 _browse_perf_counter(mode, "thumbnail_failures", 1)
+                failure_code = re.sub(r"[^a-z0-9_-]+", "-", str(info.get("error_code") or "preview_failed").strip().casefold()).strip("-")[:48] or "preview_failed"
+                _browse_perf_counter(mode, f"thumbnail_failure_code_{failure_code}", 1)
+                if info.get("retryable"):
+                    _browse_perf_counter(mode, "thumbnail_retryable_failures", 1)
                 if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc).casefold():
                     _browse_perf_counter(mode, "thumbnail_timeouts", 1)
-                return self._json(422, preview_error_info(exc))
+                return self._json(422, info)
             if result.get("full_preview_fallback") or result.get("thumbnail_fallback"):
                 _browse_perf_counter(mode, "thumbnail_fallbacks", 1)
             return self._json(200, result)

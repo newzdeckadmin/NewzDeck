@@ -218,6 +218,7 @@ jobs:
           python release/windows/validate-v3660-regressions.py
           python release/windows/validate-v3661-regressions.py
           python release/windows/validate-v3662-regressions.py
+          python release/windows/validate-v3663-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 

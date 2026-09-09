@@ -1,22 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.62",
-  "base_version": "3.6.61",
-  "release": "Progressive Header Reuse & Thumbnail Phase Telemetry",
-  "adapter_version": "3.6.62",
-  "name": "Progressive Header Reuse & Thumbnail Phase Telemetry",
+  "version": "3.6.63",
+  "base_version": "3.6.62",
+  "release": "Name Resolution Render Coalescing & Thumbnail Trace Telemetry",
+  "adapter_version": "3.6.63",
+  "name": "Name Resolution Render Coalescing & Thumbnail Trace Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Reuses the bounded first-paint OVER/XOVER headers during progressive All Posts background completion so the initial 800-header window is not downloaded a second time.",
-    "Adds passive image-thumbnail endpoint phase telemetry for persistent-cache lookup, preview-executor queue wait, per-thumbnail build-lock wait, BODY transfer, native decode, worker time and total endpoint latency, attributed by browsing mode.",
-    "Adds render-reason timing/counters so repeated All Posts renders can be attributed to page loads, progressive completion, name-resolution state/retries/results, thumbnail hiding, or other UI causes.",
-    "Preserves the v3.6.61 800-header first-paint/chunk limits, preview concurrency, native decode worker sizing, private SABnzbd 5.1.2, terminal-history schema 3, Metadata Server v0.3.3, Discover and Automation behavior."
+    "Coalesces All Posts filename-resolution activity updates so start, retry, and finish states update in place instead of rebuilding the full article/package DOM.",
+    "Retains result-driven full renders when resolved filenames, classifications, deferred state, or request errors materially change visible package presentation.",
+    "Adds passive browser thumbnail trace timing for task-queue wait, local thumbnail HTTP round-trip, browser post-processing, and full-preview recovery by browsing mode.",
+    "Classifies backend image-thumbnail failures by the existing preview error code while preserving v3.6.62 progressive header reuse, 800-header bounds, concurrency budgets, private SABnzbd 5.1.2, Discover and Automation behavior."
   ],
   "regression_guards": [
-    "Progressive background completion reuses seed first-paint headers and fetches only missing overlap/page ranges plus genuinely required older Smart Binary expansion.",
-    "Seed and fetched overview rows are deduplicated by article number before grouping; completed logical-page semantics and cache-generation safety are unchanged.",
-    "Image-thumbnail telemetry remains passive/bounded and does not change preview connection budgets or Collector workload.",
-    "Render samples retain the existing aggregate render metric while adding bounded reason-specific timing/counters.",
-    "All v3.6.61 and earlier behavioral guards remain mandatory; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
+    "Name-resolution start/retry/finish state changes use targeted DOM updates; full list/package renders remain result-driven.",
+    "Thumbnail queue/HTTP/post/recovery timing stays passive and bounded; backend failure-code classification uses existing preview_error_info semantics.",
+    "v3.6.62 progressive first-paint seed reuse and 800/800/1000 header tuning remain unchanged.",
+    "All carried behavioral guards remain mandatory; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
   ]
 }

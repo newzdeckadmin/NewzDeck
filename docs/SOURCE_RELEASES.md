@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.62
+## Current release: v3.6.63
 
-**v3.6.62 is the current stable production release.**
+**v3.6.63 is the current stable production release.**
 
-The `v3.6.62` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.63` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.63 - Name Resolution Render Coalescing & Thumbnail Trace Telemetry.** Coalesces redundant All Posts filename-resolution state renders, separates browser thumbnail queue/HTTP/post/recovery timing, and classifies backend thumbnail failures while preserving v3.6.62 progressive header reuse, Metadata Server v0.3.3 and private SABnzbd 5.1.2.
 
 - **v3.6.62 - Progressive Header Reuse & Thumbnail Phase Telemetry.** Reuses first-paint headers during background All Posts completion, adds detailed passive image-thumbnail phase/lifecycle telemetry, and attributes repeated render work by cause while preserving v3.6.61 header bounds, Metadata Server v0.3.3 and private SABnzbd 5.1.2.
 
