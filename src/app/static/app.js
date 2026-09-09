@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.61';
+const UI_VERSION = '3.6.62';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -98,9 +98,9 @@ async function flushPerfTelemetry(){
   catch{state.perfTelemetryPending=[...samples,...state.perfTelemetryPending].slice(-160)}
   finally{state.perfTelemetrySending=false;if(state.perfTelemetryPending.length)schedulePerfTelemetryFlush()}
 }
-function perfRecord(name,ms,ok=true){
+function perfRecord(name,ms,ok=true,meta=null){
   const value=Number(ms);if(!Number.isFinite(value)||value<0)return;const key=String(name||'other');const list=state.perfMetrics[key]||(state.perfMetrics[key]=[]);list.push(value);if(list.length>40)list.splice(0,list.length-40);
-  state.perfTelemetryPending.push({stage:key,ms:Math.round(value*1000)/1000,mode:browserPerfMode(),ok:ok!==false});if(state.perfTelemetryPending.length>160)state.perfTelemetryPending.splice(0,state.perfTelemetryPending.length-160);schedulePerfTelemetryFlush();
+  const sample={stage:key,ms:Math.round(value*1000)/1000,mode:browserPerfMode(),ok:ok!==false};if(meta?.reason)sample.reason=String(meta.reason).slice(0,64);state.perfTelemetryPending.push(sample);if(state.perfTelemetryPending.length>160)state.perfTelemetryPending.splice(0,state.perfTelemetryPending.length-160);schedulePerfTelemetryFlush();
 }
 function perfAverage(name){const list=state.perfMetrics[name]||[];return list.length?list.reduce((a,b)=>a+b,0)/list.length:0}
 function browseCacheLimits(){
@@ -592,7 +592,7 @@ async function warmPrefetchedPageThumbnails(data,page,group,provider,session){
     if(group!==state.selectedGroup||provider!==state.providerId||session!==state.browseSessionToken||activeDownloadTraffic()||state.thumbActive>0||state.thumbQueue.length){state.speculativeThumbStats.cancelled++;break}
     state.speculativeThumbStats.started++;
     try{
-      const result=await api('/api/thumbnail/image',browsePayload({provider_id:provider,group:articleGroup(a),segments:segmentPayload(a),media:a.media,thumbnail_lanes:1}),browseRequestOptions());
+      const result=await api('/api/thumbnail/image',browsePayload({provider_id:provider,group:articleGroup(a),segments:segmentPayload(a),media:a.media,thumbnail_lanes:1,content_filter:browserPerfMode()}),browseRequestOptions());
       if(result?.suppressed_small){a.small_image_suppressed=true;a.media_meta={...(a.media_meta||{}),width:Number(result.width||0),height:Number(result.height||0)}}
       else if(result?.thumbnail_url){a.cached_thumbnail_token=result.thumbnail_token||'';a.cached_thumbnail_url=result.thumbnail_url}
       state.speculativeThumbStats.completed++;
@@ -626,7 +626,7 @@ function scheduleProgressiveBinaryCompletion(page,generation,attempt=0){
       if(data.smart_binary_pending){state.smartBinaryPending=true;scheduleProgressiveBinaryCompletion(page,generation,attempt+1);return}
       state.smartBinaryPending=false;
       if(state.loadedPages.size!==1||state.articlePage!==page){updateContinuousSentinelInPlace();return}
-      const anchors=captureBrowseAnchors(),scroll=els.articlesList.scrollTop;state.articles=data.articles||[];state.articlePaging=data.paging||state.articlePaging;state.smartBinaryHeaders=Number(data.smart_binary_headers||state.smartBinaryHeaders||0);sortArticles(false);renderArticles({preserveScroll:true,scrollTop:scroll,anchor:anchors});updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);updateContinuousSentinelInPlace();schedulePredictiveHeaderPrefetch();
+      const anchors=captureBrowseAnchors(),scroll=els.articlesList.scrollTop;state.articles=data.articles||[];state.articlePaging=data.paging||state.articlePaging;state.smartBinaryHeaders=Number(data.smart_binary_headers||state.smartBinaryHeaders||0);sortArticles(false);renderArticles({preserveScroll:true,scrollTop:scroll,anchor:anchors,reason:'progressive-completion'});updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);updateContinuousSentinelInPlace();schedulePredictiveHeaderPrefetch();
     }catch(e){
       if(e?.code==='browse-cancelled')return;
       if(generation!==state.galleryGeneration||group!==state.selectedGroup||provider!==state.providerId||session!==state.browseSessionToken)return;
@@ -661,14 +661,14 @@ async function loadArticles({page=null,append=false,refresh=false,pageJump=false
     state.articlePaging=data.paging||null;state.articlePage=Number(data.paging?.page||1);if(data.group?.name)mergeTrackedGroupStatus([data.group]);if(!append)state.selectedArticleKey='';sortArticles(false);
     if(incremental){
       const appended=state.groupRelatedMedia?appendContinuousGroupedGallery(previousKeys):appendContinuousGallery(previousKeys);
-      if(!appended){generation=++state.galleryGeneration;state.thumbQueue=[];state.thumbQueued.clear();renderArticles({preserveScroll:append&&!pageJump,scrollTop:pageJump?0:liveScroll,anchor:pageJump?null:liveAnchors});}
+      if(!appended){generation=++state.galleryGeneration;state.thumbQueue=[];state.thumbQueued.clear();renderArticles({preserveScroll:append&&!pageJump,scrollTop:pageJump?0:liveScroll,anchor:pageJump?null:liveAnchors,reason:append?'continuous-page':'page-load'});}
     }else{
       if(append){generation=++state.galleryGeneration;state.thumbQueue=[];state.thumbQueued.clear();}
-      renderArticles({preserveScroll:append&&!pageJump,scrollTop:pageJump?0:liveScroll,anchor:pageJump?null:liveAnchors});
+      renderArticles({preserveScroll:append&&!pageJump,scrollTop:pageJump?0:liveScroll,anchor:pageJump?null:liveAnchors,reason:append?'continuous-page':'page-load'});
     }
     perfRecord('headers',Number(data.elapsed_ms||0));updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);if(data.cache_source&&data.cache_source!=='provider')els.articleSummary.insertAdjacentHTML('beforeend',`<span class="header-cache-chip">⚡ ${escapeHtml(data.cache_source)}${Number(data.cache_age_seconds||0)?` • ${Number(data.cache_age_seconds)}s`:''}</span>`);if(pageJump){armContinuousAfterJump(1350);requestAnimationFrame(()=>{if(generation===state.galleryGeneration){els.articlesList.scrollTop=0;scheduleThumbnailDemandScan()}})}if(!append&&state.smartBinaryPending)scheduleProgressiveBinaryCompletion(targetPage,generation);else if(!pageJump)schedulePredictiveHeaderPrefetch();
   }catch(e){
-    if(generation===state.galleryGeneration&&e?.code!=='browse-cancelled'){if(pageJump)armContinuousAfterJump(350);toast(e.message,'error');if(!append){state.articles=[];state.loadedPages.clear();renderArticles({preserveScroll:false});}}
+    if(generation===state.galleryGeneration&&e?.code!=='browse-cancelled'){if(pageJump)armContinuousAfterJump(350);toast(e.message,'error');if(!append){state.articles=[];state.loadedPages.clear();renderArticles({preserveScroll:false,reason:'load-error'});}}
   }finally{
     if(generation===state.galleryGeneration){state.continuousLoading=false;setArticleLoading(false,append);updateContinuousSentinelInPlace();}
   }
@@ -925,7 +925,7 @@ function restoreBrowsePosition(anchor,fallback){
   for(const candidate of anchors){let node=null;if(candidate.setKey)node=[...els.articlesList.querySelectorAll('.media-set-card[data-set-key]')].find(x=>x.dataset.setKey===candidate.setKey)||null;else if(candidate.binarySetKey)node=[...els.articlesList.querySelectorAll('.binary-set-row[data-binary-set-key]')].find(x=>x.dataset.binarySetKey===candidate.binarySetKey)||null;else{const index=state.articles.findIndex(a=>articleKey(a)===candidate.key);node=index>=0?els.articlesList.querySelector(`.media-card[data-index="${index}"],.article-row[data-index="${index}"]`):null}if(node){const listRect=els.articlesList.getBoundingClientRect(),r=node.getBoundingClientRect();els.articlesList.scrollTop+=r.top-listRect.top-candidate.offset;return true}}
   els.articlesList.scrollTop=fallback||0;return false;
 }
-function renderArticles({preserveScroll=true,scrollTop=null,anchor=null}={}){
+function renderArticles({preserveScroll=true,scrollTop=null,anchor=null,reason="unspecified"}={}){
   const renderStarted=performance.now();
   const keep=scrollTop==null?(preserveScroll?els.articlesList.scrollTop:0):scrollTop;const anchors=preserveScroll?(anchor||captureBrowseAnchors()):null;resetGalleryVirtualization();if(!state.groupRelatedMedia)resetMediaSetIndex();
   if(thumbObserver){thumbObserver.disconnect();thumbObserver=null}if(continuousObserver){continuousObserver.disconnect();continuousObserver=null}
@@ -937,10 +937,10 @@ function renderArticles({preserveScroll=true,scrollTop=null,anchor=null}={}){
     els.articlesList.innerHTML=hasSearch
       ?`<div class="empty-icon">⌕</div><h3>No matches in loaded headers</h3><p>Nothing currently loaded matches “${escapeHtml(state.articleSearchTerm.trim())}”. ${state.continuousMode&&state.articlePaging?.has_older?'Scroll/load older headers to keep expanding this search, or ':''}clear the search or change the Show filter.</p>${continuousSentinelMarkup()}`
       :`<div class="empty-icon">⌁</div><h3>No ${noun} found yet</h3><p>${state.continuousMode&&state.articlePaging?.has_older?'Continuous browsing can keep looking through older headers.':'Try another page, increase Headers/page, or change the Show filter.'}</p>${continuousSentinelMarkup()}`;
-    if(!isAllPostsMode())renderRelatedMediaPane(null,{incremental:false});updateSelectionBar();restoreBrowsePosition(anchors,keep);perfRecord('render',performance.now()-renderStarted);requestAnimationFrame(()=>{updateSelectionBar();wireContinuousObserver()});return;
+    if(!isAllPostsMode())renderRelatedMediaPane(null,{incremental:false});updateSelectionBar();restoreBrowsePosition(anchors,keep);perfRecord('render',performance.now()-renderStarted,true,{reason});requestAnimationFrame(()=>{updateSelectionBar();wireContinuousObserver()});return;
   }
   if(mode==='gallery'){renderGallery(items);rebuildThumbnailHolderRegistry()}else{state.thumbHolderRegistry.clear();const grouped=(!isAllPostsMode()&&state.groupRelatedMedia)?buildMediaSets(items):null;renderList(grouped?grouped.ungrouped:items);if(!isAllPostsMode())renderRelatedMediaPane(grouped,{incremental:false})}
-  updateSelectionBar();restoreBrowsePosition(anchors,keep);perfRecord('render',performance.now()-renderStarted);requestAnimationFrame(()=>{updateSelectionBar();wireContinuousObserver()});
+  updateSelectionBar();restoreBrowsePosition(anchors,keep);perfRecord('render',performance.now()-renderStarted,true,{reason});requestAnimationFrame(()=>{updateSelectionBar();wireContinuousObserver()});
 }
 function mediaSetKey(a){if(!a?.media?.filename||!['image','video'].includes(a.media?.kind))return'';const name=String(a.media.filename),dot=name.lastIndexOf('.'),stem=dot>0?name.slice(0,dot):name;let base=stem.replace(/(?:[._\- ]?(?:img|image|pic|photo|vid|video)?[._\- ]*)?\d{1,6}$/i,'').replace(/[._\- ]+$/,'').trim();if(base.length<3){const m=String(a.subject||'').match(/^(.{3,}?)\s*[\[(]\s*\d{1,6}\s*\/\s*\d{1,6}\s*[\])]/);if(m)base=m[1].replace(/[._\- ]+$/,'').trim()}if(base.length<3||base.toLowerCase()===stem.toLowerCase())return'';return`${articleGroup(a)}|${a.media.kind}|${base.toLocaleLowerCase()}|${String(a.from||'').toLocaleLowerCase()}`}
 function resetMediaSetIndex(){state.mediaSetIndexBuckets.clear();state.mediaSetIndexSingles.clear();state.mediaSetIndexValid=false}
@@ -1231,22 +1231,22 @@ async function resolveObfuscatedNames({manual=false}={}){
   if(state.nameResolutionInFlight||!state.selectedGroup)return;if(state.smartBinaryPending){if(manual)toast('NewzDeck is finishing package reconstruction first. Filename resolution will start automatically when that pass completes.');return}const group=state.selectedGroup,providerId=state.providerId;
   if(manual){
     const initial=nameResolutionCandidates({manual:true,limit:Number.MAX_SAFE_INTEGER});if(!initial.length){toast('No unresolved loaded posts need a name probe.','success');return}
-    let requested=0,resolved=0,changed=0,failedBatches=0,transientRounds=0;state.nameResolutionInFlight=true;renderArticles({preserveScroll:true});
+    let requested=0,resolved=0,changed=0,failedBatches=0,transientRounds=0;state.nameResolutionInFlight=true;renderArticles({preserveScroll:true,reason:'name-resolution-state'});
     try{
       while(group===state.selectedGroup&&providerId===state.providerId){
         const now=Date.now();if(state.nameResolutionBackoffUntil>now)await new Promise(r=>setTimeout(r,Math.min(9000,state.nameResolutionBackoffUntil-now+75)));
         const candidates=nameResolutionCandidates({manual:true,limit:12});if(!candidates.length){if(state.nameResolutionDeferred.size&&transientRounds<4){transientRounds++;await new Promise(r=>setTimeout(r,600));continue}break}for(const a of candidates)state.nameResolutionAttempted.add(nameResolutionKey(a));requested+=candidates.length;
         try{
-          const data=await api('/api/articles/resolve-names',{provider_id:providerId,group,items:candidates.map(nameResolutionPayload)},browseRequestOptions({timeoutMs:75000,timeoutMessage:'Name resolution took too long. NewzDeck will retry this batch instead of marking the remaining files unavailable.'}));if(group!==state.selectedGroup||providerId!==state.providerId)return;resolved+=Number(data.resolved||0);changed+=applyNameResolutionResults(data.results||[]);const transient=Number(data.retryable||0);if(transient){transientRounds++;const seconds=Math.max(2,Number(data.backoff_seconds||5));state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+seconds*1000);renderArticles({preserveScroll:true});if(transientRounds>=4){toast('The provider is temporarily refusing or timing out on filename probes. NewzDeck paused instead of marking later files unavailable; it will retry automatically.');break}await new Promise(r=>setTimeout(r,seconds*1000+75));continue}transientRounds=0;
+          const data=await api('/api/articles/resolve-names',{provider_id:providerId,group,items:candidates.map(nameResolutionPayload)},browseRequestOptions({timeoutMs:75000,timeoutMessage:'Name resolution took too long. NewzDeck will retry this batch instead of marking the remaining files unavailable.'}));if(group!==state.selectedGroup||providerId!==state.providerId)return;resolved+=Number(data.resolved||0);changed+=applyNameResolutionResults(data.results||[]);const transient=Number(data.retryable||0);if(transient){transientRounds++;const seconds=Math.max(2,Number(data.backoff_seconds||5));state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+seconds*1000);renderArticles({preserveScroll:true,reason:'name-resolution-retry'});if(transientRounds>=4){toast('The provider is temporarily refusing or timing out on filename probes. NewzDeck paused instead of marking later files unavailable; it will retry automatically.');break}await new Promise(r=>setTimeout(r,seconds*1000+75));continue}transientRounds=0;
         }catch(e){failedBatches++;for(const a of candidates){const key=nameResolutionKey(a);state.nameResolutionAttempted.delete(key);state.nameResolutionDeferred.set(key,{message:String(e?.message||'Filename probe failed'),until:Date.now()+5000,code:'request_error'})}state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+5000);transientRounds++;if(transientRounds>=4)break}
-        renderArticles({preserveScroll:true});await new Promise(r=>setTimeout(r,60));
+        renderArticles({preserveScroll:true,reason:'name-resolution-result'});await new Promise(r=>setTimeout(r,60));
       }
       if(group===state.selectedGroup&&providerId===state.providerId){const prefix=`${providerId}|${group}|`,unavailable=[...state.nameResolutionFailures.keys()].filter(k=>k.startsWith(prefix)).length,deferred=[...state.nameResolutionDeferred.keys()].filter(k=>k.startsWith(prefix)).length,classifications=[...state.nameResolutionClassifications.entries()].filter(([k])=>k.startsWith(prefix)).map(([,v])=>v),opaque=classifications.filter(v=>v.kind==='opaque').length,noFilename=classifications.filter(v=>v.kind==='not_supplied').length,articleUnavailable=classifications.filter(v=>v.kind==='article_unavailable').length;const message=`Name resolution pass • ${resolved.toLocaleString()} resolved${opaque?` • ${opaque.toLocaleString()} obfuscated yEnc name${opaque===1?'':'s'}`:''}${noFilename?` • ${noFilename.toLocaleString()} with no yEnc filename`:''}${articleUnavailable?` • ${articleUnavailable.toLocaleString()} article-unavailable`:''}${unavailable?` • ${unavailable.toLocaleString()} other unavailable`:''}${deferred?` • ${deferred.toLocaleString()} deferred for retry`:''}${failedBatches?` • ${failedBatches.toLocaleString()} request error${failedBatches===1?'':'s'}`:''}.`;toast(message,resolved||opaque?'success':failedBatches?'error':'');}
-    }finally{state.nameResolutionInFlight=false;if(group===state.selectedGroup){renderArticles({preserveScroll:true});scheduleObfuscatedNameResolution()}}
+    }finally{state.nameResolutionInFlight=false;if(group===state.selectedGroup){renderArticles({preserveScroll:true,reason:'name-resolution-finish'});scheduleObfuscatedNameResolution()}}
     return;
   }
   const now=Date.now();if(state.nameResolutionBackoffUntil>now){scheduleObfuscatedNameResolution();return}
-  const next=automaticNameResolutionCandidates(8),candidates=next.items;if(!candidates.length)return;for(const a of candidates)state.nameResolutionAttempted.add(nameResolutionKey(a));if(next.budgeted)state.nameResolutionAutoRemaining=Math.max(0,state.nameResolutionAutoRemaining-candidates.length);state.nameResolutionInFlight=true;renderArticles({preserveScroll:true});try{const data=await api('/api/articles/resolve-names',{provider_id:providerId,group,items:candidates.map(nameResolutionPayload)},browseRequestOptions({timeoutMs:75000,timeoutMessage:'Name resolution took too long. NewzDeck will retry this batch.'}));if(group!==state.selectedGroup||providerId!==state.providerId)return;applyNameResolutionResults(data.results||[]);if(Number(data.retryable||0)){const seconds=Math.max(2,Number(data.backoff_seconds||5));state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+seconds*1000)}}catch(e){for(const a of candidates){const key=nameResolutionKey(a);state.nameResolutionAttempted.delete(key);state.nameResolutionDeferred.set(key,{message:String(e?.message||'Filename probe failed'),until:Date.now()+5000,code:'request_error'})}state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+5000)}finally{state.nameResolutionInFlight=false;if(group===state.selectedGroup){renderArticles({preserveScroll:true});scheduleObfuscatedNameResolution()}}
+  const next=automaticNameResolutionCandidates(8),candidates=next.items;if(!candidates.length)return;for(const a of candidates)state.nameResolutionAttempted.add(nameResolutionKey(a));if(next.budgeted)state.nameResolutionAutoRemaining=Math.max(0,state.nameResolutionAutoRemaining-candidates.length);state.nameResolutionInFlight=true;renderArticles({preserveScroll:true,reason:'name-resolution-state'});try{const data=await api('/api/articles/resolve-names',{provider_id:providerId,group,items:candidates.map(nameResolutionPayload)},browseRequestOptions({timeoutMs:75000,timeoutMessage:'Name resolution took too long. NewzDeck will retry this batch.'}));if(group!==state.selectedGroup||providerId!==state.providerId)return;applyNameResolutionResults(data.results||[]);if(Number(data.retryable||0)){const seconds=Math.max(2,Number(data.backoff_seconds||5));state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+seconds*1000)}}catch(e){for(const a of candidates){const key=nameResolutionKey(a);state.nameResolutionAttempted.delete(key);state.nameResolutionDeferred.set(key,{message:String(e?.message||'Filename probe failed'),until:Date.now()+5000,code:'request_error'})}state.nameResolutionBackoffUntil=Math.max(state.nameResolutionBackoffUntil,Date.now()+5000)}finally{state.nameResolutionInFlight=false;if(group===state.selectedGroup){renderArticles({preserveScroll:true,reason:'name-resolution-finish'});scheduleObfuscatedNameResolution()}}
 }
 function binaryNameResolutionInfo(members){
   const resolved=members.map(x=>x.a?.name_resolution).filter(Boolean),withHint=resolved.find(r=>r.title_hint),hint=withHint?.title_hint||'',source=withHint?.title_source||withHint?.metadata_source||withHint?.archive_source||(resolved.length?'yEnc header':'');return{resolved:resolved.length>0,hint,source};
@@ -1565,7 +1565,7 @@ function pumpThumbQueue(){
         if(task.kind==='image'&&data?.suppressed_small){
           a.small_image_suppressed=true;a.media_meta={...(a.media_meta||{}),width:Number(data.width||0),height:Number(data.height||0)};if(state.groupRelatedMedia)state.mediaSetIndexValid=false;
           state.imageThumbCache.delete(task.pkey);state.selectedItems.delete(articleKey(a));
-          if(galleryCompletionLive){if(!queueUnavailableMediaHide(a,task.index,task.role))renderArticles({preserveScroll:true});}
+          if(galleryCompletionLive){if(!queueUnavailableMediaHide(a,task.index,task.role))renderArticles({preserveScroll:true,reason:'thumbnail-hide'});}
           return;
         }
         if(coverCompletionLive&&coverResult){if(task.generation!==state.galleryGeneration)state.relatedCoverStats.crossGenerationPaints++;updateMediaSetCoverDom(task,coverResult.index,data,coverResult.articleKey)}else if(task.role==='set-cover'&&coverResult)state.relatedCoverStats.staleSessionDrops++;else if(galleryCompletionLive)updateThumbnailDom(task.index,data,task.role)
@@ -1610,7 +1610,7 @@ async function finishImageThumbnailResponse(a,data){
 }
 async function fetchImageThumbnail(a,task=null){
   const key=previewKey(a);if(state.imageThumbCache.has(key))return state.imageThumbCache.get(key);const isolated=['set-cover','set-probe'].includes(task?.role||''),promiseMap=isolated?state.setCoverImagePromises:state.imageThumbPromises,promiseKey=isolated?`${String(task?.setKey||'set')}|${key}`:key;if(promiseMap.has(promiseKey))return promiseMap.get(promiseKey);
-  const payload=browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,thumbnail_lanes:thumbnailLaneHint(a,task)});const started=performance.now();
+  const payload=browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,thumbnail_lanes:thumbnailLaneHint(a,task),content_filter:browserPerfMode()});const started=performance.now();
   const request=(async()=>{
     let thumbnailError=null;
     try{return await finishImageThumbnailResponse(a,await api('/api/thumbnail/image',payload,browseRequestOptions(task?.requestTimeoutMs?{timeoutMs:Number(task.requestTimeoutMs),timeoutMessage:'Related Media cover timed out. You can retry this cover.'}:{})))}
@@ -1633,7 +1633,7 @@ async function fetchImageThumbnail(a,task=null){
 
 async function fetchVideoThumbnail(a){
   const key=previewKey(a);if(state.videoThumbCache.has(key))return state.videoThumbCache.get(key);if(state.videoThumbPromises.has(key))return state.videoThumbPromises.get(key);
-  const request=api('/api/thumbnail/video',browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media}),browseRequestOptions())
+  const request=api('/api/thumbnail/video',browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,content_filter:browserPerfMode()}),browseRequestOptions())
     .then(async data=>{
       let url=data.thumbnail_url||'';
       if(!url&&data.sample_url&&data.browser_supported){

@@ -1,9 +1,9 @@
-NewzDeck v3.6.61
-Newsgroup Browser Progressive Headers & Telemetry
+NewzDeck v3.6.62
+Progressive Header Reuse & Thumbnail Phase Telemetry
 
-New in v3.6.61:
-- Large All Posts pages paint from a bounded newest 800-header window instead of waiting on the full 2,000+ header overlap range.
-- Full-page and opaque multipart reconstruction continues through the existing background completion path.
-- Large OVER/XOVER requests are split into bounded newest-first chunks to reduce interactive header timeout risk.
-- Diagnostics now retain passive newsgroup browsing performance telemetry by Images, Videos, Media and All Posts mode, including backend header stages and Chromium render/thumbnail/preview timings.
-- Preserves Discover v3.6.60 behavior, Metadata Server v0.3.3, Automation/Smart Import integrity, private SABnzbd 5.1.2 and terminal-history schema 3.
+New in v3.6.62:
+- Progressive All Posts completion reuses the first-paint header window instead of downloading those same headers again.
+- Background completion fetches only missing logical-page/overlap headers plus genuinely required older Smart Binary expansion.
+- Diagnostics add image-thumbnail endpoint phase timing for cache lookup, executor wait, build-lock wait, BODY transfer, native decode, worker and endpoint total latency by browsing mode.
+- Chromium render telemetry now records bounded render reasons while preserving the aggregate Render timing metric.
+- Preserves v3.6.61 800-header limits, Discover/Automation behavior, Metadata Server v0.3.3, private SABnzbd 5.1.2 and terminal-history schema 3.

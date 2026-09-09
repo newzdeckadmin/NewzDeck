@@ -1,14 +1,14 @@
-NewzDeck v3.6.61
-Newsgroup Browser Progressive Headers & Telemetry
+NewzDeck v3.6.62
+Progressive Header Reuse & Thumbnail Phase Telemetry
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.61 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.62 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
 Existing settings, providers, Automation library/runtime state, queue ownership, durable Downloads history, statistics and private SABnzbd 5.1.2 state are preserved.
 
-v3.6.61 is a narrow newsgroup-browser performance release. It bounds large interactive header first paint, completes deeper All Posts reconstruction in the established background path, and adds passive browsing telemetry. It does not redesign Metadata Server v0.3.3, SAB transfer/repair/extraction/retry, Smart Import, Automation reconciliation, or Discover.
+v3.6.62 is a narrow newsgroup-browser efficiency/observability release. It removes duplicate progressive header retrieval and adds detailed passive thumbnail/render telemetry. It does not redesign Metadata Server v0.3.3, SAB transfer/repair/extraction/retry, Smart Import, Automation reconciliation, Discover, or preview connection budgets.
 
 PORTABLE NEWZDECK
 -----------------
-Close NewzDeck and extract the v3.6.61 Portable ZIP to a fresh folder. User data remains outside the application directory.
+Close NewzDeck and extract the v3.6.62 Portable ZIP to a fresh folder. User data remains outside the application directory.

@@ -1,23 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.61",
-  "base_version": "3.6.60",
-  "release": "Newsgroup Browser Progressive Headers & Telemetry",
-  "adapter_version": "3.6.61",
-  "name": "Newsgroup Browser Progressive Headers & Telemetry",
+  "version": "3.6.62",
+  "base_version": "3.6.61",
+  "release": "Progressive Header Reuse & Thumbnail Phase Telemetry",
+  "adapter_version": "3.6.62",
+  "name": "Progressive Header Reuse & Thumbnail Phase Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Caps qualifying 1,000-2,000 item All Posts first paint to the newest 800 headers inside the requested logical page, then completes the full page and deeper opaque multipart reconstruction in the existing background worker.",
-    "Splits large OVER/XOVER ranges into bounded 800-header newest-first chunks so one large multiline response is less likely to hit the 15-second interactive header socket timeout.",
-    "Adds passive server-side browsing telemetry for header-pool wait, GROUP selection, OVER/XOVER, local article processing, background reconstruction, header counts, cache hits and timeout/failure counters by Images/Videos/Media/All Posts mode.",
-    "Persists the Chromium browser timing samples NewzDeck already measures\u2014Headers, Render, Set index, DOM window, Local search, Thumbnail, Full preview and Viewer preload\u2014into bounded in-memory diagnostics without Collector-generated browsing workload.",
-    "Preserves private SABnzbd 5.1.2, terminal-history schema 3, Metadata Server v0.3.3, Discover v3.6.60 optimizations, Automation reconciliation, Smart Import ownership and integrity protections."
+    "Reuses the bounded first-paint OVER/XOVER headers during progressive All Posts background completion so the initial 800-header window is not downloaded a second time.",
+    "Adds passive image-thumbnail endpoint phase telemetry for persistent-cache lookup, preview-executor queue wait, per-thumbnail build-lock wait, BODY transfer, native decode, worker time and total endpoint latency, attributed by browsing mode.",
+    "Adds render-reason timing/counters so repeated All Posts renders can be attributed to page loads, progressive completion, name-resolution state/retries/results, thumbnail hiding, or other UI causes.",
+    "Preserves the v3.6.61 800-header first-paint/chunk limits, preview concurrency, native decode worker sizing, private SABnzbd 5.1.2, terminal-history schema 3, Metadata Server v0.3.3, Discover and Automation behavior."
   ],
   "regression_guards": [
-    "The progressive first-paint helper returns exactly one <=800-header range within the logical page even when older/newer overlap exists.",
-    "Large overview ranges partition newest-first into adjacent non-overlapping chunks of at most 800 headers.",
-    "The progressive background worker completes the full logical page before estimating/fetching deeper multipart headers and publishes a completed cache entry only for the still-pending generation.",
-    "Newsgroup browsing telemetry is bounded, passive, mode-attributed and exposed through /api/diagnostics; the Collector does not need to call browsing workload endpoints.",
-    "All v3.6.60 and earlier behavioral regression guards remain mandatory; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
+    "Progressive background completion reuses seed first-paint headers and fetches only missing overlap/page ranges plus genuinely required older Smart Binary expansion.",
+    "Seed and fetched overview rows are deduplicated by article number before grouping; completed logical-page semantics and cache-generation safety are unchanged.",
+    "Image-thumbnail telemetry remains passive/bounded and does not change preview connection budgets or Collector workload.",
+    "Render samples retain the existing aggregate render metric while adding bounded reason-specific timing/counters.",
+    "All v3.6.61 and earlier behavioral guards remain mandatory; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
   ]
 }

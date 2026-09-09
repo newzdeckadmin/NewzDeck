@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.61"
+APP_VERSION = "3.6.62"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -418,7 +418,7 @@ ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
 ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
-# v3.6.61: keep interactive OVER/XOVER ranges bounded. Production evidence from
+# v3.6.62: preserve bounded OVER/XOVER ranges and reuse first-paint headers. Production evidence from
 # a 2,000-header All Posts page showed a real 15-second overview timeout while
 # thumbnail decode itself averaged only tens of milliseconds. First paint is one
 # newest-first chunk; deeper page/package reconstruction continues in background.
@@ -472,9 +472,14 @@ def note_browser_performance_samples(items: Any) -> dict[str, Any]:
             continue
         if value < 0 or value > 120000:
             continue
-        _browse_perf_add(_BROWSER_PERF_CLIENT, item.get("mode"), stage, value); accepted += 1
+        mode = _browse_mode(item.get("mode"))
+        _browse_perf_add(_BROWSER_PERF_CLIENT, mode, stage, value); accepted += 1
+        if stage == "render":
+            reason = re.sub(r"[^a-z0-9_-]+", "-", str(item.get("reason") or "unspecified").strip().casefold()).strip("-")[:48] or "unspecified"
+            _browse_perf_add(_BROWSER_PERF_CLIENT, mode, f"render_reason_{reason}", value)
+            _browse_perf_counter(mode, f"render_reason_{reason}", 1)
         if item.get("ok") is False:
-            _browse_perf_counter(item.get("mode"), f"client_{stage}_failures", 1)
+            _browse_perf_counter(mode, f"client_{stage}_failures", 1)
     return {"ok": True, "accepted": accepted}
 
 def _browse_perf_summary(values: list[float]) -> dict[str, Any]:
@@ -504,7 +509,7 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
@@ -5279,7 +5284,7 @@ def _try_ffmpeg_frame(source: Path, thumb_token: str) -> str | None:
     cleanup_thumbnail_cache()
     return thumbnail_cache_url(thumb_token, frame_path)
 
-def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None, parallel_lanes: int = 1) -> dict[str, Any]:
+def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], max_mb: int, cancel_check=None, parallel_lanes: int = 1, perf_mode: str = "all") -> dict[str, Any]:
     if media.get("kind") != "image":
         raise ValueError("Image thumbnail requested for a non-image post")
     if not segments:
@@ -5328,12 +5333,16 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
         raise ValueError(f"Preview is larger than the {max_mb} MB preview safety limit")
 
     lock = _preview_build_lock("thumb:" + thumb_token)
-    with lock:
+    lock_started = time.perf_counter(); lock.acquire()
+    _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "thumbnail_build_lock_wait", (time.perf_counter() - lock_started) * 1000.0)
+    try:
         small = cached_small_image_result(thumb_token)
         if small:
+            _browse_perf_counter(perf_mode, "thumbnail_cache_after_wait_hits", 1)
             return {"kind": "image", "filename": filename, **small}
         cached = cached_thumbnail_result(thumb_token)
         if cached:
+            _browse_perf_counter(perf_mode, "thumbnail_cache_after_wait_hits", 1)
             return {"kind": "image", "filename": filename, **cached}
 
         full_token = preview_cache_token(provider, group, segments, media)
@@ -5342,7 +5351,8 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
             with _preview_lock:
                 existing_item = _preview_tokens.get(full_token)
             if existing_item:
-                native = create_native_thumbnail(Path(existing_item["path"]), thumb_token)
+                decode_started = time.perf_counter(); native = create_native_thumbnail(Path(existing_item["path"]), thumb_token)
+                _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "thumbnail_decode", (time.perf_counter() - decode_started) * 1000.0)
                 if native:
                     if native.get("visual_blank"):
                         return {"kind":"image","filename":filename,"thumbnail_token":thumb_token,"thumbnail_url":existing.get("url",""),"source_url":existing.get("url",""),"source_cached":True,"cached":True,"method":"full-preview-native-blank","thumbnail_fallback":True,"width":native.get("width",0),"height":native.get("height",0)}
@@ -5359,10 +5369,13 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
                 max_bytes=max_mb * 1024 * 1024 + 1, cancel_check=cancel_check, parallel_lanes=parallel_lanes,
             )
             transfer_ms = (time.monotonic() - transfer_started) * 1000.0
+            _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "thumbnail_body", transfer_ms)
+            _browse_perf_counter(perf_mode, "thumbnail_body_bytes", int(written))
             if written > max_mb * 1024 * 1024:
                 raise ValueError(f"Preview exceeded the {max_mb} MB preview safety limit")
 
-            native = create_native_thumbnail(source_path, thumb_token)
+            decode_started = time.perf_counter(); native = create_native_thumbnail(source_path, thumb_token)
+            _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "thumbnail_decode", (time.perf_counter() - decode_started) * 1000.0)
             if native:
                 if native.get("visual_blank"):
                     preview_path = CACHE_DIR / f"{full_token}{suffix}"
@@ -5395,6 +5408,8 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
             }
         finally:
             source_path.unlink(missing_ok=True)
+    finally:
+        lock.release()
 
 def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], cancel_check=None) -> dict[str, Any]:
     if media.get("kind") != "video":
@@ -5447,11 +5462,17 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
             "cached": bool(frame_url), "method": "ffmpeg" if frame_url else "browser",
         }
 
-def run_preview_task(func, *args):
+def run_preview_task(func, *args, perf_mode: str | None = None, perf_stage_prefix: str = "preview"):
+    submitted = time.perf_counter()
     def _run():
+        worker_started = time.perf_counter()
+        if perf_mode is not None:
+            _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, f"{perf_stage_prefix}_executor_wait", (worker_started - submitted) * 1000.0)
         try:
             return func(*args)
         finally:
+            if perf_mode is not None:
+                _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, f"{perf_stage_prefix}_worker", (time.perf_counter() - worker_started) * 1000.0)
             _arm_preview_worker_idle_close()
     return PREVIEW_EXECUTOR.submit(_run).result()
 
@@ -12365,7 +12386,20 @@ def _authoritative_runtime_snapshot(current_port: int) -> dict[str, Any]:
     }
 
 
-def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], group: str, cache_key, info: dict[str, Any], low: int, high: int, page: int, page_count: int, limit: int, start_num: int, end_num: int, fetch_start: int, fetch_end: int, content_filter: str = "all") -> None:
+def _merge_overview_headers(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge reused/fetched OVER rows by article number without changing grouping semantics."""
+    merged: dict[int, dict[str, Any]] = {}
+    for rows in groups:
+        for row in rows or []:
+            try:
+                article = int(row.get("article", 0) or 0)
+            except (TypeError, ValueError):
+                article = 0
+            if article > 0:
+                merged[article] = row
+    return [merged[key] for key in sorted(merged)]
+
+def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], group: str, cache_key, info: dict[str, Any], low: int, high: int, page: int, page_count: int, limit: int, start_num: int, end_num: int, fetch_start: int, fetch_end: int, content_filter: str = "all", seed_articles: list[dict[str, Any]] | None = None, seed_start: int = 0, seed_end: int = 0) -> None:
     """Finish the full logical page and deeper multipart reconstruction after first paint."""
     mode = _browse_mode(content_filter)
     try:
@@ -12374,15 +12408,37 @@ def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], g
             _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_pool_wait", (time.perf_counter() - pool_started) * 1000.0)
             group_started = time.perf_counter(); client.group(group)
             _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_group", (time.perf_counter() - group_started) * 1000.0)
-            overview_started = time.perf_counter(); raw_articles = client.overview_chunked(fetch_start, fetch_end)
-            overview_calls = len(_overview_chunk_ranges(fetch_start, fetch_end))
+            overview_started = time.perf_counter()
+            seed = list(seed_articles or [])
+            raw_articles = list(seed)
+            overview_calls = 0; network_headers = 0
+            missing_ranges: list[tuple[int, int]] = []
+            if seed and seed_start and seed_end:
+                if fetch_start < seed_start:
+                    missing_ranges.append((fetch_start, min(fetch_end, seed_start - 1)))
+                if seed_end < fetch_end:
+                    missing_ranges.append((max(fetch_start, seed_end + 1), fetch_end))
+            else:
+                missing_ranges.append((fetch_start, fetch_end))
+            for missing_start, missing_end in missing_ranges:
+                if missing_end < missing_start:
+                    continue
+                fetched = client.overview_chunked(missing_start, missing_end)
+                raw_articles.extend(fetched); network_headers += len(fetched)
+                overview_calls += len(_overview_chunk_ranges(missing_start, missing_end))
+            raw_articles = _merge_overview_headers(raw_articles)
+            if seed:
+                _browse_perf_counter(mode, "background_seed_headers_reused", len(seed))
+                _browse_perf_counter(mode, "background_duplicate_headers_avoided", len(seed))
             smart_extra = _smart_binary_expansion_headers(raw_articles) if raw_articles else 0
             expanded_start = max(low, fetch_start - smart_extra) if smart_extra > 0 else fetch_start
             if expanded_start < fetch_start:
-                raw_articles.extend(client.overview_chunked(expanded_start, fetch_start - 1))
+                fetched = client.overview_chunked(expanded_start, fetch_start - 1)
+                raw_articles = _merge_overview_headers(raw_articles, fetched); network_headers += len(fetched)
                 overview_calls += len(_overview_chunk_ranges(expanded_start, fetch_start - 1)); fetch_start = expanded_start
             _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_overview", (time.perf_counter() - overview_started) * 1000.0)
             _browse_perf_counter(mode, "background_overview_calls", overview_calls)
+            _browse_perf_counter(mode, "background_network_headers", network_headers)
             _browse_perf_counter(mode, "background_headers", len(raw_articles))
         processing_started = time.perf_counter()
         _apply_cached_name_resolutions(provider_id, group, raw_articles)
@@ -13262,7 +13318,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": base_payload}
             _trim_article_page_cache_locked()
         if background_smart:
-            SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1], mode)
+            SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1], mode, list(raw_articles) if first_paint_deferred else None, fetch_start if first_paint_deferred else 0, fetch_end if first_paint_deferred else 0)
         payload = dict(base_payload)
         visible_articles = annotate_cached_thumbnail_urls(provider_id, group, articles)
         if media_only:
@@ -13355,36 +13411,48 @@ class AppHandler(SimpleHTTPRequestHandler):
         return self._json(200, result)
 
     def image_thumbnail_api(self, data: dict[str, Any]):
-        origin_provider_id = str(data.get("provider_id", ""))
-        provider = resolve_provider_for_purpose(origin_provider_id, "previews")
-        group = str(data.get("group", "")).strip()
-        browse_session = str(data.get("browse_session", "")).strip()
-        cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
-        if cancel_check is not None:
-            cancel_check()
-        segments = data.get("segments") or []
-        if str(provider.get("id", "")) != origin_provider_id:
-            segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
-        media = data.get("media")
-        if not group:
-            raise ValueError("Newsgroup is required")
-        if not isinstance(segments, list) or not isinstance(media, dict):
-            raise ValueError("Invalid image thumbnail request")
-        thumb_token = thumbnail_cache_token(provider, group, segments, media)
-        cached = None if thumbnail_prefers_full_preview(thumb_token) else cached_thumbnail_result(thumb_token)
-        if cached:
-            return self._json(200, {"kind": "image", "filename": media.get("filename") or "image", **cached})
-        settings = json_read(SETTINGS_FILE, {"preview_limit_mb": DEFAULT_PREVIEW_LIMIT_MB})
-        max_mb = max(10, min(4096, int(settings.get("preview_limit_mb", DEFAULT_PREVIEW_LIMIT_MB))))
-        requested_lanes = max(1, min(3, int(data.get("thumbnail_lanes", 1) or 1)))
-        configured_connections = max(1, int(provider.get("connections", 20) or 20))
-        lane_cap = 1 if configured_connections < 16 else (2 if configured_connections < 32 else 3)
-        parallel_lanes = min(requested_lanes, lane_cap)
+        mode = _browse_mode(data.get("content_filter")); endpoint_started = time.perf_counter()
+        _browse_perf_counter(mode, "thumbnail_requests", 1)
         try:
-            result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb, cancel_check, parallel_lanes)
-        except Exception as exc:
-            return self._json(422, preview_error_info(exc))
-        return self._json(200, result)
+            origin_provider_id = str(data.get("provider_id", ""))
+            provider = resolve_provider_for_purpose(origin_provider_id, "previews")
+            group = str(data.get("group", "")).strip()
+            browse_session = str(data.get("browse_session", "")).strip()
+            cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
+            if cancel_check is not None:
+                cancel_check()
+            segments = data.get("segments") or []
+            if str(provider.get("id", "")) != origin_provider_id:
+                segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
+            media = data.get("media")
+            if not group:
+                raise ValueError("Newsgroup is required")
+            if not isinstance(segments, list) or not isinstance(media, dict):
+                raise ValueError("Invalid image thumbnail request")
+            cache_started = time.perf_counter(); thumb_token = thumbnail_cache_token(provider, group, segments, media)
+            cached = None if thumbnail_prefers_full_preview(thumb_token) else cached_thumbnail_result(thumb_token)
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "thumbnail_cache_lookup", (time.perf_counter() - cache_started) * 1000.0)
+            if cached:
+                _browse_perf_counter(mode, "thumbnail_cache_hits", 1)
+                return self._json(200, {"kind": "image", "filename": media.get("filename") or "image", **cached})
+            settings = json_read(SETTINGS_FILE, {"preview_limit_mb": DEFAULT_PREVIEW_LIMIT_MB})
+            max_mb = max(10, min(4096, int(settings.get("preview_limit_mb", DEFAULT_PREVIEW_LIMIT_MB))))
+            requested_lanes = max(1, min(3, int(data.get("thumbnail_lanes", 1) or 1)))
+            configured_connections = max(1, int(provider.get("connections", 20) or 20))
+            lane_cap = 1 if configured_connections < 16 else (2 if configured_connections < 32 else 3)
+            parallel_lanes = min(requested_lanes, lane_cap)
+            try:
+                result = run_preview_task(prepare_image_thumbnail, provider, group, segments, media, max_mb, cancel_check, parallel_lanes, mode, perf_mode=mode, perf_stage_prefix="thumbnail")
+            except Exception as exc:
+                _browse_perf_counter(mode, "thumbnail_failures", 1)
+                if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc).casefold():
+                    _browse_perf_counter(mode, "thumbnail_timeouts", 1)
+                return self._json(422, preview_error_info(exc))
+            if result.get("full_preview_fallback") or result.get("thumbnail_fallback"):
+                _browse_perf_counter(mode, "thumbnail_fallbacks", 1)
+            return self._json(200, result)
+        finally:
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "thumbnail_endpoint_total", (time.perf_counter() - endpoint_started) * 1000.0)
 
     def video_thumbnail_api(self, data: dict[str, Any]):
         origin_provider_id = str(data.get("provider_id", ""))

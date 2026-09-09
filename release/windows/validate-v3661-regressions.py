@@ -65,12 +65,13 @@ for marker in (
     'def overview_chunked(',
     'background_smart = (full_fetch_start, full_fetch_end)',
     'raw_articles = client.overview(first_start, first_end); overview_calls = 1',
-    'raw_articles = client.overview_chunked(fetch_start, fetch_end)',
-    'raw_articles.extend(client.overview_chunked(expanded_start, fetch_start - 1))',
+    'def _merge_overview_headers(',
+    'missing_ranges: list[tuple[int, int]] = []',
+    'background_seed_headers_reused',
     'SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page',
 ):
-    check(marker in server_text, f'Missing v3.6.61 progressive-header marker: {marker}')
-check('BROWSE_OVERVIEW_CHUNK_HEADERS = 800' in server_text and 'BROWSE_FIRST_PAINT_HEADERS = 800' in server_text, 'v3.6.61 bounded header constants changed unexpectedly.')
+    check(marker in server_text, f'Missing carried progressive-header marker: {marker}')
+check('BROWSE_OVERVIEW_CHUNK_HEADERS = 800' in server_text and 'BROWSE_FIRST_PAINT_HEADERS = 800' in server_text, 'Carried 800-header bounds changed unexpectedly.')
 
 # 3. Passive telemetry must be bounded, mode-attributed, and exposed only through
 # diagnostics plus the normal UI sample-post endpoint. The Diagnostic Collector does
@@ -93,18 +94,18 @@ for marker in (
 ):
     check(marker in app_js, f'Missing browser-side passive telemetry marker: {marker}')
 
-# 4. Preserve the v3.6.60 Discover optimization identity and all established runtime
+# 4. Preserve the v3.6.60 Discover optimization stack and all established runtime
 # architecture while only migrating current version markers.
-check("const UI_VERSION = '3.6.61'" in app_js, 'UI version marker is not v3.6.61.')
-check('3.6.61-newsgroup-browser-progressive-header-telemetry' in index_html, 'v3.6.61 static cache identity is missing.')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.61</span></div>' in index_html, 'Visible sidebar version is not v3.6.61.')
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.61', 'version.txt is not v3.6.61.')
-check(manifest.get('version') == '3.6.61' and manifest.get('base_version') == '3.6.60', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.61' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.61', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
-check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.61 changed SAB 5.1.2 or terminal-history schema 3.')
-check("version='3.6.61'" in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'Automation default version identity did not migrate to v3.6.61.')
+check("const UI_VERSION = '3.6.62'" in app_js, 'UI version marker is not v3.6.62.')
+check('3.6.62-progressive-header-reuse-thumbnail-phase-telemetry' in index_html, 'v3.6.62 static cache identity is missing.')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.62</span></div>' in index_html, 'Visible sidebar version is not v3.6.62.')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.62', 'version.txt is not v3.6.62.')
+check(manifest.get('version') == '3.6.62' and manifest.get('base_version') == '3.6.61', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.62' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.62', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.62 changed SAB 5.1.2 or terminal-history schema 3.')
+check("version='3.6.62'" in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'Automation default version identity did not migrate to v3.6.62.')
 check('_discover_library_index_snapshot' in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'v3.6.60 Discover library index was not preserved.')
 check('_flush_metadata_cache_now' in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'v3.6.60 metadata-cache coalescing was not preserved.')
 
-print('v3.6.61 regression guard: PASS')
+print('v3.6.62 regression guard: PASS')
