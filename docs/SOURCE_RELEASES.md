@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.58
+## Current release: v3.6.59
 
-**v3.6.58 is the current stable production release.**
+**v3.6.59 is the current stable production release.**
 
-The `v3.6.58` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.59` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.59 - Discover Responsiveness & Metadata Cache Efficiency.** Returns stale persisted title details immediately while refreshing in the background, reuses a signature-aware in-memory metadata cache, makes hover prefetch bounded and non-personalizing, reduces cold detail waits, and adds Discover performance telemetry while preserving Metadata Server v0.3.3 and private SABnzbd 5.1.2.
 
 - **v3.6.58 - Automation Runtime Reconciliation & State Efficiency.** Prunes old orphan Automation runtime targets conservatively, prevents stale scheduler writes from demoting library-proven imported/satisfied state, normalizes unmistakable legacy integrity-hold history, and measures diagnostics report construction while preserving private SABnzbd 5.1.2.
 

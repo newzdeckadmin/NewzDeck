@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.58** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.59** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.58_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.59_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.58 highlights
+## v3.6.59 highlights
 
-v3.6.58 is a focused Automation runtime reconciliation and state-efficiency release based on the v3.6.57 acceptance diagnostics.
+v3.6.59 is a focused Discover responsiveness and metadata-cache efficiency release based on real v3.6.58 diagnostics.
 
-- **Old orphan target pruning:** canonical runtime targets missing from a valid authoritative media library are retired after a 24-hour grace period; recent and opaque records fail safe.
-- **Semantic state precedence:** library-proven imported/satisfied state cannot be demoted by stale searching/queueing/queued/grabbed/waiting writes merely because they were written later.
-- **Legitimate newer actions remain valid:** a real grab after the final state is still permitted.
-- **Historical hold normalization:** unmistakable legacy byte-identical Smart Import hold rows are classified as `import_integrity_hold` without reconstructing active target policy.
-- **Measured diagnostics report cost:** `diagnostics_report_build_ms` is now exposed before any decision to cache formatted reports.
-- **Existing safety preserved:** v3.6.57 Integrity Hold/count semantics, v3.6.55 history efficiency, Smart Import ownership, Windows runtime handoff, and private SABnzbd 5.1.2 remain intact.
+- **Instant stale detail rendering:** recent persisted title details render immediately while bounded background refresh checks the cloud.
+- **Faster metadata cache access:** the desktop reuses one signature-aware parsed metadata cache instead of reparsing a multi-megabyte JSON file on every lookup.
+- **Safer hover prefetch:** hover dwell is increased and prefetch concurrency is bounded; prefetches no longer count as deliberate title views for For You personalization.
+- **Bounded cold detail requests:** true cold title-detail cloud waits are reduced from 18 seconds to an 8-second desktop budget.
+- **Discover performance telemetry:** Diagnostics now expose Home/Browse/Detail latency, explicit-open versus prefetch activity, cache sources, refresh outcomes, and metadata-cache read/write cost.
+- **Existing safety preserved:** v3.6.58 Automation reconciliation, Smart Import/Integrity Hold behavior, Windows runtime handoff, Metadata Server v0.3.3, and private SABnzbd 5.1.2 remain intact.
 
-See [the full v3.6.58 release notes](release/RELEASE_NOTES_v3.6.58.md).
+See [the full v3.6.59 release notes](release/RELEASE_NOTES_v3.6.59.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.58_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.59_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

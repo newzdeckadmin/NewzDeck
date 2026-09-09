@@ -574,7 +574,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.58'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.59'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -633,6 +633,21 @@ class MediaAutomationEngine:
         self.metadata_circuit_lock = threading.RLock()
         self.metadata_state_lock = threading.RLock()
         self.metadata_cache_lock = threading.RLock()
+        # v3.6.59: metadata-cache.json can grow into the multi-megabyte range.
+        # Keep a signature-aware parsed snapshot in memory so Discover/Automation
+        # reads pay a cheap stat instead of reparsing the whole JSON file. Before
+        # every write the signature is rechecked so a service/desktop peer cannot
+        # be overwritten by a stale process-local copy.
+        self._metadata_cache_memory: dict[str,Any]|None = None
+        self._metadata_cache_signature: tuple[int,int] | None = None
+        self._metadata_cache_memory_hits = 0
+        self._metadata_cache_memory_misses = 0
+        self._metadata_cache_disk_reads = 0
+        self._metadata_cache_writes = 0
+        self._metadata_cache_read_ms_total = 0.0
+        self._metadata_cache_read_ms_max = 0.0
+        self._metadata_cache_write_ms_total = 0.0
+        self._metadata_cache_write_ms_max = 0.0
         self.activity_lock = threading.RLock()
         self.discover_home_cache_lock = threading.RLock()
         self.discover_home_cache: dict[str,Any]|None = None
@@ -641,7 +656,21 @@ class MediaAutomationEngine:
         # recommendations and similar titles). Keep the raw TMDB aggregate warm for
         # a short window and re-decorate library state on every request.
         self.discover_detail_cache_lock = threading.RLock()
-        self.discover_detail_cache: dict[str, tuple[float, dict[str,Any]]] = {}
+        self.discover_detail_cache: dict[str, tuple[float, dict[str,Any], bool]] = {}
+        # v3.6.59: stale title details render immediately while at most two
+        # background refreshes run. Hover prefetch and explicit opens are measured
+        # separately so prefetch can never masquerade as recommendation feedback.
+        self.discover_detail_refresh_lock = threading.Lock()
+        self.discover_detail_refreshing: set[str] = set()
+        self.discover_detail_refresh_slots = threading.BoundedSemaphore(2)
+        self.discover_perf_lock = threading.RLock()
+        self._discover_route_perf: dict[str,dict[str,Any]] = {}
+        self._discover_detail_perf: dict[str,int] = {
+            'explicit_requests':0,'prefetch_requests':0,'memory_hits':0,'persistent_hits':0,
+            'cold_cloud_calls':0,'background_refresh_started':0,'background_refresh_completed':0,
+            'background_refresh_failed':0,'background_refresh_timeouts':0,'background_refresh_coalesced':0,
+            'background_refresh_deferred':0,
+        }
         # Discover uses stale-while-revalidate rather than making the UI wait on a
         # cold/slow TMDB aggregate every time the Home or For You tab is opened.
         # Refresh work is single-flight inside this process and additionally guarded
@@ -2508,33 +2537,110 @@ class MediaAutomationEngine:
         self.auto_thread=threading.Thread(target=lambda:self._automatic_worker(True),name='newzdeck-media-auto-grab-manual',daemon=True)
         self.auto_thread.start(); return {'ok':True,'started':True}
 
+    def _metadata_cache_file_signature(self) -> tuple[int,int]:
+        try:
+            st=self.metadata_cache_file.stat()
+            return int(st.st_mtime_ns),int(st.st_size)
+        except OSError:
+            return -1,0
+
     def _metadata_cache(self):
-        x = _read(self.metadata_cache_file, {})
-        return x if isinstance(x, dict) else {}
+        signature=self._metadata_cache_file_signature()
+        if self._metadata_cache_memory is not None and signature==self._metadata_cache_signature:
+            self._metadata_cache_memory_hits+=1
+            return self._metadata_cache_memory
+        started=time.perf_counter()
+        x=_read(self.metadata_cache_file,{})
+        value=x if isinstance(x,dict) else {}
+        elapsed=max(0.0,(time.perf_counter()-started)*1000.0)
+        self._metadata_cache_memory_misses+=1
+        self._metadata_cache_disk_reads+=1
+        self._metadata_cache_read_ms_total+=elapsed
+        self._metadata_cache_read_ms_max=max(self._metadata_cache_read_ms_max,elapsed)
+        self._metadata_cache_memory=value
+        self._metadata_cache_signature=signature
+        return value
+
+    def _cache_record(self, key:str, max_age:int=86400) -> tuple[Any|None,float|None]:
+        with self.metadata_cache_lock:
+            cache=self._metadata_cache()
+            rec=cache.get(str(key))
+            if not isinstance(rec,dict): return None,None
+            try:
+                age=max(0.0,time.time()-float(rec.get('ts') or 0))
+                if age>max(0,int(max_age)): return None,age
+            except Exception:
+                return None,None
+            return rec.get('value'),age
 
     def _cache_get(self, key: str, max_age: int = 86400):
-        with self.metadata_cache_lock:
-            cache = self._metadata_cache()
-            rec = cache.get(str(key))
-            if not isinstance(rec, dict): return None
-            try:
-                if time.time() - float(rec.get('ts') or 0) > max_age: return None
-            except Exception:
-                return None
-            return rec.get('value')
+        value,_age=self._cache_record(key,max_age)
+        return value
 
     def _cache_put(self, key: str, value):
         try:
             with self.metadata_cache_lock:
-                cache = self._metadata_cache()
-                cache[str(key)] = {'ts': time.time(), 'value': value}
-                if len(cache) > 500:
-                    rows = sorted(cache.items(), key=lambda kv: float((kv[1] or {}).get('ts') or 0), reverse=True)[:400]
-                    cache = dict(rows)
-                _write(self.metadata_cache_file, cache)
+                # _metadata_cache() revalidates the on-disk signature first, so a
+                # desktop/service peer update is merged before this process writes.
+                cache=dict(self._metadata_cache())
+                cache[str(key)]={'ts':time.time(),'value':value}
+                if len(cache)>500:
+                    rows=sorted(cache.items(),key=lambda kv:float((kv[1] or {}).get('ts') or 0),reverse=True)[:400]
+                    cache=dict(rows)
+                started=time.perf_counter()
+                _write_compact(self.metadata_cache_file,cache)
+                elapsed=max(0.0,(time.perf_counter()-started)*1000.0)
+                self._metadata_cache_writes+=1
+                self._metadata_cache_write_ms_total+=elapsed
+                self._metadata_cache_write_ms_max=max(self._metadata_cache_write_ms_max,elapsed)
+                self._metadata_cache_memory=cache
+                self._metadata_cache_signature=self._metadata_cache_file_signature()
         except Exception:
             pass
         return value
+
+    def note_discover_request(self, route:str, elapsed_ms:float, *, ok:bool=True) -> None:
+        key=str(route or 'unknown')[:40]
+        elapsed=max(0.0,float(elapsed_ms or 0.0))
+        with self.discover_perf_lock:
+            rec=self._discover_route_perf.setdefault(key,{'count':0,'errors':0,'samples':[],'max_ms':0.0})
+            rec['count']=int(rec.get('count') or 0)+1
+            if not ok: rec['errors']=int(rec.get('errors') or 0)+1
+            samples=list(rec.get('samples') or []);samples.append(elapsed);rec['samples']=samples[-256:]
+            rec['max_ms']=max(float(rec.get('max_ms') or 0.0),elapsed)
+
+    @staticmethod
+    def _discover_percentile(values:list[float], fraction:float) -> float:
+        rows=sorted(max(0.0,float(x or 0.0)) for x in values)
+        if not rows: return 0.0
+        index=max(0,min(len(rows)-1,int(round((len(rows)-1)*max(0.0,min(1.0,float(fraction)))))))
+        return round(rows[index],3)
+
+    def _discover_detail_note(self, field:str, amount:int=1) -> None:
+        with self.discover_perf_lock:
+            self._discover_detail_perf[field]=int(self._discover_detail_perf.get(field) or 0)+max(0,int(amount or 0))
+
+    def discover_performance_snapshot(self) -> dict[str,Any]:
+        with self.metadata_cache_lock:
+            signature=self._metadata_cache_file_signature()
+            cache_stats={
+                'bytes':int(signature[1]),'memory_hits':int(self._metadata_cache_memory_hits),
+                'memory_misses':int(self._metadata_cache_memory_misses),'disk_reads':int(self._metadata_cache_disk_reads),
+                'writes':int(self._metadata_cache_writes),'read_ms_total':round(self._metadata_cache_read_ms_total,3),
+                'read_ms_max':round(self._metadata_cache_read_ms_max,3),'write_ms_total':round(self._metadata_cache_write_ms_total,3),
+                'write_ms_max':round(self._metadata_cache_write_ms_max,3),
+            }
+        with self.discover_perf_lock:
+            routes={}
+            for key,rec in self._discover_route_perf.items():
+                samples=list(rec.get('samples') or [])
+                routes[key]={
+                    'count':int(rec.get('count') or 0),'errors':int(rec.get('errors') or 0),
+                    'p50_ms':self._discover_percentile(samples,0.50),'p95_ms':self._discover_percentile(samples,0.95),
+                    'max_ms':round(float(rec.get('max_ms') or 0.0),3),
+                }
+            detail=dict(self._discover_detail_perf)
+        return {'metadata_cache':cache_stats,'routes':routes,'detail':detail,'detail_refresh_limit':2}
 
     def _metadata_cloud_state(self) -> dict[str,Any]:
         value=_read(self.metadata_cloud_state_file,{})
@@ -2870,7 +2976,7 @@ class MediaAutomationEngine:
             c=self._config(); c['metadata_access_token_protected']=self.protect_secret(token); c['metadata_authenticated_at']=_now(); _write(self.config_file,c)
         return token
 
-    def _metadata_api(self, path:str, params:dict[str,Any]|None=None, timeout:int=12):
+    def _metadata_api(self, path:str, params:dict[str,Any]|None=None, timeout:int=12, *, allow_cached_fallback:bool=True):
         base=self._metadata_service_base()
         if not base: raise ValueError('NewzDeck Metadata Service URL is not configured')
         query=urllib.parse.urlencode({k:v for k,v in (params or {}).items() if v is not None and str(v)!=''})
@@ -2883,7 +2989,7 @@ class MediaAutomationEngine:
 
         circuit_open,circuit_remaining,circuit_reason=self._metadata_circuit_state()
         if circuit_open and not public_path:
-            if cacheable:
+            if cacheable and allow_cached_fallback:
                 cached=self._cache_get(cache_key,30*86400)
                 if cached is not None:
                     self._metadata_note_state(ok=False,error=circuit_reason or 'Metadata Service circuit breaker is open',cached=True)
@@ -2903,7 +3009,7 @@ class MediaAutomationEngine:
             return value
 
         def cached_or_raise(message:str, exc:Exception):
-            if cacheable:
+            if cacheable and allow_cached_fallback:
                 cached=self._cache_get(cache_key,30*86400)
                 if cached is not None:
                     self._metadata_note_state(ok=False,error=message,cached=True)
@@ -3751,30 +3857,90 @@ class MediaAutomationEngine:
         item.update({'status':str(row.get('status') or ''),'runtime':row.get('runtime_minutes'),'official_site':str(row.get('homepage') or ''),'external_ids':ext,'imdb_id':str(ext.get('imdb') or ''),'tvdb_id':ext.get('tvdb'),'certification':str(row.get('certification') or ''),'companies':list(row.get('production_companies') or []),'networks':list(row.get('networks') or []),'network':str((row.get('networks') or [''])[0] if row.get('networks') else ''),'countries':list(row.get('countries') or []),'cast':cast,'crew':crew,'trailer_url':str((trailer or {}).get('url') or ''),'videos':videos,'recommendations':self._discover_decorate([self._proxy_summary(x,kind) for x in list(row.get('recommendations') or []) if isinstance(x,dict)]),'similar':self._discover_decorate([self._proxy_summary(x,kind) for x in list(row.get('similar') or []) if isinstance(x,dict)]),'number_of_seasons':row.get('number_of_seasons'),'number_of_episodes':row.get('number_of_episodes'),'seasons':list(row.get('seasons') or []),'theatrical_release_date':str(row.get('theatrical_release_date') or ''),'digital_release_date':str(row.get('digital_release_date') or ''),'physical_release_date':str(row.get('physical_release_date') or ''),'availability_date':str(row.get('availability_date') or ''),'next_episode':{'date':str(next_ep.get('air_date') or ''),'season':next_ep.get('season_number'),'episode':next_ep.get('episode_number'),'name':str(next_ep.get('name') or '')} if next_ep else None,'last_episode':{'date':str(last_ep.get('air_date') or ''),'season':last_ep.get('season_number'),'episode':last_ep.get('episode_number'),'name':str(last_ep.get('name') or '')} if last_ep else None,'attribution':{'source':'TMDB','license':'TMDB API Terms','url':f"https://www.themoviedb.org/{'tv' if kind=='tv' else 'movie'}/{item.get('tmdb_id') or ''}"}})
         return item
 
+    def _discover_detail_cloud_cache_key(self, kind:str, ident:int) -> str:
+        return f"cloud:{self._metadata_service_base()}/v1/{'tv' if kind=='tv' else 'movie'}/{int(ident)}"
+
+    def _discover_detail_refresh_worker(self, kind:str, ident:int, detail_key:str) -> None:
+        try:
+            row=self._metadata_api(f'/v1/{kind}/{int(ident)}',timeout=8,allow_cached_fallback=False)
+            if isinstance(row,dict):
+                with self.discover_detail_cache_lock:
+                    self.discover_detail_cache[detail_key]=(time.monotonic(),copy.deepcopy(row),False)
+                self._discover_detail_note('background_refresh_completed')
+            else:
+                self._discover_detail_note('background_refresh_failed')
+        except Exception as exc:
+            self._discover_detail_note('background_refresh_failed')
+            low=str(exc or '').casefold()
+            if 'timed out' in low or 'timeout' in low or 'exceeded' in low:
+                self._discover_detail_note('background_refresh_timeouts')
+        finally:
+            with self.discover_detail_refresh_lock:
+                self.discover_detail_refreshing.discard(detail_key)
+            try:self.discover_detail_refresh_slots.release()
+            except ValueError:pass
+
+    def _start_discover_detail_refresh(self, kind:str, ident:int, detail_key:str) -> bool:
+        with self.discover_detail_refresh_lock:
+            if detail_key in self.discover_detail_refreshing:
+                self._discover_detail_note('background_refresh_coalesced')
+                return False
+            if not self.discover_detail_refresh_slots.acquire(blocking=False):
+                self._discover_detail_note('background_refresh_deferred')
+                return False
+            self.discover_detail_refreshing.add(detail_key)
+        self._discover_detail_note('background_refresh_started')
+        try:
+            threading.Thread(target=self._discover_detail_refresh_worker,args=(kind,int(ident),detail_key),name='newzdeck-discover-detail-refresh',daemon=True).start()
+            return True
+        except Exception:
+            with self.discover_detail_refresh_lock:
+                self.discover_detail_refreshing.discard(detail_key)
+            try:self.discover_detail_refresh_slots.release()
+            except ValueError:pass
+            self._discover_detail_note('background_refresh_failed')
+            return False
+
     def discover_detail(self,data:dict[str,Any]):
         kind='tv' if str(data.get('kind') or '').lower()=='tv' else 'movie'; ident=str(data.get('metadata_id') or data.get('tmdb_id') or '').strip(); provider=str(data.get('provider') or 'tmdb').lower()
+        interaction='prefetch' if str(data.get('interaction') or '').lower()=='prefetch' else 'open'
+        self._discover_detail_note('prefetch_requests' if interaction=='prefetch' else 'explicit_requests')
         if provider!='tmdb' or not ident.isdigit():
             title=str(data.get('title') or '').strip(); year=int(data.get('year') or 0) if str(data.get('year') or '').isdigit() else None
             matches=self._metadata_service_search(kind,title,year)
             exact=[x for x in matches if _norm(x.get('title'))==_norm(title) and (not year or not x.get('year') or int(x.get('year'))==year)]
             if not exact: raise ValueError('TMDB title could not be resolved')
             ident=str(exact[0].get('tmdb_id') or '')
-        detail_key=f'{kind}:{int(ident)}'; row=None; now=time.monotonic()
+        ident_int=int(ident);detail_key=f'{kind}:{ident_int}';row=None;source='cold';stale=False;refresh_started=False;now=time.monotonic()
         with self.discover_detail_cache_lock:
             cached=self.discover_detail_cache.get(detail_key)
-            if cached and now-float(cached[0])<600:
-                row=copy.deepcopy(cached[1])
+            if cached and now-float(cached[0])<30*86400:
+                row=copy.deepcopy(cached[1]);stale=bool(cached[2]) if len(cached)>2 else (now-float(cached[0])>=600);source='memory'
+        if row is not None:
+            self._discover_detail_note('memory_hits')
         if row is None:
-            row=self._metadata_api(f'/v1/{kind}/{int(ident)}',timeout=18)
+            persisted,age=self._cache_record(self._discover_detail_cloud_cache_key(kind,ident_int),30*86400)
+            if isinstance(persisted,dict):
+                row=copy.deepcopy(persisted);source='persistent';stale=bool((age or 0)>=600)
+                self._discover_detail_note('persistent_hits')
+                with self.discover_detail_cache_lock:
+                    self.discover_detail_cache[detail_key]=(time.monotonic(),copy.deepcopy(row),stale)
+        if row is not None and stale:
+            refresh_started=self._start_discover_detail_refresh(kind,ident_int,detail_key)
+        if row is None:
+            self._discover_detail_note('cold_cloud_calls')
+            row=self._metadata_api(f'/v1/{kind}/{ident_int}',timeout=8)
+            source='cloud';stale=False
             if isinstance(row,dict):
                 with self.discover_detail_cache_lock:
-                    self.discover_detail_cache[detail_key]=(time.monotonic(),copy.deepcopy(row))
+                    self.discover_detail_cache[detail_key]=(time.monotonic(),copy.deepcopy(row),False)
                     if len(self.discover_detail_cache)>80:
                         oldest=sorted(self.discover_detail_cache.items(),key=lambda kv:kv[1][0])[:20]
                         for key,_ in oldest:self.discover_detail_cache.pop(key,None)
         item=self._discover_proxy_detail(row,kind); decorated=self._discover_decorate([item]); item=decorated[0] if decorated else item
-        st=self._discover_state(); st['viewed'][self._discover_key(item)]={'ts':time.time(),'provider':'tmdb','metadata_id':str(item.get('metadata_id') or ''),'kind':kind,'title':item.get('title'),'year':item.get('year')}; self._save_discover_state(st)
-        return {'item':item,'sources':self.discover_sources()}
+        if interaction!='prefetch':
+            st=self._discover_state(); st['viewed'][self._discover_key(item)]={'ts':time.time(),'provider':'tmdb','metadata_id':str(item.get('metadata_id') or ''),'kind':kind,'title':item.get('title'),'year':item.get('year')}; self._save_discover_state(st)
+        return {'item':item,'sources':self.discover_sources(),'performance':{'detail_source':source,'stale':bool(stale),'background_refresh_started':bool(refresh_started),'interaction':interaction}}
 
     def discover_person(self,data:dict[str,Any]):
         ident=str(data.get('tmdb_id') or data.get('metadata_id') or '').strip()

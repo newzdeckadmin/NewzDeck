@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.58"
+APP_VERSION = "3.6.59"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11893,6 +11893,7 @@ def _diagnostics_snapshot_uncached() -> dict[str, Any]:
         'searches': searches, 'events': base.get('events',[])[:80], 'desktop_mode': DESKTOP_MODE, 'ffmpeg': bool(_ffmpeg_path()),
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
+        'discover_performance': MEDIA_AUTOMATION.discover_performance_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'metadata_cache':{},'routes':{},'detail':{}},
         'automation_target_integrity': MEDIA_AUTOMATION.target_integrity_telemetry() if 'MEDIA_AUTOMATION' in globals() else {'stale_auto_grabs_suppressed':0,'scan_merge_conflicts':0,'downgrades_blocked':0,'existing_quality_recovered':0,'stale_state_demotions_blocked':0,'last_event_ts':0},
         'automation_runtime_efficiency': MEDIA_AUTOMATION.automation_runtime_efficiency() if 'MEDIA_AUTOMATION' in globals() else {'runtime_target_records':0,'automation_runtime_bytes':0},
         'automation_storage': MEDIA_AUTOMATION.storage_health_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'roots':[],'low_roots':[]},
@@ -12107,6 +12108,18 @@ def diagnostics_report() -> str:
         f"last_prune_ts={float(prune.get('last_prune_ts',0) or 0):.3f}"
     )
     cloud=d.get('metadata_cloud') or {}; lines.append(f"Metadata cloud: {cloud.get('status','unknown')} url={cloud.get('url','')} server={cloud.get('server_version','')} tmdb={cloud.get('tmdb_status','unknown')} authenticated={cloud.get('authenticated',False)} compatible={cloud.get('compatible',True)} circuit_open={cloud.get('circuit_open',False)} retry_seconds={cloud.get('circuit_retry_seconds',0)} cached_fallbacks={cloud.get('cached_fallbacks',0)} last_error={cloud.get('last_error','') or cloud.get('tmdb_last_error','')}")
+    discover=d.get('discover_performance') if isinstance(d.get('discover_performance'),dict) else {}; routes=discover.get('routes') if isinstance(discover.get('routes'),dict) else {}; detail=discover.get('detail') if isinstance(discover.get('detail'),dict) else {}; mcache=discover.get('metadata_cache') if isinstance(discover.get('metadata_cache'),dict) else {}
+    lines.append(
+        "Discover performance: "
+        f"home_p95_ms={float((routes.get('home') or {}).get('p95_ms',0) or 0):.3f}; "
+        f"browse_p95_ms={float((routes.get('browse') or {}).get('p95_ms',0) or 0):.3f}; "
+        f"detail_p95_ms={float((routes.get('detail') or {}).get('p95_ms',0) or 0):.3f}; "
+        f"detail_explicit={int(detail.get('explicit_requests',0) or 0)}; prefetch={int(detail.get('prefetch_requests',0) or 0)}; "
+        f"detail_memory_hits={int(detail.get('memory_hits',0) or 0)}; persistent_hits={int(detail.get('persistent_hits',0) or 0)}; cold_cloud={int(detail.get('cold_cloud_calls',0) or 0)}; "
+        f"refresh_started={int(detail.get('background_refresh_started',0) or 0)}; refresh_completed={int(detail.get('background_refresh_completed',0) or 0)}; refresh_failed={int(detail.get('background_refresh_failed',0) or 0)}; "
+        f"metadata_cache_bytes={int(mcache.get('bytes',0) or 0)}; cache_memory_hits={int(mcache.get('memory_hits',0) or 0)}; cache_disk_reads={int(mcache.get('disk_reads',0) or 0)}; cache_writes={int(mcache.get('writes',0) or 0)}; "
+        f"cache_read_max_ms={float(mcache.get('read_ms_max',0) or 0):.3f}; cache_write_max_ms={float(mcache.get('write_ms_max',0) or 0):.3f}"
+    )
     storage_health=d.get('automation_storage') if isinstance(d.get('automation_storage'),dict) else {}
     low_roots=list(storage_health.get('low_roots') or [])
     lines.append(f"Automation storage health: roots={len(list(storage_health.get('roots') or []))}; below_reserve={len(low_roots)}")
@@ -12574,6 +12587,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self.serve_media(token, attachment=True)
         return super().do_GET()
 
+    def _discover_response(self, route, callback):
+        started=time.perf_counter();ok=False
+        try:
+            value=callback();ok=True
+            return self._json(200,value)
+        finally:
+            try: MEDIA_AUTOMATION.note_discover_request(str(route or 'unknown'),(time.perf_counter()-started)*1000.0,ok=ok)
+            except Exception: pass
+
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         try:
@@ -12676,17 +12698,17 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.download_items_api(data)
             if parsed.path == "/api/discover/home":
                 mode=str(data.get('mode') or 'home').strip().lower()
-                return self._json(200, MEDIA_AUTOMATION.discover_home(personalized=(mode=='for_you')))
+                return self._discover_response('home',lambda: MEDIA_AUTOMATION.discover_home(personalized=(mode=='for_you')))
             if parsed.path == "/api/discover/new":
-                return self._json(200, MEDIA_AUTOMATION.discover_new())
+                return self._discover_response('new',MEDIA_AUTOMATION.discover_new)
             if parsed.path == "/api/discover/genres":
-                return self._json(200, MEDIA_AUTOMATION.discover_genres(str(data.get("kind") or "movie")))
+                return self._discover_response('genres',lambda: MEDIA_AUTOMATION.discover_genres(str(data.get("kind") or "movie")))
             if parsed.path == "/api/discover/person":
-                return self._json(200, MEDIA_AUTOMATION.discover_person(data))
+                return self._discover_response('person',lambda: MEDIA_AUTOMATION.discover_person(data))
             if parsed.path == "/api/discover/browse":
-                return self._json(200, MEDIA_AUTOMATION.discover_browse(data))
+                return self._discover_response('browse',lambda: MEDIA_AUTOMATION.discover_browse(data))
             if parsed.path == "/api/discover/detail":
-                return self._json(200, MEDIA_AUTOMATION.discover_detail(data))
+                return self._discover_response('detail',lambda: MEDIA_AUTOMATION.discover_detail(data))
             if parsed.path == "/api/discover/preference":
                 return self._json(200, MEDIA_AUTOMATION.discover_preference(data))
             if parsed.path == "/api/discover/releases/search":

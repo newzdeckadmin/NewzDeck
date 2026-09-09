@@ -1,25 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.58",
-  "base_version": "3.6.57",
-  "release": "Automation Runtime Reconciliation & State Efficiency",
-  "adapter_version": "3.6.58",
-  "name": "Automation Runtime Reconciliation & State Efficiency",
+  "version": "3.6.59",
+  "base_version": "3.6.58",
+  "release": "Discover Responsiveness & Metadata Cache Efficiency",
+  "adapter_version": "3.6.59",
+  "name": "Discover Responsiveness & Metadata Cache Efficiency",
   "sab_version": "5.1.2",
   "changes": [
-    "Prunes old Automation runtime targets whose canonical item IDs no longer exist in a valid authoritative media-library.json, with a 24-hour grace window and fail-safe parsing.",
-    "Gives library-proven imported/satisfied target states semantic precedence over stale searching/queueing/queued/grabbed/waiting writes while allowing a real newer grab action to proceed.",
-    "Adds Automation runtime efficiency telemetry for target/orphan counts, runtime bytes, prune counts, reclaimed bytes and stale-state demotions blocked.",
-    "Normalizes unmistakable legacy v3.6.56 duplicate-content hold history to failure_class=import_integrity_hold without reconstructing or reactivating current target policy state.",
-    "Measures server-side diagnostics report construction time explicitly before considering formatted-report caching.",
-    "Preserves v3.6.57 Integrity Hold/count semantics, v3.6.55 no-op terminal-history efficiency, private SABnzbd 5.1.2 authority and the established Windows runtime handoff."
+    "Returns persisted Discover title detail immediately with stale-while-revalidate instead of blocking on a slow metadata-cloud refresh when usable cached detail already exists.",
+    "Keeps metadata-cache.json parsed in a signature-aware process-local cache, revalidates before writes for desktop/service coexistence, and writes compact JSON to reduce multi-megabyte parse/write amplification.",
+    "Bounds Discover detail refreshes to two concurrent background tasks and reduces true cold detail network budget from 18 seconds to 8 seconds.",
+    "Separates hover prefetch from explicit title views so prefetch never changes For You viewed-history feedback.",
+    "Adds Discover route/cache/detail performance telemetry to diagnostics without changing Metadata Server v0.3.3 or private SABnzbd 5.1.2 behavior.",
+    "Preserves v3.6.58 Automation runtime reconciliation, orphan pruning, semantic state precedence and all established download/import protections."
   ],
   "regression_guards": [
-    "Old parseable orphan targets are pruned only when media-library.json parses successfully; recent or unparseable target records remain fail-safe.",
-    "A stale later scheduler write cannot demote a library-proven imported TV episode back to grabbed/queued/searching/waiting.",
-    "A genuinely newer grab with last_grab_ts after the final imported/satisfied timestamp is not suppressed.",
-    "Legacy byte-identical Smart Import held-for-review terminal evidence normalizes historically without creating active Automation holds.",
-    "Diagnostics expose automation runtime efficiency, stale-state reconciliation counters and diagnostics_report_build_ms timing.",
-    "All v3.6.57/v3.6.56/v3.6.55 guards remain mandatory and SAB transfer/repair/extraction behavior is unchanged."
+    "Repeated metadata-cache reads reuse the parsed in-memory snapshot; an external file change is reloaded before a local write so peer-process entries are preserved.",
+    "Metadata-cache writes are compact and retain the existing 500-entry/400-entry trim policy.",
+    "Stale persisted Discover detail returns immediately and schedules bounded background refresh; a true cold detail request uses an 8-second cloud budget.",
+    "Hover prefetch requests do not record a viewed-history event, while explicit opens do.",
+    "Discover diagnostics expose Home/Browse/Detail route percentiles plus metadata-cache and detail-refresh counters.",
+    "All v3.6.58 and earlier regression guards remain mandatory; SAB transfer/repair/extraction architecture is unchanged."
   ]
 }
