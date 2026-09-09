@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.60** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.61** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.60_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.61_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.60 highlights
+## v3.6.61 highlights
 
-v3.6.60 is a focused Discover local-data-path performance release based on the first v3.6.59 production telemetry.
+v3.6.61 is a focused Newsgroup Browser performance and observability release based on production browsing diagnostics.
 
-- **Fast library-status decoration:** Discover builds one signature-aware library lookup index per media-library.json generation instead of reparsing/scanning the Automation library for every card.
-- **Coalesced metadata persistence:** metadata responses update memory immediately while bursts are collapsed into one short-delay compact atomic cache write.
-- **Peer-safe flushes:** service/desktop cache writers use a cross-process guard and merge peer changes before persistence.
-- **More useful telemetry:** Diagnostics now expose library-index build/hit timing and cache write requests versus actual/coalesced disk writes.
-- **Honest tiny-sample statistics:** p50/p95 use interpolation and routes expose average/sample counts.
-- **Existing safety preserved:** v3.6.59 stale-detail/prefetch semantics, Metadata Server v0.3.3, v3.6.58 Automation reconciliation, Windows runtime handoff, and private SABnzbd 5.1.2 remain intact.
+- **Faster large All Posts first paint:** qualifying 1,000–2,000 item pages show the newest 800 logical-page headers first, then complete the full page in background.
+- **Bounded header transfers:** large OVER/XOVER ranges are split newest-first into adjacent chunks of at most 800 headers to reduce interactive timeout risk.
+- **Passive browsing telemetry:** Diagnostics retain backend header-stage timings plus Chromium render, thumbnail, preview, and DOM timings by Images/Videos/Media/All Posts mode.
+- **No synthetic Collector workload:** Diagnostic Collector v1.0.16 reads the new telemetry contract without generating group/article/preview requests.
+- **Existing safety preserved:** Discover v3.6.60 optimizations, Metadata Server v0.3.3, Automation/Smart Import integrity, Windows runtime handoff, and private SABnzbd 5.1.2 remain intact.
 
-See [the full v3.6.60 release notes](release/RELEASE_NOTES_v3.6.60.md).
+See [the full v3.6.61 release notes](release/RELEASE_NOTES_v3.6.61.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.60_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.61_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

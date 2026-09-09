@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.60",
-  "base_version": "3.6.59",
-  "release": "Discover Library Index & Cache Write Coalescing",
-  "adapter_version": "3.6.60",
-  "name": "Discover Library Index & Cache Write Coalescing",
+  "version": "3.6.61",
+  "base_version": "3.6.60",
+  "release": "Newsgroup Browser Progressive Headers & Telemetry",
+  "adapter_version": "3.6.61",
+  "name": "Newsgroup Browser Progressive Headers & Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Builds one signature-aware Discover library lookup index per media-library.json generation so card decoration no longer reparses and linearly scans the multi-megabyte Automation library for every title.",
-    "Updates metadata-cache.json in memory immediately but coalesces bursty cache puts into one short-delay compact atomic disk flush instead of rewriting the entire cache once per metadata response.",
-    "Uses a cross-process metadata-cache flush lock and signature reload so desktop/service peer changes are merged before a coalesced write while dirty local responses remain available in memory.",
-    "Extends Discover diagnostics with library-index build/hit timing and metadata-cache write-request/coalescing/dirty/flush telemetry.",
-    "Uses interpolated Discover percentiles and adds average/sample counts so tiny diagnostic samples are not misrepresented.",
-    "Preserves v3.6.59 stale-while-revalidate detail, prefetch/view separation, Metadata Server v0.3.3, v3.6.58 Automation reconciliation, and private SABnzbd 5.1.2."
+    "Caps qualifying 1,000-2,000 item All Posts first paint to the newest 800 headers inside the requested logical page, then completes the full page and deeper opaque multipart reconstruction in the existing background worker.",
+    "Splits large OVER/XOVER ranges into bounded 800-header newest-first chunks so one large multiline response is less likely to hit the 15-second interactive header socket timeout.",
+    "Adds passive server-side browsing telemetry for header-pool wait, GROUP selection, OVER/XOVER, local article processing, background reconstruction, header counts, cache hits and timeout/failure counters by Images/Videos/Media/All Posts mode.",
+    "Persists the Chromium browser timing samples NewzDeck already measures\u2014Headers, Render, Set index, DOM window, Local search, Thumbnail, Full preview and Viewer preload\u2014into bounded in-memory diagnostics without Collector-generated browsing workload.",
+    "Preserves private SABnzbd 5.1.2, terminal-history schema 3, Metadata Server v0.3.3, Discover v3.6.60 optimizations, Automation reconciliation, Smart Import ownership and integrity protections."
   ],
   "regression_guards": [
-    "Repeated Discover library-status lookups parse/build the library index once, then reuse it until the media-library.json signature changes; direct metadata/TMDB/title matching keeps the previous semantics.",
-    "Multiple metadata cache puts remain immediately readable from memory and persist through one explicit coalesced flush, with peer-process records merged before the write.",
-    "Metadata cache write telemetry distinguishes write requests from actual disk writes and exposes coalesced requests, dirty keys, deferrals and failures.",
-    "Two-sample Discover p50 uses the interpolated midpoint and route telemetry exposes average/sample counts.",
-    "All v3.6.59 and earlier regression guards remain mandatory; SAB transfer/repair/extraction architecture and terminal-history schema remain unchanged."
+    "The progressive first-paint helper returns exactly one <=800-header range within the logical page even when older/newer overlap exists.",
+    "Large overview ranges partition newest-first into adjacent non-overlapping chunks of at most 800 headers.",
+    "The progressive background worker completes the full logical page before estimating/fetching deeper multipart headers and publishes a completed cache entry only for the still-pending generation.",
+    "Newsgroup browsing telemetry is bounded, passive, mode-attributed and exposed through /api/diagnostics; the Collector does not need to call browsing workload endpoints.",
+    "All v3.6.60 and earlier behavioral regression guards remain mandatory; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
   ]
 }

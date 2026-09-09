@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.60"
+APP_VERSION = "3.6.61"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -418,6 +418,118 @@ ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
 ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
+# v3.6.61: keep interactive OVER/XOVER ranges bounded. Production evidence from
+# a 2,000-header All Posts page showed a real 15-second overview timeout while
+# thumbnail decode itself averaged only tens of milliseconds. First paint is one
+# newest-first chunk; deeper page/package reconstruction continues in background.
+BROWSE_OVERVIEW_CHUNK_HEADERS = 800
+BROWSE_FIRST_PAINT_HEADERS = 800
+BROWSE_LARGE_PAGE_THRESHOLD = 1000
+
+_BROWSER_PERF_LOCK = threading.RLock()
+_BROWSER_PERF_SAMPLE_LIMIT = 240
+_BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "preview", "viewer_preload"}
+_BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
+_BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
+_BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
+
+def _browse_mode(value: Any) -> str:
+    mode = str(value or "all").strip().casefold()
+    return mode if mode in _BROWSER_PERF_ALLOWED_MODES else "all"
+
+def _browse_perf_add(bucket: dict[tuple[str, str], deque[float]], mode: str, stage: str, value: float) -> None:
+    try:
+        numeric = max(0.0, min(120000.0, float(value)))
+    except (TypeError, ValueError):
+        return
+    key = (_browse_mode(mode), str(stage or "other")[:80])
+    with _BROWSER_PERF_LOCK:
+        samples = bucket.get(key)
+        if samples is None:
+            samples = deque(maxlen=_BROWSER_PERF_SAMPLE_LIMIT); bucket[key] = samples
+        samples.append(numeric)
+
+def _browse_perf_counter(mode: str, name: str, amount: int = 1) -> None:
+    mode = _browse_mode(mode); name = str(name or "other")[:80]
+    with _BROWSER_PERF_LOCK:
+        row = _BROWSER_PERF_COUNTERS.setdefault(mode, {})
+        row[name] = int(row.get(name, 0) or 0) + int(amount or 0)
+
+def note_browser_performance_samples(items: Any) -> dict[str, Any]:
+    accepted = 0
+    if not isinstance(items, list):
+        return {"ok": True, "accepted": 0}
+    for item in items[:160]:
+        if not isinstance(item, dict):
+            continue
+        stage = str(item.get("stage") or "").strip()
+        if stage not in _BROWSER_PERF_ALLOWED_CLIENT_STAGES:
+            continue
+        try:
+            value = float(item.get("ms", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value < 0 or value > 120000:
+            continue
+        _browse_perf_add(_BROWSER_PERF_CLIENT, item.get("mode"), stage, value); accepted += 1
+        if item.get("ok") is False:
+            _browse_perf_counter(item.get("mode"), f"client_{stage}_failures", 1)
+    return {"ok": True, "accepted": accepted}
+
+def _browse_perf_summary(values: list[float]) -> dict[str, Any]:
+    if not values:
+        return {"sample_count": 0, "avg_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "max_ms": 0.0}
+    ordered = sorted(float(x) for x in values)
+    def pct(q: float) -> float:
+        if len(ordered) == 1:
+            return ordered[0]
+        pos = (len(ordered) - 1) * q; lo = int(math.floor(pos)); hi = int(math.ceil(pos))
+        if lo == hi:
+            return ordered[lo]
+        return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
+    return {
+        "sample_count": len(ordered), "avg_ms": round(sum(ordered) / len(ordered), 3),
+        "p50_ms": round(pct(.50), 3), "p95_ms": round(pct(.95), 3), "max_ms": round(ordered[-1], 3),
+    }
+
+def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
+    with _BROWSER_PERF_LOCK:
+        client = {key: list(values) for key, values in _BROWSER_PERF_CLIENT.items()}
+        server = {key: list(values) for key, values in _BROWSER_PERF_SERVER.items()}
+        counters = json.loads(json.dumps(_BROWSER_PERF_COUNTERS))
+    def shape(source: dict[tuple[str, str], list[float]]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for (mode, stage), values in source.items():
+            out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
+        return out
+    return {
+        "schema_version": 1,
+        "contract": "passive-runtime-browsing-performance",
+        "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
+        "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
+        "large_page_threshold": BROWSE_LARGE_PAGE_THRESHOLD,
+        "client": shape(client), "server": shape(server), "counters": counters,
+    }
+
+def _overview_chunk_ranges(start: int, end: int, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS) -> list[tuple[int, int]]:
+    start = int(start); end = int(end); chunk_size = max(1, int(chunk_size or 1))
+    if end < start:
+        return []
+    ranges: list[tuple[int, int]] = []
+    high = end
+    while high >= start:
+        low = max(start, high - chunk_size + 1)
+        ranges.append((low, high)); high = low - 1
+    return ranges
+
+def _first_paint_overview_range(fetch_start: int, fetch_end: int, start_num: int, end_num: int, limit: int, progressive: bool, smart_binaries: bool) -> tuple[int, int, bool]:
+    span = max(0, int(fetch_end) - int(fetch_start) + 1)
+    if progressive and smart_binaries and int(limit) >= BROWSE_LARGE_PAGE_THRESHOLD and span > BROWSE_FIRST_PAINT_HEADERS:
+        first_end = min(int(fetch_end), int(end_num))
+        first_start = max(int(fetch_start), int(start_num), first_end - BROWSE_FIRST_PAINT_HEADERS + 1)
+        return first_start, first_end, True
+    return int(fetch_start), int(fetch_end), False
 
 def _article_page_cache_article_budget() -> int:
     """Bound recent-page RAM by both page count and approximate article objects."""
@@ -1795,6 +1907,14 @@ class NntpClient:
             except Exception as exc:
                 last_error = str(exc)
         raise NntpError(f"Unable to load article overview: {last_error or 'unsupported'}")
+
+    def overview_chunked(self, start: int, end: int, *, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS) -> list[dict[str, Any]]:
+        """Load a large overview newest-first in bounded NNTP multiline responses."""
+        combined: list[dict[str, Any]] = []
+        for low, high in _overview_chunk_ranges(start, end, chunk_size):
+            combined.extend(self.overview(low, high))
+        combined.sort(key=lambda item: int(item.get("article", 0) or 0), reverse=True)
+        return combined
 
     def body(self, article: int | str) -> list[bytes]:
         code, msg, lines = self.command_multiline(f"BODY {article}")
@@ -11890,6 +12010,7 @@ def _diagnostics_snapshot_uncached() -> dict[str, Any]:
         'thumbnail_decode': thumbnail_decode_stats(),
         'thumbnail_transfer': thumbnail_transfer_stats(),
         'thumbnail_catalog': thumbnail_catalog_stats(),
+        'newsgroup_browsing_performance': newsgroup_browsing_performance_snapshot(),
         'searches': searches, 'events': base.get('events',[])[:80], 'desktop_mode': DESKTOP_MODE, 'ffmpeg': bool(_ffmpeg_path()),
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
@@ -12244,13 +12365,26 @@ def _authoritative_runtime_snapshot(current_port: int) -> dict[str, Any]:
     }
 
 
-def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], group: str, cache_key, info: dict[str, Any], low: int, high: int, page: int, page_count: int, limit: int, start_num: int, end_num: int, fetch_start: int, fetch_end: int) -> None:
-    """Finish deep multipart reconstruction after the first usable page is visible."""
+def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], group: str, cache_key, info: dict[str, Any], low: int, high: int, page: int, page_count: int, limit: int, start_num: int, end_num: int, fetch_start: int, fetch_end: int, content_filter: str = "all") -> None:
+    """Finish the full logical page and deeper multipart reconstruction after first paint."""
+    mode = _browse_mode(content_filter)
     try:
-        started = time.perf_counter()
+        started = time.perf_counter(); pool_started = time.perf_counter()
         with BROWSE_HEADER_POOL.lease(provider, group) as client:
-            client.group(group)
-            raw_articles = client.overview(fetch_start, fetch_end)
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_pool_wait", (time.perf_counter() - pool_started) * 1000.0)
+            group_started = time.perf_counter(); client.group(group)
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_group", (time.perf_counter() - group_started) * 1000.0)
+            overview_started = time.perf_counter(); raw_articles = client.overview_chunked(fetch_start, fetch_end)
+            overview_calls = len(_overview_chunk_ranges(fetch_start, fetch_end))
+            smart_extra = _smart_binary_expansion_headers(raw_articles) if raw_articles else 0
+            expanded_start = max(low, fetch_start - smart_extra) if smart_extra > 0 else fetch_start
+            if expanded_start < fetch_start:
+                raw_articles.extend(client.overview_chunked(expanded_start, fetch_start - 1))
+                overview_calls += len(_overview_chunk_ranges(expanded_start, fetch_start - 1)); fetch_start = expanded_start
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_overview", (time.perf_counter() - overview_started) * 1000.0)
+            _browse_perf_counter(mode, "background_overview_calls", overview_calls)
+            _browse_perf_counter(mode, "background_headers", len(raw_articles))
+        processing_started = time.perf_counter()
         _apply_cached_name_resolutions(provider_id, group, raw_articles)
         grouped_all = group_articles(raw_articles); articles = []
         for item in grouped_all:
@@ -12258,6 +12392,7 @@ def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], g
             anchor_num = max(nums) if nums else int(item.get("article", 0) or 0)
             if start_num <= anchor_num <= end_num:
                 articles.append(item)
+        _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_processing", (time.perf_counter() - processing_started) * 1000.0)
         scanned_page_end = min(page_count, max(page, ((high - max(low, fetch_start)) // limit) + 1)) if page_count else page
         next_older_page = scanned_page_end + 1 if page_count and scanned_page_end < page_count else 0
         paging = {
@@ -12265,13 +12400,19 @@ def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], g
             "low": low, "high": high, "has_older": bool(next_older_page), "has_newer": bool(page_count and page > 1),
             "scanned_page_end": scanned_page_end, "next_older_page": next_older_page, "smart_binary_scan": True,
         }
-        payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "background reconstruction", "cache_age_seconds": 0, "smart_binary_headers": max(0, fetch_end - fetch_start + 1), "smart_binary_pending": False}
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        _browse_perf_add(_BROWSER_PERF_SERVER, mode, "background_total", elapsed_ms)
+        _browse_perf_counter(mode, "background_completions", 1)
+        payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round(elapsed_ms), "cache_source": "background reconstruction", "cache_age_seconds": 0, "smart_binary_headers": max(0, fetch_end - fetch_start + 1), "smart_binary_pending": False, "progressive_first_paint": False}
         with ARTICLE_PAGE_CACHE_LOCK:
             current = ARTICLE_PAGE_CACHE.get(cache_key)
             # Do not overwrite a newer explicit refresh of this page.
             if current and bool((current.get("payload") or {}).get("smart_binary_pending")):
                 ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": payload}
     except Exception as exc:
+        _browse_perf_counter(mode, "background_failures", 1)
+        if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc).casefold():
+            _browse_perf_counter(mode, "background_timeouts", 1)
         DIAGNOSTICS.event("warning", "browse", f"Progressive binary reconstruction failed: {exc}", provider_id=provider_id, group=group, page=page)
         with ARTICLE_PAGE_CACHE_LOCK:
             current = ARTICLE_PAGE_CACHE.get(cache_key)
@@ -12652,6 +12793,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.groups_status_api(data)
             if parsed.path == "/api/browse/session":
                 return self._json(200, register_browse_session(str(data.get("provider_id", "")), str(data.get("group", "")), str(data.get("browse_session", ""))))
+            if parsed.path == "/api/browse/performance":
+                return self._json(200, note_browser_performance_samples(data.get("samples")))
             if parsed.path == "/api/articles":
                 return self.articles_api(data)
             if parsed.path == "/api/articles/resolve-names":
@@ -12962,6 +13105,8 @@ class AppHandler(SimpleHTTPRequestHandler):
         total = len(groups)
         page = groups[offset:offset + page_size]
         elapsed = round((time.perf_counter() - started) * 1000)
+        _browse_perf_add(_BROWSER_PERF_SERVER, "all", "group_list", elapsed)
+        _browse_perf_counter("all", f"group_list_{cache_source or 'unknown'}", 1)
         return self._json(200, {
             "groups": page,
             "total": total,
@@ -13011,6 +13156,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         smart_binaries = bool(data.get("smart_binaries", False))
         progressive = bool(data.get("progressive", False))
         refresh = bool(data.get("refresh", False))
+        mode = _browse_mode(data.get("content_filter"))
         cache_key = (provider_id, group, limit, requested_page, smart_binaries)
         started = time.perf_counter()
 
@@ -13026,48 +13172,80 @@ class AppHandler(SimpleHTTPRequestHandler):
                     if media_only:
                         grouped = [a for a in grouped if a.get("media")]
                     payload["articles"] = grouped
-                    payload["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
+                    elapsed_ms = (time.perf_counter() - started) * 1000.0
+                    payload["elapsed_ms"] = round(elapsed_ms)
                     payload["cache_source"] = "header cache"
                     payload["cache_age_seconds"] = max(0, int(time.time() - float(cached.get("cached_at", 0) or 0)))
+                    _browse_perf_add(_BROWSER_PERF_SERVER, mode, "article_total", elapsed_ms)
+                    _browse_perf_counter(mode, "article_cache_hits", 1)
                     return self._json(200, payload)
 
         fetch_start = fetch_end = smart_extra = 0
         background_smart = None
-        with BROWSE_HEADER_POOL.lease(provider, group) as client:
-            info = client.group(group)
-            high = int(info["high"]); low = int(info["low"]); group_count = int(info.get("count", 0) or 0)
-            if group_count <= 0 or high < low or (high == 0 and low == 0):
-                page_count = 0; page = 1; start_num = end_num = 0; articles = []
-            else:
-                span = max(1, high - low + 1)
-                page_count = max(1, (span + limit - 1) // limit)
-                page = min(requested_page, page_count)
-                end_num = high - ((page - 1) * limit)
-                start_num = max(low, end_num - limit + 1)
-                overlap = min(200, max(25, limit // 10))
-                fetch_start = max(low, start_num - overlap); fetch_end = min(high, end_num + overlap)
-                raw_articles = client.overview(fetch_start, fetch_end)
-                if smart_binaries and raw_articles:
-                    smart_extra = _smart_binary_expansion_headers(raw_articles)
-                    if smart_extra > 0:
-                        expanded_start = max(low, fetch_start - smart_extra)
-                        if expanded_start < fetch_start:
-                            if progressive:
-                                background_smart = (expanded_start, fetch_end)
-                            else:
-                                fetch_start = expanded_start
-                                raw_articles = client.overview(fetch_start, fetch_end)
-                _apply_cached_name_resolutions(provider_id, group, raw_articles)
-                grouped_all = group_articles(raw_articles)
-                articles = []
-                for item in grouped_all:
-                    nums = [int(seg.get("article", 0) or 0) for seg in (item.get("segments") or [])]
-                    anchor_num = max(nums) if nums else int(item.get("article", 0) or 0)
-                    if start_num <= anchor_num <= end_num:
-                        articles.append(item)
+        overview_calls = 0; raw_header_count = 0; first_paint_deferred = False
+        pool_started = time.perf_counter()
+        try:
+            with BROWSE_HEADER_POOL.lease(provider, group) as client:
+                _browse_perf_add(_BROWSER_PERF_SERVER, mode, "header_pool_wait", (time.perf_counter() - pool_started) * 1000.0)
+                group_started = time.perf_counter(); info = client.group(group)
+                _browse_perf_add(_BROWSER_PERF_SERVER, mode, "group_select", (time.perf_counter() - group_started) * 1000.0)
+                high = int(info["high"]); low = int(info["low"]); group_count = int(info.get("count", 0) or 0)
+                if group_count <= 0 or high < low or (high == 0 and low == 0):
+                    page_count = 0; page = 1; start_num = end_num = 0; articles = []
+                else:
+                    span = max(1, high - low + 1)
+                    page_count = max(1, (span + limit - 1) // limit)
+                    page = min(requested_page, page_count)
+                    end_num = high - ((page - 1) * limit)
+                    start_num = max(low, end_num - limit + 1)
+                    overlap = min(200, max(25, limit // 10))
+                    full_fetch_start = max(low, start_num - overlap); full_fetch_end = min(high, end_num + overlap)
+                    first_start, first_end, first_paint_deferred = _first_paint_overview_range(full_fetch_start, full_fetch_end, start_num, end_num, limit, progressive, smart_binaries)
+                    fetch_start, fetch_end = first_start, first_end
+                    overview_started = time.perf_counter()
+                    if first_paint_deferred:
+                        raw_articles = client.overview(first_start, first_end); overview_calls = 1
+                        # The existing progressive worker now owns the full logical page
+                        # plus any deeper opaque multipart reconstruction.
+                        background_smart = (full_fetch_start, full_fetch_end)
+                    else:
+                        raw_articles = client.overview_chunked(fetch_start, fetch_end)
+                        overview_calls = len(_overview_chunk_ranges(fetch_start, fetch_end))
+                        if smart_binaries and raw_articles:
+                            smart_extra = _smart_binary_expansion_headers(raw_articles)
+                            if smart_extra > 0:
+                                expanded_start = max(low, fetch_start - smart_extra)
+                                if expanded_start < fetch_start:
+                                    if progressive:
+                                        background_smart = (expanded_start, fetch_end)
+                                    else:
+                                        older = client.overview_chunked(expanded_start, fetch_start - 1)
+                                        overview_calls += len(_overview_chunk_ranges(expanded_start, fetch_start - 1))
+                                        raw_articles.extend(older); fetch_start = expanded_start
+                    _browse_perf_add(_BROWSER_PERF_SERVER, mode, "overview", (time.perf_counter() - overview_started) * 1000.0)
+                    raw_header_count = len(raw_articles)
+                    processing_started = time.perf_counter()
+                    _apply_cached_name_resolutions(provider_id, group, raw_articles)
+                    grouped_all = group_articles(raw_articles)
+                    articles = []
+                    for item in grouped_all:
+                        nums = [int(seg.get("article", 0) or 0) for seg in (item.get("segments") or [])]
+                        anchor_num = max(nums) if nums else int(item.get("article", 0) or 0)
+                        if start_num <= anchor_num <= end_num:
+                            articles.append(item)
+                    _browse_perf_add(_BROWSER_PERF_SERVER, mode, "article_processing", (time.perf_counter() - processing_started) * 1000.0)
+        except Exception as exc:
+            _browse_perf_counter(mode, "article_failures", 1)
+            if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc).casefold():
+                _browse_perf_counter(mode, "article_timeouts", 1)
+            raise
 
+        _browse_perf_counter(mode, "overview_calls", overview_calls)
+        _browse_perf_counter(mode, "headers_received", raw_header_count)
+        if first_paint_deferred:
+            _browse_perf_counter(mode, "progressive_first_paints", 1)
         scanned_page_end = page
-        if page_count and smart_binaries and smart_extra > 0 and start_num and fetch_start:
+        if page_count and smart_binaries and smart_extra > 0 and start_num and fetch_start and not first_paint_deferred:
             scanned_page_end = min(page_count, max(page, ((high - max(low, fetch_start)) // limit) + 1))
         next_older_page = scanned_page_end + 1 if page_count and scanned_page_end < page_count else 0
         paging = {
@@ -13077,12 +13255,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             "scanned_page_end": scanned_page_end, "next_older_page": next_older_page,
             "smart_binary_scan": bool(smart_binaries),
         }
-        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round((time.perf_counter() - started) * 1000), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0), "smart_binary_pending": bool(background_smart)}
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        _browse_perf_add(_BROWSER_PERF_SERVER, mode, "article_total", elapsed_ms)
+        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round(elapsed_ms), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0), "smart_binary_pending": bool(background_smart), "progressive_first_paint": bool(first_paint_deferred), "overview_calls": overview_calls, "raw_header_count": raw_header_count}
         with ARTICLE_PAGE_CACHE_LOCK:
             ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": base_payload}
             _trim_article_page_cache_locked()
         if background_smart:
-            SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1])
+            SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1], mode)
         payload = dict(base_payload)
         visible_articles = annotate_cached_thumbnail_urls(provider_id, group, articles)
         if media_only:
