@@ -1,14 +1,14 @@
-NewzDeck v3.6.67
-Video Thumbnail Concurrency Tuning
+NewzDeck v3.6.68
+Name Resolution Render Accumulator & Wait Telemetry
 
 INSTALLED NEWZDECK
 -------------------
-Install the v3.6.67 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Install the v3.6.68 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
 
 Existing settings, providers, Automation library/runtime state, queue ownership, durable Downloads history, statistics and private SABnzbd 5.1.2 state are preserved.
 
-v3.6.67 is a narrow Newsgroup Browser Video performance release. It raises only the high-connection-provider Video thumbnail scheduler ceiling from four to six while preserving the overall preview/download-reserve budget. It does not change the five-request Image HTTP gate, provider allocation, 24 MB Video sample limit, Metadata Server v0.3.3, SAB transfer/repair/extraction/retry, Smart Import, Automation reconciliation or Discover.
+v3.6.68 is a narrow Newsgroup Browser All Posts performance release. It reduces redundant full article-DOM rebuilds from filename-resolution results by accumulating result batches inside a hard-bounded render window and adds passive wait telemetry. It does not change the accepted six-slot Video ceiling, five-request Image HTTP gate, provider allocation, Metadata Server v0.3.3, SAB transfer/repair/extraction/retry, Smart Import, Automation reconciliation or Discover.
 
 PORTABLE NEWZDECK
 -----------------
-Close NewzDeck and extract the v3.6.67 Portable ZIP to a fresh folder. User data remains outside the application directory.
+Close NewzDeck and extract the v3.6.68 Portable ZIP to a fresh folder. User data remains outside the application directory.

@@ -27,7 +27,7 @@ class DummyDownloadManager:
     pass
 
 def make_auto(root: Path):
-    return auto.MediaAutomationEngine(root, lambda value: value, lambda value: value, DummyDownloadManager(), lambda: [], version='3.6.67')
+    return auto.MediaAutomationEngine(root, lambda value: value, lambda value: value, DummyDownloadManager(), lambda: [], version='3.6.68')
 
 def check(condition: bool, message: str):
     if not condition:
@@ -140,7 +140,7 @@ for marker in (
 ):
     check(marker in server_text, f'Missing diagnostics/runtime marker: {marker}')
 
-check(sab.ADAPTER_VERSION == '3.6.67', f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
+check(sab.ADAPTER_VERSION == '3.6.68', f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
 check(sab.SAB_VERSION == '5.1.2', f'Private SAB version changed unexpectedly: {sab.SAB_VERSION}')
 check(int(sab.TERMINAL_HISTORY_VERSION) == 3, 'Expected terminal history schema v3.')
-print('v3.6.67 regression guard: PASS')
+print('v3.6.68 regression guard: PASS')

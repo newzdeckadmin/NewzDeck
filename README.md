@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.67** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.68** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.67_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.68_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.67 highlights
+## v3.6.68 highlights
 
-v3.6.67 is a focused Newsgroup Browser Video performance release based on v3.6.66 schema-6 production telemetry.
+v3.6.68 is a focused Newsgroup Browser All Posts rendering release based on v3.6.67 production telemetry.
 
-- **High-connection Video tuning:** providers with 48+ configured connections can use up to six Video thumbnail tasks instead of four.
-- **Adaptive budget preserved:** the overall preview/download-reserve budget still caps Video work automatically.
-- **No Video HTTP gate:** the v3.6.66 paired timing showed localhost transport overhead was negligible, so only scheduler concurrency changes.
-- **Existing systems preserved:** Image admission, 800-header bounds, resolver batching, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover, Smart Import and Automation remain unchanged.
+- **Bounded resolver accumulator:** automatic filename-resolution results can accumulate across the old 1.4-second soft point, but never wait more than 3.0 seconds.
+- **Immediate useful flushes:** a second automatic batch flushes immediately; manual resolution targets three batches with a 4.2-second hard cap and still flushes when the pass ends.
+- **Wait telemetry:** schema 7 adds `name_resolution_render_wait` alongside the existing batch-size metric.
+- **Existing systems preserved:** the accepted six-slot Video ceiling, five-request Image gate, provider allocation, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover, Smart Import and Automation remain unchanged.
 
-See [the full v3.6.67 release notes](release/RELEASE_NOTES_v3.6.67.md).
+See [the full v3.6.68 release notes](release/RELEASE_NOTES_v3.6.68.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +65,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.67_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.68_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

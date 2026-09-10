@@ -1,22 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.67",
-  "base_version": "3.6.66",
-  "release": "Video Thumbnail Concurrency Tuning",
-  "adapter_version": "3.6.67",
-  "name": "Video Thumbnail Concurrency Tuning",
+  "version": "3.6.68",
+  "base_version": "3.6.67",
+  "release": "Name Resolution Render Accumulator & Wait Telemetry",
+  "adapter_version": "3.6.68",
+  "name": "Name Resolution Render Accumulator & Wait Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Raises only the high-connection-provider Video thumbnail scheduler ceiling from four to six for providers with 48 or more configured connections.",
-    "Keeps the overall adaptive preview concurrency and download-reserve budget authoritative, so Video work remains automatically constrained when downloads are active.",
-    "Preserves schema-6 Video HTTP/server/transport/BODY/queue telemetry so production diagnostics can directly measure whether six slots reduce visible queueing without worsening provider latency.",
-    "Preserves the five-request Image HTTP gate, provider allocation, 24 MB Video sample limit, 800-header strategy, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
+    "Replaces the ineffective one-shot All Posts resolver render timer with a bounded soft-window accumulator that can combine sequential filename-resolution result batches before rebuilding the article DOM.",
+    "Automatic name-resolution rendering keeps the existing 1.4-second soft point but may wait up to 3.0 seconds for a second result batch; a second batch flushes immediately instead of extending the deadline.",
+    "Manual Resolve more names uses a three-batch target with a 4.2-second hard cap and still flushes immediately when the manual pass completes.",
+    "Adds name_resolution_render_wait telemetry and advances the passive browsing performance contract to schema 7 so production diagnostics can measure batching efficiency versus visible delay.",
+    "Preserves the accepted six-slot high-connection Video ceiling, five-request Image HTTP gate, provider allocation, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
   ],
   "regression_guards": [
-    "Providers with 48+ connections may use at most six Video thumbnail tasks; lower tiers remain 1/2/3 and the result is still bounded by state.thumbConcurrency.",
-    "No Video localhost HTTP admission gate is added and schema-6 request-paired Video telemetry remains intact.",
-    "The Image thumbnail HTTP admission limit remains five and Image scheduler/provider behavior is otherwise unchanged.",
-    "SABnzbd 5.1.2, terminal-history schema 3, 800/800/1000 browsing headers, resolver batching, Discover, Smart Import, and Automation remain unchanged."
+    "Automatic resolver renders retain a 1.4-second soft point, never wait more than 3.0 seconds, and flush immediately when two result batches have accumulated.",
+    "Manual resolver renders target three batches, never wait more than 4.2 seconds, and the existing manual-finally flush remains intact.",
+    "Browsing telemetry schema is 7 and accepts name_resolution_render_wait while retaining name_resolution_batch and all schema-6 Image/Video telemetry.",
+    "High-connection Video concurrency remains six, Image HTTP admission remains five, 800/800/1000 browsing headers remain unchanged, and SABnzbd remains 5.1.2."
   ],
-  "release_name": "Video Thumbnail Concurrency Tuning"
+  "release_name": "Name Resolution Render Accumulator & Wait Telemetry"
 }

@@ -14,7 +14,7 @@ server=(APP/'server.py').read_text(encoding='utf-8'); app=(APP/'static'/'app.js'
 # 1. Known immediate/permanent preview failures are specific and non-retryable; unknowns remain retryable.
 permanent_codes=('segments_missing','segment_reference_missing','segment_limit_exceeded','preview_too_large','media_not_previewable','video_sample_empty','article_missing','multipart_incomplete','decode_failed','browse_cancelled')
 for code in permanent_codes:
-    check(f"'error_code': '{code}'" in server,f'Missing v3.6.67 failure class: {code}')
+    check(f"'error_code': '{code}'" in server,f'Missing v3.6.68 failure class: {code}')
 check("'error_code': 'segment_fetch_failed'" in server and "'retryable': True" in server,'Transient segment-fetch classification missing.')
 check("'error_code': 'provider_temporary'" in server and "'retryable': True" in server,'Provider-temporary classification missing.')
 check("return {'error': text, 'error_code': 'preview_failed', 'error_label': 'Preview unavailable', 'retryable': True}" in server,'Unknown preview failures are no longer conservatively retryable.')
@@ -24,7 +24,7 @@ for code in permanent_codes:
 for marker in ('def _browse_video_thumbnail_endpoint_enter','def _browse_video_thumbnail_endpoint_leave','video_thumbnail_endpoint_concurrency','video_thumbnail_requests','video_thumbnail_failures','video_thumbnail_failure_code_','video_thumbnail_cache_lookup','video_thumbnail_endpoint_total','video_thumbnail_body','video_thumbnail_frame'):
     check(marker in server,f'Missing Video telemetry marker: {marker}')
 check('perf_stage_prefix="video_thumbnail"' in server and 'f"{perf_stage_prefix}_executor_wait"' in server and 'f"{perf_stage_prefix}_worker"' in server,'Video executor/worker phase telemetry is not wired through run_preview_task.')
-check('"schema_version": 6' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 6/contract missing.')
+check('"schema_version": 7' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 6/contract missing.')
 for stage in ('video_thumbnail_http','video_thumbnail_post','video_thumbnail_server_pair','video_thumbnail_transport_gap'):
     check(f'\"{stage}\"' in server,f'Backend does not accept Video client stage {stage}.')
 check('thumbnail_server_ms' in server[server.index('    def video_thumbnail_api'):server.index('    def thumbnail_store_api')],'Video endpoint does not emit paired backend elapsed time.')
@@ -45,12 +45,12 @@ mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header tuning changed.')
 for marker in ('function queueNameResolutionResultRender({manual=false}={})',"reason:'name-resolution-batched-result'","perfRecord('name_resolution_batch'"):
     check(marker in app,f'Resolver batching regressed: {marker}')
-check((APP/'version.txt').read_text().strip()=='3.6.67','version.txt mismatch')
-check(manifest.get('version')=='3.6.67' and manifest.get('base_version')=='3.6.66' and manifest.get('adapter_version')=='3.6.67','manifest identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.68','version.txt mismatch')
+check(manifest.get('version')=='3.6.68' and manifest.get('base_version')=='3.6.67' and manifest.get('adapter_version')=='3.6.68','manifest identity mismatch')
 check(manifest.get('sab_version')=='5.1.2' and sab.SAB_VERSION=='5.1.2' and sab.TERMINAL_HISTORY_VERSION==3,'SAB/history architecture changed')
-check(sab.ADAPTER_VERSION=='3.6.67','SAB adapter identity mismatch')
-check("version='3.6.67'" in auto,'Automation default identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.68','SAB adapter identity mismatch')
+check("version='3.6.68'" in auto,'Automation default identity mismatch')
 check('_discover_library_index_snapshot' in auto and '_flush_metadata_cache_now' in auto,'Discover optimization stack missing')
-check('3.6.67-video-thumbnail-concurrency-tuning' in index,'Static cache marker missing')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.67</span></div>' in index,'Visible UI version mismatch')
-print('v3.6.67 regression guard: PASS')
+check('3.6.68-name-resolution-render-accumulator' in index,'Static cache marker missing')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.68</span></div>' in index,'Visible UI version mismatch')
+print('v3.6.68 regression guard: PASS')
