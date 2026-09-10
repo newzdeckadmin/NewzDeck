@@ -13,7 +13,7 @@ def check(condition: bool, message: str):
 server=(APP/'server.py').read_text(encoding='utf-8'); app=(APP/'static'/'app.js').read_text(encoding='utf-8'); index=(APP/'static'/'index.html').read_text(encoding='utf-8'); auto=(APP/'automation_engine.py').read_text(encoding='utf-8'); manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8')); sab=load_module('newzdeck_v3665_sab_guard',APP/'sab_engine.py')
 # 1. Browser-side image HTTP admission is a separate, fixed localhost gate.
 for marker in ('const THUMBNAIL_HTTP_ADMISSION_LIMIT=5;','function acquireThumbnailHttpAdmission(','function releaseThumbnailHttpAdmission()','function pumpThumbnailHttpAdmission()','thumbHttpActive: 0','thumbHttpQueue: []'):
-    check(marker in app,f'Missing v3.6.68 HTTP admission marker: {marker}')
+    check(marker in app,f'Missing v3.6.69 HTTP admission marker: {marker}')
 check("await acquireThumbnailHttpAdmission(task,options?.signal||null" in app,'Image thumbnail HTTP does not acquire the admission gate.')
 check('finally{releaseThumbnailHttpAdmission()}' in app,'Image thumbnail HTTP does not release admission in finally.')
 check(app.count("api('/api/thumbnail/image'")==1,'A direct /api/thumbnail/image path bypasses the centralized admission wrapper.')
@@ -26,7 +26,7 @@ check('THUMBNAIL_HTTP_ADMISSION_LIMIT=5' in app and 'previewIdleCeiling' in app,
 for marker in ("function thumbnailDemandClass(","'visible':'prefetch'","perfRecord('thumbnail_admission'","perfRecord('thumbnail_queue',queueWaitMs,true,{reason:thumbnailDemandClass(task)})"):
     check(marker in app,f'Missing visible/prefetch admission telemetry marker: {marker}')
 for stage in ('thumbnail_queue','thumbnail_admission','thumbnail_http','thumbnail_server_pair','thumbnail_transport_gap'):
-    check(f'"{stage}"' in server,f'Backend does not accept v3.6.68 client stage {stage}.')
+    check(f'"{stage}"' in server,f'Backend does not accept v3.6.69 client stage {stage}.')
 check('"schema_version": 7' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry current schema/contract missing.')
 # 4. Expected browse-session supersession is non-retryable and does not paint a thumbnail failure.
 check("'browse_cancelled'" in app and "info.code!=='browse_cancelled'" in app,'Browser still renders expected browse cancellation as a thumbnail failure.')
@@ -43,12 +43,12 @@ mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header tuning changed.')
 for marker in ('function queueNameResolutionResultRender({manual=false}={})',"reason:'name-resolution-batched-result'","perfRecord('name_resolution_batch'"):
     check(marker in app,f'v3.6.64 resolver batching regressed: {marker}')
-check((APP/'version.txt').read_text().strip()=='3.6.68','version.txt mismatch')
-check(manifest.get('version')=='3.6.68' and manifest.get('base_version')=='3.6.67' and manifest.get('adapter_version')=='3.6.68','manifest identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.69','version.txt mismatch')
+check(manifest.get('version')=='3.6.69' and manifest.get('base_version')=='3.6.68' and manifest.get('adapter_version')=='3.6.69','manifest identity mismatch')
 check(manifest.get('sab_version')=='5.1.2' and sab.SAB_VERSION=='5.1.2' and sab.TERMINAL_HISTORY_VERSION==3,'SAB/history architecture changed')
-check(sab.ADAPTER_VERSION=='3.6.68','SAB adapter identity mismatch')
-check("version='3.6.68'" in auto,'Automation default identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.69','SAB adapter identity mismatch')
+check("version='3.6.69'" in auto,'Automation default identity mismatch')
 check('_discover_library_index_snapshot' in auto and '_flush_metadata_cache_now' in auto,'Discover optimization stack missing')
-check('3.6.68-name-resolution-render-accumulator' in index,'Static cache marker missing')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.68</span></div>' in index,'Visible UI version mismatch')
-print('v3.6.68 regression guard: PASS')
+check('3.6.69-settings-save-contention-recovery' in index,'Static cache marker missing')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.69</span></div>' in index,'Visible UI version mismatch')
+print('v3.6.69 regression guard: PASS')

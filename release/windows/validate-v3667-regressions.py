@@ -8,9 +8,9 @@ def load(name,path):
 def check(c,m):
  if not c: raise AssertionError(m)
 server=(APP/'server.py').read_text(encoding='utf-8'); app=(APP/'static'/'app.js').read_text(encoding='utf-8'); index=(APP/'static'/'index.html').read_text(encoding='utf-8'); auto=(APP/'automation_engine.py').read_text(encoding='utf-8'); manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8')); sab=load('newzdeck_v3667_sab_guard',APP/'sab_engine.py')
-# Controlled v3.6.68 Video-only concurrency change.
+# Controlled v3.6.69 Video-only concurrency change.
 formula='state.videoThumbConcurrency=Math.max(1,Math.min(6,connections>=48?6:connections>=24?3:connections>=12?2:1,state.thumbConcurrency));'
-check(formula in app,'v3.6.68 high-connection Video ceiling formula missing')
+check(formula in app,'v3.6.69 high-connection Video ceiling formula missing')
 check('connections>=48?6:connections>=24?3:connections>=12?2:1' in app,'lower Video connection tiers changed')
 check('state.videoThumbConcurrency' in app and 'state.thumbConcurrency' in app,'Video ceiling no longer bounded by overall preview budget')
 check("api('/api/thumbnail/video'" in app,'Video thumbnail endpoint missing')
@@ -31,10 +31,10 @@ mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 for marker in ('function queueNameResolutionResultRender({manual=false}={})',"reason:'name-resolution-batched-result'","perfRecord('name_resolution_batch'"):
  check(marker in app,'Resolver batching regressed: '+marker)
-check((APP/'version.txt').read_text().strip()=='3.6.68','version.txt mismatch')
-check(manifest.get('version')=='3.6.68' and manifest.get('base_version')=='3.6.67' and manifest.get('adapter_version')=='3.6.68','manifest identity mismatch')
-check(manifest.get('sab_version')=='5.1.2' and sab.SAB_VERSION=='5.1.2' and sab.TERMINAL_HISTORY_VERSION==3 and sab.ADAPTER_VERSION=='3.6.68','SAB/history identity changed')
-check("version='3.6.68'" in auto,'Automation identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.69','version.txt mismatch')
+check(manifest.get('version')=='3.6.69' and manifest.get('base_version')=='3.6.68' and manifest.get('adapter_version')=='3.6.69','manifest identity mismatch')
+check(manifest.get('sab_version')=='5.1.2' and sab.SAB_VERSION=='5.1.2' and sab.TERMINAL_HISTORY_VERSION==3 and sab.ADAPTER_VERSION=='3.6.69','SAB/history identity changed')
+check("version='3.6.69'" in auto,'Automation identity mismatch')
 check('_discover_library_index_snapshot' in auto and '_flush_metadata_cache_now' in auto,'Discover optimization stack missing')
-check('3.6.68-name-resolution-render-accumulator' in index and '<div class="version"><b>NewzDeck</b><span>v3.6.68</span></div>' in index,'UI/cache identity mismatch')
-print('v3.6.68 regression guard: PASS')
+check('3.6.69-settings-save-contention-recovery' in index and '<div class="version"><b>NewzDeck</b><span>v3.6.69</span></div>' in index,'UI/cache identity mismatch')
+print('v3.6.69 regression guard: PASS')

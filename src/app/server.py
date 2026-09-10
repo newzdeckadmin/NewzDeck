@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.68"
+APP_VERSION = "3.6.69"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -727,18 +727,103 @@ def json_read(path: Path, default: Any) -> Any:
     except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError, OSError):
         return default
 
-def _atomic_text_write(path: Path, text: str) -> None:
-    """Atomically replace a text file without cross-thread temp-name collisions."""
+def _atomic_text_write(path: Path, text: str, *, replace_retry_seconds: float = 0.0, retryable_winerrors: frozenset[int] = frozenset()) -> int:
+    """Atomically replace a text file; optionally retry transient Windows replace contention.
+
+    The default remains a single replace attempt so high-churn internal state files
+    keep their established behavior. Settings saves opt into the bounded retry path
+    because production diagnostics repeatedly observed intermittent WinError 5 while
+    replacing settings.json even though later saves succeeded.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(3)}.tmp")
+    retries = 0
     try:
         tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        retry_window = max(0.0, float(replace_retry_seconds or 0.0))
+        deadline = time.monotonic() + retry_window
+        delay = 0.025
+        while True:
+            try:
+                os.replace(tmp, path)
+                return retries
+            except OSError as exc:
+                winerror = int(getattr(exc, "winerror", 0) or 0)
+                remaining = deadline - time.monotonic()
+                if retry_window <= 0.0 or winerror not in retryable_winerrors or remaining <= 0.0:
+                    try:
+                        setattr(exc, "newzdeck_replace_retries", int(retries))
+                    except Exception:
+                        pass
+                    raise
+                time.sleep(min(delay, remaining))
+                retries += 1
+                delay = min(0.4, delay * 2.0)
     finally:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
+
+SETTINGS_SAVE_RETRY_SECONDS = 3.0
+SETTINGS_SAVE_RETRYABLE_WINERRORS = frozenset({5, 32, 33})
+_SETTINGS_SAVE_WRITE_LOCK = threading.Lock()
+_SETTINGS_SAVE_STATS_LOCK = threading.Lock()
+_SETTINGS_SAVE_STATS = {
+    "attempts": 0, "successes": 0, "recovered_after_retry": 0, "retry_attempts": 0,
+    "failures": 0, "last_retry_count": 0, "last_elapsed_ms": 0.0,
+    "last_winerror": 0, "last_failure_ts": 0.0, "last_success_ts": 0.0,
+}
+
+def settings_save_reliability_snapshot() -> dict[str, Any]:
+    with _SETTINGS_SAVE_STATS_LOCK:
+        return dict(_SETTINGS_SAVE_STATS) | {
+            "retry_window_seconds": SETTINGS_SAVE_RETRY_SECONDS,
+            "retryable_winerrors": sorted(SETTINGS_SAVE_RETRYABLE_WINERRORS),
+        }
+
+def _settings_json_write(value: Any) -> None:
+    text = json.dumps(value, indent=2, ensure_ascii=False)
+    started = time.perf_counter()
+    with _SETTINGS_SAVE_WRITE_LOCK:
+        with _SETTINGS_SAVE_STATS_LOCK:
+            _SETTINGS_SAVE_STATS["attempts"] += 1
+        try:
+            retries = _atomic_text_write(
+                SETTINGS_FILE, text,
+                replace_retry_seconds=SETTINGS_SAVE_RETRY_SECONDS,
+                retryable_winerrors=SETTINGS_SAVE_RETRYABLE_WINERRORS,
+            )
+        except OSError as exc:
+            elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
+            winerror = int(getattr(exc, "winerror", 0) or 0)
+            retries = int(getattr(exc, "newzdeck_replace_retries", 0) or 0)
+            with _SETTINGS_SAVE_STATS_LOCK:
+                _SETTINGS_SAVE_STATS["failures"] += 1
+                _SETTINGS_SAVE_STATS["retry_attempts"] += retries
+                _SETTINGS_SAVE_STATS["last_retry_count"] = retries
+                _SETTINGS_SAVE_STATS["last_elapsed_ms"] = elapsed_ms
+                _SETTINGS_SAVE_STATS["last_winerror"] = winerror
+                _SETTINGS_SAVE_STATS["last_failure_ts"] = time.time()
+            try:
+                DIAGNOSTICS.event("warning", "settings-save", "Settings file replacement failed", winerror=winerror, retries=retries, elapsed_ms=elapsed_ms)
+            except Exception:
+                pass
+            raise
+        elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
+        with _SETTINGS_SAVE_STATS_LOCK:
+            _SETTINGS_SAVE_STATS["successes"] += 1
+            _SETTINGS_SAVE_STATS["retry_attempts"] += int(retries)
+            _SETTINGS_SAVE_STATS["recovered_after_retry"] += int(retries > 0)
+            _SETTINGS_SAVE_STATS["last_retry_count"] = int(retries)
+            _SETTINGS_SAVE_STATS["last_elapsed_ms"] = elapsed_ms
+            _SETTINGS_SAVE_STATS["last_winerror"] = 0
+            _SETTINGS_SAVE_STATS["last_success_ts"] = time.time()
+        if retries:
+            try:
+                DIAGNOSTICS.event("info", "settings-save", "Recovered settings file replacement after transient Windows contention", retries=int(retries), elapsed_ms=elapsed_ms)
+            except Exception:
+                pass
 
 def json_write(path: Path, value: Any) -> None:
     _atomic_text_write(path, json.dumps(value, indent=2, ensure_ascii=False))
@@ -12092,6 +12177,7 @@ def _diagnostics_snapshot_uncached() -> dict[str, Any]:
         'thumbnail_transfer': thumbnail_transfer_stats(),
         'thumbnail_catalog': thumbnail_catalog_stats(),
         'newsgroup_browsing_performance': newsgroup_browsing_performance_snapshot(),
+        'settings_save_reliability': settings_save_reliability_snapshot(),
         'searches': searches, 'events': base.get('events',[])[:80], 'desktop_mode': DESKTOP_MODE, 'ffmpeg': bool(_ffmpeg_path()),
         'automation': AUTOMATION_MANAGER.snapshot() if 'AUTOMATION_MANAGER' in globals() else {'watch_enabled':False,'watch_imported':0,'watch_failed':0},
         'metadata_cloud': MEDIA_AUTOMATION.metadata_service_status_snapshot() if 'MEDIA_AUTOMATION' in globals() else {'status':'unknown','url':'https://api.newzdeck.com','authenticated':False,'compatible':True},
@@ -12164,6 +12250,7 @@ def diagnostics_report() -> str:
             f"transfer_cancelled={int(transfer_counts.get('cancelled',0) or 0)}; "
             f"collection_scope={str(downloads_diag.get('collection_scope') or 'live')}"
         )
+        ss=d.get('settings_save_reliability') or {}; lines.append(f"Settings save reliability: attempts={int(ss.get('attempts',0) or 0)} successes={int(ss.get('successes',0) or 0)} recovered={int(ss.get('recovered_after_retry',0) or 0)} retry_attempts={int(ss.get('retry_attempts',0) or 0)} failures={int(ss.get('failures',0) or 0)} last_retries={int(ss.get('last_retry_count',0) or 0)} last_elapsed_ms={float(ss.get('last_elapsed_ms',0) or 0):.1f} last_winerror={int(ss.get('last_winerror',0) or 0)}")
         lines.append(
             "Terminal history efficiency: "
             f"rows={int(tel.get('terminal_history_rows',0) or 0)}; "
@@ -14197,7 +14284,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             DOWNLOAD_DIR = DEFAULT_DOWNLOAD_DIR
             DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
             settings["download_folder"] = str(DOWNLOAD_DIR)
-        json_write(SETTINGS_FILE, settings)
+        _settings_json_write(settings)
         try:
             DOWNLOAD_MANAGER.request_sync()
         except Exception:
