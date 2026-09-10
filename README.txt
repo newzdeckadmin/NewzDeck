@@ -1,10 +1,11 @@
-NewzDeck v3.6.64
-Name Resolution Result Batching & Thumbnail Transport Telemetry
+NewzDeck v3.6.65
+Thumbnail HTTP Admission Control & Demand Telemetry
 
-New in v3.6.64:
-- Batches rapid All Posts filename-resolution result updates before rebuilding the full article/package DOM.
-- Adds request-paired thumbnail HTTP/server/transport-gap telemetry so client-side delay is measured on the exact same request.
-- Tracks current and peak image-thumbnail endpoint concurrency by Images, Videos, Media, and All Posts mode.
-- Preserves v3.6.62 progressive header reuse, v3.6.63 resolver status-render coalescing, 800-header limits, Discover/Automation behavior, Metadata Server v0.3.3, private SABnzbd 5.1.2 and terminal-history schema 3.
+New in v3.6.65:
+- Caps browser-side image-thumbnail HTTP admission at five in-flight /api/thumbnail/image requests while preserving the provider/NNTP preview concurrency model.
+- Adds thumbnail_admission timing and visible-versus-prefetch reasons to separate user-visible demand from speculative/offscreen work.
+- Routes next-page speculative thumbnail warming through the same HTTP admission gate.
+- Treats superseded browsing-session preview/thumbnail requests as expected browse_cancelled control flow instead of generic application errors.
+- Preserves v3.6.62 progressive header reuse, v3.6.63/v3.6.64 resolver behavior, 800-header limits, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover and Automation/Smart Import.
 
 NewzDeck remains free and open source under GPL-3.0-only.

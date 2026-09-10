@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.64"
+APP_VERSION = "3.6.65"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -418,7 +418,7 @@ ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
 ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
-# v3.6.64: preserve bounded OVER/XOVER ranges/seed reuse while measuring paired thumbnail transport and endpoint concurrency. Evidence from
+# v3.6.65: preserve bounded OVER/XOVER ranges/seed reuse while adding browser-side image-thumbnail HTTP admission control and demand telemetry. Evidence from
 # a 2,000-header All Posts page showed a real 15-second overview timeout while
 # thumbnail decode itself averaged only tens of milliseconds. First paint is one
 # newest-first chunk; deeper page/package reconstruction continues in background.
@@ -429,7 +429,7 @@ BROWSE_LARGE_PAGE_THRESHOLD = 1000
 _BROWSER_PERF_LOCK = threading.RLock()
 _BROWSER_PERF_SAMPLE_LIMIT = 240
 _BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
-_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "name_resolution_batch", "preview", "viewer_preload"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_admission", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "name_resolution_batch", "preview", "viewer_preload"}
 _BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
@@ -527,7 +527,7 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
@@ -13405,7 +13405,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         browse_session = str(data.get("browse_session", "")).strip()
         cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
         if cancel_check is not None:
-            cancel_check()
+            try:
+                cancel_check()
+            except BrowseSessionCancelled as exc:
+                return self._json(422, preview_error_info(exc))
         segments = data.get("segments") or []
         if str(provider.get("id", "")) != origin_provider_id:
             segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
@@ -13440,7 +13443,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             browse_session = str(data.get("browse_session", "")).strip()
             cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
             if cancel_check is not None:
-                cancel_check()
+                try:
+                    cancel_check()
+                except BrowseSessionCancelled as exc:
+                    return self._json(422, timed_payload(preview_error_info(exc)))
             segments = data.get("segments") or []
             if str(provider.get("id", "")) != origin_provider_id:
                 segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
@@ -13487,7 +13493,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         browse_session = str(data.get("browse_session", "")).strip()
         cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
         if cancel_check is not None:
-            cancel_check()
+            try:
+                cancel_check()
+            except BrowseSessionCancelled as exc:
+                return self._json(422, preview_error_info(exc))
         segments = data.get("segments") or []
         if str(provider.get("id", "")) != origin_provider_id:
             segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]

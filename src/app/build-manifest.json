@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.64",
-  "base_version": "3.6.63",
-  "release": "Name Resolution Result Batching & Thumbnail Transport Telemetry",
-  "adapter_version": "3.6.64",
-  "name": "Name Resolution Result Batching & Thumbnail Transport Telemetry",
+  "version": "3.6.65",
+  "base_version": "3.6.64",
+  "release": "Thumbnail HTTP Admission Control & Demand Telemetry",
+  "adapter_version": "3.6.65",
+  "name": "Thumbnail HTTP Admission Control & Demand Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Batches rapid All Posts name-resolution result updates so resolver batches do not each force a full article/package DOM rebuild.",
-    "Returns per-request image-thumbnail server elapsed time and records paired browser HTTP, server, and transport-gap telemetry for the same request.",
-    "Records current and peak image-thumbnail endpoint concurrency by browsing mode to reveal whether local HTTP dispatch is constraining delivery.",
-    "Preserves v3.6.62 progressive header reuse, v3.6.63 status-render coalescing, 800-header bounds, concurrency budgets, private SABnzbd 5.1.2, Discover and Automation behavior."
+    "Caps browser-side /api/thumbnail/image HTTP admission at five in-flight requests without reducing NNTP provider or preview concurrency.",
+    "Records thumbnail admission wait plus visible-versus-prefetch scheduler/HTTP timing so Diagnostics can separate user-visible demand from speculative work.",
+    "Normalizes superseded browsing-session preview/thumbnail cancellation as expected non-retryable control flow instead of allowing it to surface as a generic application error.",
+    "Preserves v3.6.62 progressive header reuse, v3.6.63/v3.6.64 name-resolution rendering behavior, 800-header bounds, private SABnzbd 5.1.2, Discover and Automation behavior."
   ],
   "regression_guards": [
-    "Name-resolution start/retry/finish state changes use targeted DOM updates; full list/package renders remain result-driven.",
-    "Thumbnail queue/HTTP/post/recovery timing stays passive and bounded; backend failure-code classification uses existing preview_error_info semantics.",
-    "v3.6.62 progressive first-paint seed reuse and 800/800/1000 header tuning remain unchanged.",
-    "All carried behavioral guards remain mandatory; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
+    "Browser image-thumbnail HTTP admission is a separate five-request gate and must not change provider connection allocation, preview ramp ceilings, video limits, or native decoder workers.",
+    "Visible and prefetch thumbnail demand remains priority ordered; speculative next-page image warming must pass through the same image HTTP admission gate.",
+    "Browsing telemetry schema 5 accepts thumbnail_admission while preserving request-paired thumbnail server/transport-gap telemetry and endpoint concurrency measurement.",
+    "Superseded BrowseSessionCancelled preview/image/video requests return browse_cancelled and do not render thumbnail errors; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
   ],
-  "release_name": "Name Resolution Result Batching & Thumbnail Transport Telemetry"
+  "release_name": "Thumbnail HTTP Admission Control & Demand Telemetry"
 }
