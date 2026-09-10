@@ -44,7 +44,7 @@ for forbidden in (
     "reason:'name-resolution-finish'",
 ):
     check(forbidden not in resolver, f'Redundant full render returned to name resolution: {forbidden}')
-check("reason:'name-resolution-result'" in resolver, 'Result-driven name-resolution rendering was removed.')
+check('queueNameResolutionResultRender' in resolver and "reason:'name-resolution-batched-result'" in app_js, 'Result-driven name-resolution rendering/batching was removed.')
 for marker in (
     'function updateNameResolutionActivityDomInPlace()',
     "querySelector('.binary-resolve-btn')",
@@ -76,7 +76,7 @@ for marker in (
     'thumbnail_failure_code_',
     'info.get("error_code")',
     'thumbnail_retryable_failures',
-    'return self._json(422, info)',
+    'return self._json(422, timed_payload(info))',
 ):
     check(marker in server_text, f'Missing backend thumbnail failure classification marker: {marker}')
 for code in ('browse_cancelled', 'article_missing', 'multipart_incomplete', 'provider_temporary', 'decode_failed', 'preview_failed'):
@@ -108,15 +108,15 @@ for marker in ('background_seed_headers_reused', 'background_duplicate_headers_a
     check(marker in server_text, f'v3.6.62 progressive reuse telemetry disappeared: {marker}')
 
 # 5. Release identity and unrelated architecture stay coherent.
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.63', 'version.txt is not v3.6.63.')
-check(manifest.get('version') == '3.6.63' and manifest.get('base_version') == '3.6.62', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.63' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.63', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.64', 'version.txt is not v3.6.64.')
+check(manifest.get('version') == '3.6.64' and manifest.get('base_version') == '3.6.63', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.64' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.64', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
 check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'SAB 5.1.2 or terminal-history schema 3 changed.')
-check("version='3.6.63'" in auto_text, 'Automation default version identity did not migrate.')
+check("version='3.6.64'" in auto_text, 'Automation default version identity did not migrate.')
 check('_discover_library_index_snapshot' in auto_text and '_flush_metadata_cache_now' in auto_text, 'Discover v3.6.60 optimization stack was not preserved.')
-check('"schema_version": 3' in server_text and '"contract": "passive-runtime-browsing-performance"' in server_text, 'Browsing telemetry schema/contract is not v3.6.63.')
-check('3.6.63-name-resolution-render-coalescing-thumbnail-trace-telemetry' in index_html, 'Static cache identity is missing.')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.63</span></div>' in index_html, 'Visible UI version is not v3.6.63.')
+check('"schema_version": 4' in server_text and '"contract": "passive-runtime-browsing-performance"' in server_text, 'Browsing telemetry schema/contract is not v3.6.64.')
+check('3.6.64-name-resolution-result-batching-thumbnail-transport-telemetry' in index_html, 'Static cache identity is missing.')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.64</span></div>' in index_html, 'Visible UI version is not v3.6.64.')
 
-print('v3.6.63 regression guard: PASS')
+print('v3.6.64 regression guard: PASS')

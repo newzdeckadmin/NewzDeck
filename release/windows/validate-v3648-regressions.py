@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.63 carried production guards, including v3.6.48 real-world regressions."""
+"""NewzDeck v3.6.64 carried production guards, including v3.6.48 real-world regressions."""
 from __future__ import annotations
 
 import importlib.util
@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="newzdeck-v3649-integrity-") as td:
         ]}],
     }]
     (data_dir / "media-library.json").write_text(json.dumps(library), encoding="utf-8")
-    engine = auto.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, DummyDownloadManager(), lambda:[], version="3.6.63")
+    engine = auto.MediaAutomationEngine(data_dir, lambda value:value, lambda value:value, DummyDownloadManager(), lambda:[], version="3.6.64")
     audit1 = engine.library_integrity_audit()
     audit2 = engine.library_integrity_audit()
     if audit1.get("cache_hit") or not audit2.get("cache_hit"):
@@ -213,27 +213,27 @@ server_source=SERVER_PATH.read_text(encoding="utf-8")
 app_source=APP_JS_PATH.read_text(encoding="utf-8")
 index_source=INDEX_PATH.read_text(encoding="utf-8")
 for marker in (
-    'ADAPTER_VERSION = "3.6.63"', 'def snapshot_view(', 'snapshot_p95_ms',
+    'ADAPTER_VERSION = "3.6.64"', 'def snapshot_view(', 'snapshot_p95_ms',
     '_provider_health_cached_snapshot', 'legacy_terminal_segments_compacted_by',
     'Rejected SAB completed path whose identity belongs to another Automation job',
 ):
     if marker not in sab_source:
-        raise SystemExit(f"Missing v3.6.63 SAB/runtime marker: {marker}")
+        raise SystemExit(f"Missing v3.6.64 SAB/runtime marker: {marker}")
 for marker in (
-    'APP_VERSION = "3.6.63"', 'scope=str((query.get("scope")',
+    'APP_VERSION = "3.6.64"', 'scope=str((query.get("scope")',
     'X-NewzDeck-JSON-Serialize-Ms', "runtime_source']='sabnzbd'",
 ):
     if marker not in server_source:
-        raise SystemExit(f"Missing v3.6.63 server marker: {marker}")
+        raise SystemExit(f"Missing v3.6.64 server marker: {marker}")
 for marker in (
-    "const UI_VERSION = '3.6.63';", "downloadHistoryLimit:50",
+    "const UI_VERSION = '3.6.64';", "downloadHistoryLimit:50",
     "scope=terminalView?state.downloadFilter:'live'", "data-download-history-more",
     "Downloads snapshot latency", "SAB runtime",
 ):
     if marker not in app_source:
-        raise SystemExit(f"Missing v3.6.63 UI marker: {marker}")
-for marker in ("v3.6.63", "3.6.63-name-resolution-render-coalescing-thumbnail-trace-telemetry"):
+        raise SystemExit(f"Missing v3.6.64 UI marker: {marker}")
+for marker in ("v3.6.64", "3.6.64-name-resolution-result-batching-thumbnail-transport-telemetry"):
     if marker not in index_source:
-        raise SystemExit(f"Missing v3.6.63 HTML identity marker: {marker}")
+        raise SystemExit(f"Missing v3.6.64 HTML identity marker: {marker}")
 
-print(f"v3.6.63 carried-forward supplemental regression guard passed ({len(PRODUCTION_REJECTS)} historical identity rejects + data-plane/runtime/cache/output ownership guards).")
+print(f"v3.6.64 carried-forward supplemental regression guard passed ({len(PRODUCTION_REJECTS)} historical identity rejects + data-plane/runtime/cache/output ownership guards).")

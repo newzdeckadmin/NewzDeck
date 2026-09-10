@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.63"
+APP_VERSION = "3.6.64"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -418,7 +418,7 @@ ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
 ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
-# v3.6.63: preserve bounded OVER/XOVER ranges/seed reuse while adding render/thumbnail trace telemetry. Evidence from
+# v3.6.64: preserve bounded OVER/XOVER ranges/seed reuse while measuring paired thumbnail transport and endpoint concurrency. Evidence from
 # a 2,000-header All Posts page showed a real 15-second overview timeout while
 # thumbnail decode itself averaged only tens of milliseconds. First paint is one
 # newest-first chunk; deeper page/package reconstruction continues in background.
@@ -429,10 +429,12 @@ BROWSE_LARGE_PAGE_THRESHOLD = 1000
 _BROWSER_PERF_LOCK = threading.RLock()
 _BROWSER_PERF_SAMPLE_LIMIT = 240
 _BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
-_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "preview", "viewer_preload"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "name_resolution_batch", "preview", "viewer_preload"}
 _BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
+_BROWSER_PERF_THUMBNAIL_ACTIVE: dict[str, int] = {}
+_BROWSER_PERF_THUMBNAIL_PEAK: dict[str, int] = {}
 
 def _browse_mode(value: Any) -> str:
     mode = str(value or "all").strip().casefold()
@@ -455,6 +457,18 @@ def _browse_perf_counter(mode: str, name: str, amount: int = 1) -> None:
     with _BROWSER_PERF_LOCK:
         row = _BROWSER_PERF_COUNTERS.setdefault(mode, {})
         row[name] = int(row.get(name, 0) or 0) + int(amount or 0)
+
+def _browse_thumbnail_endpoint_enter(mode: str) -> None:
+    mode = _browse_mode(mode)
+    with _BROWSER_PERF_LOCK:
+        active = int(_BROWSER_PERF_THUMBNAIL_ACTIVE.get(mode, 0) or 0) + 1
+        _BROWSER_PERF_THUMBNAIL_ACTIVE[mode] = active
+        _BROWSER_PERF_THUMBNAIL_PEAK[mode] = max(active, int(_BROWSER_PERF_THUMBNAIL_PEAK.get(mode, 0) or 0))
+
+def _browse_thumbnail_endpoint_leave(mode: str) -> None:
+    mode = _browse_mode(mode)
+    with _BROWSER_PERF_LOCK:
+        _BROWSER_PERF_THUMBNAIL_ACTIVE[mode] = max(0, int(_BROWSER_PERF_THUMBNAIL_ACTIVE.get(mode, 0) or 0) - 1)
 
 def note_browser_performance_samples(items: Any) -> dict[str, Any]:
     accepted = 0
@@ -506,18 +520,19 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
         client = {key: list(values) for key, values in _BROWSER_PERF_CLIENT.items()}
         server = {key: list(values) for key, values in _BROWSER_PERF_SERVER.items()}
         counters = json.loads(json.dumps(_BROWSER_PERF_COUNTERS))
+        thumbnail_concurrency = {mode: {"active": int(_BROWSER_PERF_THUMBNAIL_ACTIVE.get(mode, 0) or 0), "peak": int(_BROWSER_PERF_THUMBNAIL_PEAK.get(mode, 0) or 0)} for mode in sorted(_BROWSER_PERF_ALLOWED_MODES)}
     def shape(source: dict[tuple[str, str], list[float]]) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for (mode, stage), values in source.items():
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
         "large_page_threshold": BROWSE_LARGE_PAGE_THRESHOLD,
-        "client": shape(client), "server": shape(server), "counters": counters,
+        "client": shape(client), "server": shape(server), "counters": counters, "thumbnail_endpoint_concurrency": thumbnail_concurrency,
     }
 
 def _overview_chunk_ranges(start: int, end: int, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS) -> list[tuple[int, int]]:
@@ -13415,7 +13430,9 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def image_thumbnail_api(self, data: dict[str, Any]):
         mode = _browse_mode(data.get("content_filter")); endpoint_started = time.perf_counter()
-        _browse_perf_counter(mode, "thumbnail_requests", 1)
+        _browse_perf_counter(mode, "thumbnail_requests", 1); _browse_thumbnail_endpoint_enter(mode)
+        def timed_payload(payload: dict[str, Any]) -> dict[str, Any]:
+            return {**payload, "thumbnail_server_ms": round((time.perf_counter() - endpoint_started) * 1000.0, 3)}
         try:
             origin_provider_id = str(data.get("provider_id", ""))
             provider = resolve_provider_for_purpose(origin_provider_id, "previews")
@@ -13437,7 +13454,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             _browse_perf_add(_BROWSER_PERF_SERVER, mode, "thumbnail_cache_lookup", (time.perf_counter() - cache_started) * 1000.0)
             if cached:
                 _browse_perf_counter(mode, "thumbnail_cache_hits", 1)
-                return self._json(200, {"kind": "image", "filename": media.get("filename") or "image", **cached})
+                return self._json(200, timed_payload({"kind": "image", "filename": media.get("filename") or "image", **cached}))
             settings = json_read(SETTINGS_FILE, {"preview_limit_mb": DEFAULT_PREVIEW_LIMIT_MB})
             max_mb = max(10, min(4096, int(settings.get("preview_limit_mb", DEFAULT_PREVIEW_LIMIT_MB))))
             requested_lanes = max(1, min(3, int(data.get("thumbnail_lanes", 1) or 1)))
@@ -13455,12 +13472,13 @@ class AppHandler(SimpleHTTPRequestHandler):
                     _browse_perf_counter(mode, "thumbnail_retryable_failures", 1)
                 if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc).casefold():
                     _browse_perf_counter(mode, "thumbnail_timeouts", 1)
-                return self._json(422, info)
+                return self._json(422, timed_payload(info))
             if result.get("full_preview_fallback") or result.get("thumbnail_fallback"):
                 _browse_perf_counter(mode, "thumbnail_fallbacks", 1)
-            return self._json(200, result)
+            return self._json(200, timed_payload(result))
         finally:
             _browse_perf_add(_BROWSER_PERF_SERVER, mode, "thumbnail_endpoint_total", (time.perf_counter() - endpoint_started) * 1000.0)
+            _browse_thumbnail_endpoint_leave(mode)
 
     def video_thumbnail_api(self, data: dict[str, Any]):
         origin_provider_id = str(data.get("provider_id", ""))

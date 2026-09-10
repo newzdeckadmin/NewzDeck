@@ -1,9 +1,10 @@
-NewzDeck v3.6.63
-Name Resolution Render Coalescing & Thumbnail Trace Telemetry
+NewzDeck v3.6.64
+Name Resolution Result Batching & Thumbnail Transport Telemetry
 
-New in v3.6.63:
-- All Posts filename resolution updates activity state in place instead of rebuilding the full article/package DOM merely to start, retry, or finish a pass.
-- Result-driven full renders remain when resolved filenames, classifications, deferred state, or request failures actually change visible package presentation.
-- Browser diagnostics separate thumbnail task queue wait, local thumbnail HTTP round-trip, browser post-processing, and full-preview recovery timing.
-- Backend diagnostics classify image-thumbnail failures by the existing preview error code and track retryable failures.
-- Preserves v3.6.62 progressive first-paint header reuse, 800-header limits, Discover/Automation behavior, Metadata Server v0.3.3, private SABnzbd 5.1.2 and terminal-history schema 3.
+New in v3.6.64:
+- Batches rapid All Posts filename-resolution result updates before rebuilding the full article/package DOM.
+- Adds request-paired thumbnail HTTP/server/transport-gap telemetry so client-side delay is measured on the exact same request.
+- Tracks current and peak image-thumbnail endpoint concurrency by Images, Videos, Media, and All Posts mode.
+- Preserves v3.6.62 progressive header reuse, v3.6.63 resolver status-render coalescing, 800-header limits, Discover/Automation behavior, Metadata Server v0.3.3, private SABnzbd 5.1.2 and terminal-history schema 3.
+
+NewzDeck remains free and open source under GPL-3.0-only.

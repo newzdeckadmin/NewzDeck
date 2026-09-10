@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.63** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.64** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.63_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.64_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.63 highlights
+## v3.6.64 highlights
 
-v3.6.63 is a focused Newsgroup Browser responsiveness and observability release based on v3.6.62 production telemetry.
+v3.6.64 is a focused Newsgroup Browser responsiveness and observability release based on v3.6.63 production telemetry.
 
-- **Fewer All Posts rebuilds:** filename-resolution start, retry, and finish activity updates in place instead of rebuilding the full article/package DOM.
-- **Result-driven rendering preserved:** resolved filenames, classifications, deferred state, and request failures still trigger the full render needed for correct visible package presentation.
-- **Thumbnail trace telemetry:** Diagnostics separate browser scheduler wait, local thumbnail HTTP, browser post-processing, full-preview recovery, and backend failure classes.
-- **Existing tuning preserved:** v3.6.62 progressive seed reuse, the 800-header first-paint/chunk limits, preview concurrency, native decoder sizing, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover and Automation remain unchanged.
+- **Batched resolver result renders:** rapid filename-resolution result batches are coalesced before rebuilding the All Posts article/package DOM.
+- **Request-paired thumbnail timing:** browser HTTP duration is paired with the exact Python endpoint elapsed time to measure the local transport gap directly.
+- **Thumbnail concurrency visibility:** Diagnostics record current and peak image-thumbnail endpoint concurrency by browsing mode without changing concurrency limits.
+- **Existing tuning preserved:** v3.6.62 progressive header reuse, v3.6.63 resolver status updates, the proven 800-header limits, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover and Automation remain unchanged.
 
-See [the full v3.6.63 release notes](release/RELEASE_NOTES_v3.6.63.md).
+See [the full v3.6.64 release notes](release/RELEASE_NOTES_v3.6.64.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +65,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.63_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.64_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
