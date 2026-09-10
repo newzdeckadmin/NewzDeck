@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.69"
+APP_VERSION = "3.6.70"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -507,7 +507,7 @@ def note_browser_performance_samples(items: Any) -> dict[str, Any]:
         if stage == "render":
             _browse_perf_add(_BROWSER_PERF_CLIENT, mode, f"render_reason_{reason}", value)
             _browse_perf_counter(mode, f"render_reason_{reason}", 1)
-        elif stage.startswith("thumbnail_"):
+        elif stage.startswith("thumbnail_") or stage == "video_thumbnail_post":
             _browse_perf_add(_BROWSER_PERF_CLIENT, mode, f"{stage}_reason_{reason}", value)
             _browse_perf_counter(mode, f"client_{stage}_reason_{reason}", 1)
         if item.get("ok") is False:
@@ -543,7 +543,7 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,

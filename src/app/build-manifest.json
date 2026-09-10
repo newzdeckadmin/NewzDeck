@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.69",
-  "base_version": "3.6.68",
-  "release": "Settings Save Contention Recovery & Reliability Telemetry",
-  "adapter_version": "3.6.69",
-  "name": "Settings Save Contention Recovery & Reliability Telemetry",
+  "version": "3.6.70",
+  "base_version": "3.6.69",
+  "release": "Video Thumbnail Post-Processing Diagnostics",
+  "adapter_version": "3.6.70",
+  "name": "Video Thumbnail Post-Processing Diagnostics",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds a settings.json-specific bounded retry window for transient Windows replace contention (WinError 5/32/33) while leaving all other atomic state writers on their existing single-attempt behavior.",
-    "Serializes settings.json replacement attempts inside the backend and retries only the final atomic replace for up to 3 seconds; the already-written temporary file is reused and the existing settings file remains intact until replacement succeeds.",
-    "Adds passive settings_save_reliability diagnostics counters for attempts, successful saves, recovered retries, retry attempts, terminal failures, last elapsed time, and last WinError.",
-    "Preserves browsing telemetry schema 7, the accepted All Posts two-batch/3-second render accumulator, six-slot Video ceiling, five-request Image HTTP gate, provider allocation, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
+    "Adds browser-side Video thumbnail post-processing failure classification so passive diagnostics can distinguish browser decode failure, no-frame samples, frame timeouts, capture failures, FFmpeg-required formats, and thumbnail-store failures.",
+    "Preserves visible/prefetch demand and partial/complete sample context in aggregate Video post-processing telemetry without recording media contents.",
+    "Browsing-performance schema 8 now retains reason-specific timing and counters for video_thumbnail_post while leaving the existing Image reason pipeline unchanged.",
+    "Preserves the accepted six-slot Video ceiling, five-request Image HTTP gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, settings-save retry behavior, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
   ],
   "regression_guards": [
-    "Settings retry is limited to WinError 5/32/33 and a 3.0-second bounded window; unrelated OSErrors are not retried.",
-    "Only settings.json opts into replace retry; json_write/json_write_compact retain the established default single-attempt atomic writer behavior.",
-    "settings_save_reliability diagnostics expose recovered retries and terminal failures without recording user settings content.",
-    "Browsing schema remains 7; All Posts accumulator, Video six-slot ceiling, Image gate 5, 800/800/1000 headers, SABnzbd 5.1.2, and terminal-history schema 3 remain unchanged."
+    "Video scheduling, connection allocation, sample-size/segment limits, and browser frame timeout remain unchanged; v3.6.70 adds classification only.",
+    "video_thumbnail_post reason telemetry is retained server-side with demand and sample completeness context, and failure counters remain aggregate/passive.",
+    "Image admission stays 5, high-connection Video ceiling stays 6, browsing headers stay 800/800/1000, and All Posts render accumulator constants remain unchanged.",
+    "Settings save retry remains limited to WinError 5/32/33 for 3 seconds; SABnzbd remains 5.1.2 and terminal-history schema remains 3."
   ],
-  "release_name": "Settings Save Contention Recovery & Reliability Telemetry"
+  "release_name": "Video Thumbnail Post-Processing Diagnostics"
 }

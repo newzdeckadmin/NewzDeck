@@ -1,10 +1,10 @@
-NewzDeck v3.6.69
-Settings Save Contention Recovery & Reliability Telemetry
+NewzDeck v3.6.70
+Video Thumbnail Post-Processing Diagnostics
 
-New in v3.6.69:
-- Recovers settings.json saves from intermittent Windows file-replacement contention by retrying only transient WinError 5/32/33 failures inside a hard three-second window.
-- Serializes settings-file replacement attempts and reuses the already-written temporary file; the previous settings file remains intact until atomic replacement succeeds.
-- Adds passive settings_save_reliability diagnostics so recovered retries and any terminal failures can be verified directly.
-- Preserves browsing schema 7, the accepted All Posts accumulator, six-slot Video ceiling, five-request Image gate, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover, Smart Import and Automation.
+New in v3.6.70:
+- Adds passive reason-specific telemetry for Video thumbnail post-processing failures.
+- Distinguishes browser decode failure, no-frame samples, frame timeout, frame capture failure, FFmpeg-required formats, and thumbnail-store failures while retaining visible/prefetch and partial/complete sample context.
+- Advances browsing-performance telemetry to schema 8 only for this additive observability improvement.
+- Preserves the accepted six-slot Video ceiling, five-request Image gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover, Smart Import and Automation.
 
 NewzDeck remains free and open source under GPL-3.0-only.
