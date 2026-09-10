@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.65"
+APP_VERSION = "3.6.66"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -418,7 +418,8 @@ ARTICLE_PAGE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 ARTICLE_PAGE_CACHE_LOCK = threading.Lock()
 ARTICLE_PAGE_CACHE_TTL_SECONDS = 600.0
 ARTICLE_PAGE_CACHE_MAX_ENTRIES = 300
-# v3.6.65: preserve bounded OVER/XOVER ranges/seed reuse while adding browser-side image-thumbnail HTTP admission control and demand telemetry. Evidence from
+# v3.6.66: preserve v3.6.65 image-thumbnail HTTP admission while refining preview-failure classification and adding passive video-thumbnail phase/transport telemetry. Evidence from
+# two v3.6.65 captures showed the image transport gap collapsed while generic preview_failed remained dominated by very fast failures; video latency still lacked paired server evidence. Prior evidence from
 # a 2,000-header All Posts page showed a real 15-second overview timeout while
 # thumbnail decode itself averaged only tens of milliseconds. First paint is one
 # newest-first chunk; deeper page/package reconstruction continues in background.
@@ -429,12 +430,14 @@ BROWSE_LARGE_PAGE_THRESHOLD = 1000
 _BROWSER_PERF_LOCK = threading.RLock()
 _BROWSER_PERF_SAMPLE_LIMIT = 240
 _BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
-_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_admission", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "name_resolution_batch", "preview", "viewer_preload"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_admission", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "video_thumbnail_http", "video_thumbnail_post", "video_thumbnail_server_pair", "video_thumbnail_transport_gap", "name_resolution_batch", "preview", "viewer_preload"}
 _BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
 _BROWSER_PERF_THUMBNAIL_ACTIVE: dict[str, int] = {}
 _BROWSER_PERF_THUMBNAIL_PEAK: dict[str, int] = {}
+_BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE: dict[str, int] = {}
+_BROWSER_PERF_VIDEO_THUMBNAIL_PEAK: dict[str, int] = {}
 
 def _browse_mode(value: Any) -> str:
     mode = str(value or "all").strip().casefold()
@@ -469,6 +472,18 @@ def _browse_thumbnail_endpoint_leave(mode: str) -> None:
     mode = _browse_mode(mode)
     with _BROWSER_PERF_LOCK:
         _BROWSER_PERF_THUMBNAIL_ACTIVE[mode] = max(0, int(_BROWSER_PERF_THUMBNAIL_ACTIVE.get(mode, 0) or 0) - 1)
+
+def _browse_video_thumbnail_endpoint_enter(mode: str) -> None:
+    mode = _browse_mode(mode)
+    with _BROWSER_PERF_LOCK:
+        active = int(_BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE.get(mode, 0) or 0) + 1
+        _BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE[mode] = active
+        _BROWSER_PERF_VIDEO_THUMBNAIL_PEAK[mode] = max(active, int(_BROWSER_PERF_VIDEO_THUMBNAIL_PEAK.get(mode, 0) or 0))
+
+def _browse_video_thumbnail_endpoint_leave(mode: str) -> None:
+    mode = _browse_mode(mode)
+    with _BROWSER_PERF_LOCK:
+        _BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE[mode] = max(0, int(_BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE.get(mode, 0) or 0) - 1)
 
 def note_browser_performance_samples(items: Any) -> dict[str, Any]:
     accepted = 0
@@ -521,18 +536,19 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
         server = {key: list(values) for key, values in _BROWSER_PERF_SERVER.items()}
         counters = json.loads(json.dumps(_BROWSER_PERF_COUNTERS))
         thumbnail_concurrency = {mode: {"active": int(_BROWSER_PERF_THUMBNAIL_ACTIVE.get(mode, 0) or 0), "peak": int(_BROWSER_PERF_THUMBNAIL_PEAK.get(mode, 0) or 0)} for mode in sorted(_BROWSER_PERF_ALLOWED_MODES)}
+        video_thumbnail_concurrency = {mode: {"active": int(_BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE.get(mode, 0) or 0), "peak": int(_BROWSER_PERF_VIDEO_THUMBNAIL_PEAK.get(mode, 0) or 0)} for mode in sorted(_BROWSER_PERF_ALLOWED_MODES)}
     def shape(source: dict[tuple[str, str], list[float]]) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for (mode, stage), values in source.items():
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 5,
+        "schema_version": 6,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
         "large_page_threshold": BROWSE_LARGE_PAGE_THRESHOLD,
-        "client": shape(client), "server": shape(server), "counters": counters, "thumbnail_endpoint_concurrency": thumbnail_concurrency,
+        "client": shape(client), "server": shape(server), "counters": counters, "thumbnail_endpoint_concurrency": thumbnail_concurrency, "video_thumbnail_endpoint_concurrency": video_thumbnail_concurrency,
     }
 
 def _overview_chunk_ranges(start: int, end: int, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS) -> list[tuple[int, int]]:
@@ -5429,7 +5445,7 @@ def prepare_image_thumbnail(provider: dict[str, Any], group: str, segments: list
     finally:
         lock.release()
 
-def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], cancel_check=None) -> dict[str, Any]:
+def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list[dict[str, Any]], media: dict[str, Any], cancel_check=None, perf_mode: str = "all") -> dict[str, Any]:
     if media.get("kind") != "video":
         raise ValueError("Video thumbnail requested for a non-video post")
     if not segments:
@@ -5439,6 +5455,7 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
     thumb_token = thumbnail_cache_token(provider, group, segments, media)
     cached_thumb = cached_thumbnail_result(thumb_token)
     if cached_thumb:
+        _browse_perf_counter(perf_mode, "video_thumbnail_cache_hits", 1)
         return {
             "kind": "video", "filename": filename, "sample_url": "", "thumbnail_url": cached_thumb["thumbnail_url"],
             "thumbnail_token": thumb_token, "browser_supported": ext in {"mp4", "m4v", "webm", "mov"},
@@ -5448,8 +5465,10 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
     full_token = preview_cache_token(provider, group, segments, media)
     full = cached_preview_result(full_token, filename, media)
     if full:
+        _browse_perf_counter(perf_mode, "video_thumbnail_full_preview_cache_hits", 1)
         full_path = Path(_preview_tokens[full_token]["path"])
-        frame_url = _try_ffmpeg_frame(full_path, thumb_token)
+        frame_started = time.perf_counter(); frame_url = _try_ffmpeg_frame(full_path, thumb_token)
+        _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "video_thumbnail_frame", (time.perf_counter() - frame_started) * 1000.0)
         return {
             "kind": "video", "filename": filename, "sample_url": full["url"], "thumbnail_url": frame_url,
             "thumbnail_token": thumb_token, "browser_supported": ext in {"mp4", "m4v", "webm", "mov"},
@@ -5460,18 +5479,25 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
     suffix = Path(filename).suffix or ".mp4"
     sample_path = CACHE_DIR / f"{token}.sample{suffix}"
     lock = _preview_build_lock(token)
-    with lock:
+    lock_started = time.perf_counter(); lock.acquire()
+    _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "video_thumbnail_build_lock_wait", (time.perf_counter() - lock_started) * 1000.0)
+    try:
         if not sample_path.exists() or sample_path.stat().st_size <= 0:
             max_bytes = VIDEO_THUMB_SAMPLE_MB * 1024 * 1024
+            body_started = time.monotonic()
             written, fetched = _assemble_segments(provider, group, segments, sample_path, max_bytes=max_bytes, max_segments=12, cancel_check=cancel_check)
+            _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "video_thumbnail_body", (time.monotonic() - body_started) * 1000.0)
+            _browse_perf_counter(perf_mode, "video_thumbnail_body_bytes", int(written))
             if written <= 0:
                 raise ValueError("Video sample contained no data")
         else:
             fetched = min(len(segments), 12)
+            _browse_perf_counter(perf_mode, "video_thumbnail_sample_cache_hits", 1)
         mime = media.get("mime") or mimetypes.guess_type(filename)[0] or "video/mp4"
         with _preview_lock:
             _preview_tokens[token] = {"path": str(sample_path), "mime": mime, "filename": filename, "created": time.time()}
-        frame_url = _try_ffmpeg_frame(sample_path, thumb_token)
+        frame_started = time.perf_counter(); frame_url = _try_ffmpeg_frame(sample_path, thumb_token)
+        _browse_perf_add(_BROWSER_PERF_SERVER, perf_mode, "video_thumbnail_frame", (time.perf_counter() - frame_started) * 1000.0)
         cleanup_preview_cache()
         return {
             "kind": "video", "filename": filename, "sample_url": f"/media/{token}", "thumbnail_url": frame_url,
@@ -5479,6 +5505,8 @@ def prepare_video_thumbnail(provider: dict[str, Any], group: str, segments: list
             "partial": fetched < len(segments), "sample_size": sample_path.stat().st_size,
             "cached": bool(frame_url), "method": "ffmpeg" if frame_url else "browser",
         }
+    finally:
+        lock.release()
 
 def run_preview_task(func, *args, perf_mode: str | None = None, perf_stage_prefix: str = "preview"):
     submitted = time.perf_counter()
@@ -11464,13 +11492,27 @@ def preview_error_info(exc: Exception) -> dict[str, Any]:
         return {'error': str(exc), 'error_code': 'browse_cancelled', 'error_label': 'Browsing request cancelled', 'retryable': False}
     text = str(exc)
     low = text.lower()
+    if 'no article segments were supplied' in low:
+        return {'error': text, 'error_code': 'segments_missing', 'error_label': 'No article segments', 'retryable': False}
+    if 'article segment has no retrievable article number or message-id' in low:
+        return {'error': text, 'error_code': 'segment_reference_missing', 'error_label': 'Article reference missing', 'retryable': False}
+    if 'preview has too many segments' in low:
+        return {'error': text, 'error_code': 'segment_limit_exceeded', 'error_label': 'Preview segment limit exceeded', 'retryable': False}
+    if 'preview is larger than' in low or 'preview exceeded' in low or ('article body exceeded' in low and 'safety limit' in low):
+        return {'error': text, 'error_code': 'preview_too_large', 'error_label': 'Preview exceeds safety limit', 'retryable': False}
+    if 'no previewable image or video' in low or 'thumbnail requested for a non-' in low:
+        return {'error': text, 'error_code': 'media_not_previewable', 'error_label': 'Media is not previewable', 'retryable': False}
+    if 'video sample contained no data' in low:
+        return {'error': text, 'error_code': 'video_sample_empty', 'error_label': 'Video sample contained no data', 'retryable': False}
     if 'unavailable' in low or '430' in low or '423' in low or 'no such article' in low:
         return {'error': text, 'error_code': 'article_missing', 'error_label': 'Article missing', 'retryable': False}
-    if 'incomplete' in low or 'parts' in low and 'missing' in low:
+    if 'incomplete' in low or ('parts' in low and 'missing' in low):
         return {'error': text, 'error_code': 'multipart_incomplete', 'error_label': 'Multipart post incomplete', 'retryable': False}
     if 'timed out' in low or 'timeout' in low or 'connection' in low or 'ssl' in low:
         return {'error': text, 'error_code': 'provider_temporary', 'error_label': 'Provider connection issue', 'retryable': True}
-    if 'supported binary' in low or 'decode' in low or 'encoding' in low:
+    if 'could not retrieve preview segment' in low or 'article body response was empty' in low:
+        return {'error': text, 'error_code': 'segment_fetch_failed', 'error_label': 'Preview segment could not be retrieved', 'retryable': True}
+    if ('supported binary' in low or 'decode' in low or 'encoding' in low or 'yenc' in low or 'uuencode' in low or 'base64' in low or 'crc mismatch' in low or 'malformed' in low or 'truncated' in low):
         return {'error': text, 'error_code': 'decode_failed', 'error_label': 'Unsupported or corrupt encoding', 'retryable': False}
     return {'error': text, 'error_code': 'preview_failed', 'error_label': 'Preview unavailable', 'retryable': True}
 
@@ -13487,40 +13529,57 @@ class AppHandler(SimpleHTTPRequestHandler):
             _browse_thumbnail_endpoint_leave(mode)
 
     def video_thumbnail_api(self, data: dict[str, Any]):
-        origin_provider_id = str(data.get("provider_id", ""))
-        provider = resolve_provider_for_purpose(origin_provider_id, "previews")
-        group = str(data.get("group", "")).strip()
-        browse_session = str(data.get("browse_session", "")).strip()
-        cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
-        if cancel_check is not None:
-            try:
-                cancel_check()
-            except BrowseSessionCancelled as exc:
-                return self._json(422, preview_error_info(exc))
-        segments = data.get("segments") or []
-        if str(provider.get("id", "")) != origin_provider_id:
-            segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
-        media = data.get("media")
-        if not group:
-            raise ValueError("Newsgroup is required")
-        if not isinstance(segments, list) or not isinstance(media, dict):
-            raise ValueError("Invalid video thumbnail request")
-        thumb_token = thumbnail_cache_token(provider, group, segments, media)
-        cached = cached_thumbnail_result(thumb_token)
-        if cached:
-            filename = media.get("filename") or "video"
-            ext = str(media.get("extension") or Path(str(filename)).suffix.lstrip(".")).casefold()
-            return self._json(200, {
-                "kind": "video", "filename": filename, "sample_url": "",
-                "thumbnail_url": cached["thumbnail_url"], "thumbnail_token": thumb_token,
-                "browser_supported": ext in {"mp4", "m4v", "webm", "mov"},
-                "partial": False, "cached": True, "method": "persistent-cache",
-            })
+        mode = _browse_mode(data.get("content_filter")); endpoint_started = time.perf_counter()
+        _browse_perf_counter(mode, "video_thumbnail_requests", 1); _browse_video_thumbnail_endpoint_enter(mode)
+        def timed_payload(payload: dict[str, Any]) -> dict[str, Any]:
+            return {**payload, "thumbnail_server_ms": round((time.perf_counter() - endpoint_started) * 1000.0, 3)}
         try:
-            result = run_preview_task(prepare_video_thumbnail, provider, group, segments, media, cancel_check)
-        except Exception as exc:
-            return self._json(422, preview_error_info(exc))
-        return self._json(200, result)
+            origin_provider_id = str(data.get("provider_id", ""))
+            provider = resolve_provider_for_purpose(origin_provider_id, "previews")
+            group = str(data.get("group", "")).strip()
+            browse_session = str(data.get("browse_session", "")).strip()
+            cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
+            if cancel_check is not None:
+                try:
+                    cancel_check()
+                except BrowseSessionCancelled as exc:
+                    return self._json(422, timed_payload(preview_error_info(exc)))
+            segments = data.get("segments") or []
+            if str(provider.get("id", "")) != origin_provider_id:
+                segments = [{**seg, "article": None} for seg in segments if isinstance(seg, dict)]
+            media = data.get("media")
+            if not group:
+                raise ValueError("Newsgroup is required")
+            if not isinstance(segments, list) or not isinstance(media, dict):
+                raise ValueError("Invalid video thumbnail request")
+            cache_started = time.perf_counter(); thumb_token = thumbnail_cache_token(provider, group, segments, media); cached = cached_thumbnail_result(thumb_token)
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "video_thumbnail_cache_lookup", (time.perf_counter() - cache_started) * 1000.0)
+            if cached:
+                _browse_perf_counter(mode, "video_thumbnail_cache_hits", 1)
+                filename = media.get("filename") or "video"
+                ext = str(media.get("extension") or Path(str(filename)).suffix.lstrip(".")).casefold()
+                return self._json(200, timed_payload({
+                    "kind": "video", "filename": filename, "sample_url": "",
+                    "thumbnail_url": cached["thumbnail_url"], "thumbnail_token": thumb_token,
+                    "browser_supported": ext in {"mp4", "m4v", "webm", "mov"},
+                    "partial": False, "cached": True, "method": "persistent-cache",
+                }))
+            try:
+                result = run_preview_task(prepare_video_thumbnail, provider, group, segments, media, cancel_check, mode, perf_mode=mode, perf_stage_prefix="video_thumbnail")
+            except Exception as exc:
+                info = preview_error_info(exc)
+                _browse_perf_counter(mode, "video_thumbnail_failures", 1)
+                failure_code = re.sub(r"[^a-z0-9_-]+", "-", str(info.get("error_code") or "preview_failed").strip().casefold()).strip("-")[:48] or "preview_failed"
+                _browse_perf_counter(mode, f"video_thumbnail_failure_code_{failure_code}", 1)
+                if info.get("retryable"):
+                    _browse_perf_counter(mode, "video_thumbnail_retryable_failures", 1)
+                if isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in str(exc).casefold():
+                    _browse_perf_counter(mode, "video_thumbnail_timeouts", 1)
+                return self._json(422, timed_payload(info))
+            return self._json(200, timed_payload(result))
+        finally:
+            _browse_perf_add(_BROWSER_PERF_SERVER, mode, "video_thumbnail_endpoint_total", (time.perf_counter() - endpoint_started) * 1000.0)
+            _browse_video_thumbnail_endpoint_leave(mode)
 
     def thumbnail_store_api(self, data: dict[str, Any]):
         return self._json(200, store_thumbnail_data(str(data.get("token", "")), str(data.get("data_url", ""))))

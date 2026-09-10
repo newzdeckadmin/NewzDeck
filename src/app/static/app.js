@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'',
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.65';
+const UI_VERSION = '3.6.66';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -1584,7 +1584,7 @@ function pumpThumbQueue(){
         if(!(coverSessionLive||galleryTaskLive)){if(task.role==='set-cover')state.relatedCoverStats.staleSessionDrops++;return}
         let a=state.articles[task.index];if(task.role==='set-cover'&&task.sourceArticleKey&&(!a||articleKey(a)!==task.sourceArticleKey)){const liveIndex=state.articles.findIndex(x=>articleKey(x)===task.sourceArticleKey);if(liveIndex>=0)a=state.articles[liveIndex]}
         if(!a)return;
-        let data,coverResult=null;if(task.kind==='video')data=await fetchVideoThumbnail(a);else if(task.role==='set-cover'){coverResult=await fetchMediaSetCover(task,a);data=coverResult.data}else data=await fetchImageThumbnail(a,task);sampleOK=true;
+        let data,coverResult=null;if(task.kind==='video')data=await fetchVideoThumbnail(a,task);else if(task.role==='set-cover'){coverResult=await fetchMediaSetCover(task,a);data=coverResult.data}else data=await fetchImageThumbnail(a,task);sampleOK=true;
         const completionContext=task.group===state.selectedGroup&&task.provider===state.providerId,coverCompletionLive=task.role==='set-cover'&&completionContext&&task.browseSession===state.browseSessionToken,galleryCompletionLive=task.role!=='set-cover'&&task.generation===state.galleryGeneration&&completionContext;
         if(task.kind==='image'&&data?.suppressed_small){
           a.small_image_suppressed=true;a.media_meta={...(a.media_meta||{}),width:Number(data.width||0),height:Number(data.height||0)};if(state.groupRelatedMedia)state.mediaSetIndexValid=false;
@@ -1625,7 +1625,7 @@ function captureImageThumbnail(url){
   });
 }
 function thumbnailErrorReason(e){const raw=String(e?.data?.error_code||e?.code||(e?.status?`http-${e.status}`:'request-failed')).trim().toLocaleLowerCase();return raw.replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48)||'request-failed'}
-function recordPairedThumbnailTransport(totalMs,serverMs,ok,reason){const server=Number(serverMs);if(!Number.isFinite(server)||server<0)return;perfRecord('thumbnail_server_pair',server,ok,{reason});perfRecord('thumbnail_transport_gap',Math.max(0,Number(totalMs||0)-server),ok,{reason})}
+function recordPairedThumbnailTransport(totalMs,serverMs,ok,reason){const server=Number(serverMs);if(!Number.isFinite(server)||server<0)return;perfRecord('thumbnail_server_pair',server,ok,{reason});perfRecord('thumbnail_transport_gap',Math.max(0,Number(totalMs||0)-server),ok,{reason})}function recordPairedVideoThumbnailTransport(totalMs,serverMs,ok,reason){const server=Number(serverMs);if(!Number.isFinite(server)||server<0)return;perfRecord('video_thumbnail_server_pair',server,ok,{reason});perfRecord('video_thumbnail_transport_gap',Math.max(0,Number(totalMs||0)-server),ok,{reason})}
 async function thumbnailImageApiTimed(payload,options={},reason='primary',task=null){const demand=thumbnailDemandClass(task,reason==='speculative'?'speculative-page':'item');await acquireThumbnailHttpAdmission(task,options?.signal||null,reason==='speculative'?'speculative-page':'item');const started=performance.now();try{const data=await api('/api/thumbnail/image',payload,options),total=performance.now()-started,traceReason=`${demand}-${reason}`;perfRecord('thumbnail_http',total,true,{reason:traceReason});recordPairedThumbnailTransport(total,data?.thumbnail_server_ms,true,traceReason);return data}catch(e){const total=performance.now()-started,errorReason=thumbnailErrorReason(e),traceReason=`${demand}-${errorReason}`;perfRecord('thumbnail_http',total,false,{reason:traceReason});recordPairedThumbnailTransport(total,e?.data?.thumbnail_server_ms,false,traceReason);throw e}finally{releaseThumbnailHttpAdmission()}}
 async function finishImageThumbnailResponseTimed(a,data){const started=performance.now();try{const result=await finishImageThumbnailResponse(a,data);perfRecord('thumbnail_post',performance.now()-started,true,{reason:String(data?.method||'response')});return result}catch(e){perfRecord('thumbnail_post',performance.now()-started,false,{reason:thumbnailErrorReason(e)});throw e}}
 async function finishImageThumbnailResponse(a,data){
@@ -1658,19 +1658,25 @@ async function fetchImageThumbnail(a,task=null){
   promiseMap.set(promiseKey,request);return request;
 }
 
-async function fetchVideoThumbnail(a){
+async function fetchVideoThumbnail(a,task=null){
   const key=previewKey(a);if(state.videoThumbCache.has(key))return state.videoThumbCache.get(key);if(state.videoThumbPromises.has(key))return state.videoThumbPromises.get(key);
-  const request=api('/api/thumbnail/video',browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,content_filter:browserPerfMode()}),browseRequestOptions())
-    .then(async data=>{
+  const payload=browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,content_filter:browserPerfMode()}),demand=thumbnailDemandClass(task,'item');
+  const request=(async()=>{
+    let data;const httpStarted=performance.now();
+    try{data=await api('/api/thumbnail/video',payload,browseRequestOptions());const total=performance.now()-httpStarted,reason=`video-${demand}-primary`;perfRecord('video_thumbnail_http',total,true,{reason});recordPairedVideoThumbnailTransport(total,data?.thumbnail_server_ms,true,reason)}
+    catch(e){const total=performance.now()-httpStarted,reason=`video-${demand}-${thumbnailErrorReason(e)}`;perfRecord('video_thumbnail_http',total,false,{reason});recordPairedVideoThumbnailTransport(total,e?.data?.thumbnail_server_ms,false,reason);throw e}
+    const postStarted=performance.now();let postOK=false,postReason=`video-${String(data?.method||'response')}`;
+    try{
       let url=data.thumbnail_url||'';
       if(!url&&data.sample_url&&data.browser_supported){
         const captured=await captureVideoFrame(data.sample_url);
-        if(data.thumbnail_token){const stored=await persistThumbnail(data.thumbnail_token,captured.dataUrl);url=stored.thumbnail_url||captured.dataUrl}else url=captured.dataUrl;data.width=captured.width;data.height=captured.height;data.duration=captured.duration;
+        if(data.thumbnail_token){const stored=await persistThumbnail(data.thumbnail_token,captured.dataUrl);url=stored.thumbnail_url||captured.dataUrl}else url=captured.dataUrl;data.width=captured.width;data.height=captured.height;data.duration=captured.duration;postReason='video-browser-frame';
       }
       if(!url)throw new Error(data.browser_supported?'Could not decode a frame from the video sample.':'This video format needs FFmpeg for automatic thumbnails.');
-      const result={...data,url};boundedCacheSet(state.videoThumbCache,key,result,Math.max(96,Math.floor(browseCacheLimits().thumb*.28)));state.unpreviewableMediaKeys.delete(key);scheduleRelatedSetCoverActivation();return result;
-    })
-    .finally(()=>state.videoThumbPromises.delete(key));
+      const result={...data,url};boundedCacheSet(state.videoThumbCache,key,result,Math.max(96,Math.floor(browseCacheLimits().thumb*.28)));state.unpreviewableMediaKeys.delete(key);scheduleRelatedSetCoverActivation();postOK=true;return result;
+    }catch(e){postReason=`video-${thumbnailErrorReason(e)}`;throw e}
+    finally{perfRecord('video_thumbnail_post',performance.now()-postStarted,postOK,{reason:postReason})}
+  })().finally(()=>state.videoThumbPromises.delete(key));
   state.videoThumbPromises.set(key,request);return request;
 }
 function captureVideoFrame(url){
@@ -1760,7 +1766,7 @@ function friendlyPreviewError(error){
   return {message,label:data.error_label||'Preview unavailable',code:data.error_code||'preview_failed',retryable:data.retryable!==false};
 }
 function thumbnailFailureSkipsFullFallback(error){
-  const info=friendlyPreviewError(error);return info.retryable===false&&['article_missing','multipart_incomplete','decode_failed','browse_cancelled'].includes(info.code);
+  const info=friendlyPreviewError(error);return info.retryable===false&&['article_missing','multipart_incomplete','decode_failed','browse_cancelled','segments_missing','segment_reference_missing','segment_limit_exceeded','preview_too_large','media_not_previewable','video_sample_empty'].includes(info.code);
 }
 function isDefinitiveUnsupportedMedia(info){return info?.retryable===false&&info?.code==='decode_failed'}
 function rememberPreviewUnavailable(a,info){

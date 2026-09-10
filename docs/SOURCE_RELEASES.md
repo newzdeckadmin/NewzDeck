@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.65
+## Current release: v3.6.66
 
-**v3.6.65 is the current stable production release.**
+**v3.6.66 is the current stable production release.**
 
-The `v3.6.65` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.66` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.66 - Preview Failure Classification & Video Thumbnail Telemetry.** Refines immediate/permanent preview failure classes and adds passive Video request-paired transport, backend phase, failure and endpoint-concurrency telemetry while preserving v3.6.65 Image admission, provider concurrency, Metadata Server v0.3.3 and private SABnzbd 5.1.2.
 
 - **v3.6.65 - Thumbnail HTTP Admission Control & Demand Telemetry.** Caps browser image-thumbnail localhost HTTP admission at five, adds visible/prefetch admission timing, and normalizes expected browse cancellation while preserving provider concurrency, v3.6.64 resolver behavior, Metadata Server v0.3.3 and private SABnzbd 5.1.2.
 

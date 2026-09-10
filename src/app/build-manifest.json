@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.65",
-  "base_version": "3.6.64",
-  "release": "Thumbnail HTTP Admission Control & Demand Telemetry",
-  "adapter_version": "3.6.65",
-  "name": "Thumbnail HTTP Admission Control & Demand Telemetry",
+  "version": "3.6.66",
+  "base_version": "3.6.65",
+  "release": "Preview Failure Classification & Video Thumbnail Telemetry",
+  "adapter_version": "3.6.66",
+  "name": "Preview Failure Classification & Video Thumbnail Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Caps browser-side /api/thumbnail/image HTTP admission at five in-flight requests without reducing NNTP provider or preview concurrency.",
-    "Records thumbnail admission wait plus visible-versus-prefetch scheduler/HTTP timing so Diagnostics can separate user-visible demand from speculative work.",
-    "Normalizes superseded browsing-session preview/thumbnail cancellation as expected non-retryable control flow instead of allowing it to surface as a generic application error.",
-    "Preserves v3.6.62 progressive header reuse, v3.6.63/v3.6.64 name-resolution rendering behavior, 800-header bounds, private SABnzbd 5.1.2, Discover and Automation behavior."
+    "Splits previously generic preview_failed thumbnail errors into specific permanent/transient classes so immediate segment/media/safety/decode failures are not treated as blind retry candidates.",
+    "Adds request-paired client/server transport timing, backend phase timing, failure counters, and endpoint concurrency telemetry for video thumbnails without changing video concurrency.",
+    "Preserves the proven five-request browser image-thumbnail HTTP admission gate and provider/NNTP connection behavior from v3.6.65.",
+    "Preserves v3.6.62 progressive header reuse, v3.6.63/v3.6.64 name-resolution rendering, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
   ],
   "regression_guards": [
-    "Browser image-thumbnail HTTP admission is a separate five-request gate and must not change provider connection allocation, preview ramp ceilings, video limits, or native decoder workers.",
-    "Visible and prefetch thumbnail demand remains priority ordered; speculative next-page image warming must pass through the same image HTTP admission gate.",
-    "Browsing telemetry schema 5 accepts thumbnail_admission while preserving request-paired thumbnail server/transport-gap telemetry and endpoint concurrency measurement.",
-    "Superseded BrowseSessionCancelled preview/image/video requests return browse_cancelled and do not render thumbnail errors; SAB 5.1.2 and terminal-history schema 3 remain unchanged."
+    "Known permanent media/segment/safety/decode failures remain non-retryable; genuinely transient provider/segment-fetch failures remain retryable.",
+    "Video telemetry must be observational only: no changes to provider allocation, video thumbnail concurrency, preview worker count, decoder workers, or sample size.",
+    "Browsing telemetry schema 6 preserves all schema 5 image admission, paired transport, resolver batching, and endpoint concurrency fields while adding video endpoint concurrency/phase coverage.",
+    "Image HTTP admission remains capped at five and SAB 5.1.2, terminal-history schema 3, Discover, Smart Import, and Automation semantics remain unchanged."
   ],
-  "release_name": "Thumbnail HTTP Admission Control & Demand Telemetry"
+  "release_name": "Preview Failure Classification & Video Thumbnail Telemetry"
 }
