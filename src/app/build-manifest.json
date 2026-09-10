@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.66",
-  "base_version": "3.6.65",
-  "release": "Preview Failure Classification & Video Thumbnail Telemetry",
-  "adapter_version": "3.6.66",
-  "name": "Preview Failure Classification & Video Thumbnail Telemetry",
+  "version": "3.6.67",
+  "base_version": "3.6.66",
+  "release": "Video Thumbnail Concurrency Tuning",
+  "adapter_version": "3.6.67",
+  "name": "Video Thumbnail Concurrency Tuning",
   "sab_version": "5.1.2",
   "changes": [
-    "Splits previously generic preview_failed thumbnail errors into specific permanent/transient classes so immediate segment/media/safety/decode failures are not treated as blind retry candidates.",
-    "Adds request-paired client/server transport timing, backend phase timing, failure counters, and endpoint concurrency telemetry for video thumbnails without changing video concurrency.",
-    "Preserves the proven five-request browser image-thumbnail HTTP admission gate and provider/NNTP connection behavior from v3.6.65.",
-    "Preserves v3.6.62 progressive header reuse, v3.6.63/v3.6.64 name-resolution rendering, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
+    "Raises only the high-connection-provider Video thumbnail scheduler ceiling from four to six for providers with 48 or more configured connections.",
+    "Keeps the overall adaptive preview concurrency and download-reserve budget authoritative, so Video work remains automatically constrained when downloads are active.",
+    "Preserves schema-6 Video HTTP/server/transport/BODY/queue telemetry so production diagnostics can directly measure whether six slots reduce visible queueing without worsening provider latency.",
+    "Preserves the five-request Image HTTP gate, provider allocation, 24 MB Video sample limit, 800-header strategy, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
   ],
   "regression_guards": [
-    "Known permanent media/segment/safety/decode failures remain non-retryable; genuinely transient provider/segment-fetch failures remain retryable.",
-    "Video telemetry must be observational only: no changes to provider allocation, video thumbnail concurrency, preview worker count, decoder workers, or sample size.",
-    "Browsing telemetry schema 6 preserves all schema 5 image admission, paired transport, resolver batching, and endpoint concurrency fields while adding video endpoint concurrency/phase coverage.",
-    "Image HTTP admission remains capped at five and SAB 5.1.2, terminal-history schema 3, Discover, Smart Import, and Automation semantics remain unchanged."
+    "Providers with 48+ connections may use at most six Video thumbnail tasks; lower tiers remain 1/2/3 and the result is still bounded by state.thumbConcurrency.",
+    "No Video localhost HTTP admission gate is added and schema-6 request-paired Video telemetry remains intact.",
+    "The Image thumbnail HTTP admission limit remains five and Image scheduler/provider behavior is otherwise unchanged.",
+    "SABnzbd 5.1.2, terminal-history schema 3, 800/800/1000 browsing headers, resolver batching, Discover, Smart Import, and Automation remain unchanged."
   ],
-  "release_name": "Preview Failure Classification & Video Thumbnail Telemetry"
+  "release_name": "Video Thumbnail Concurrency Tuning"
 }
