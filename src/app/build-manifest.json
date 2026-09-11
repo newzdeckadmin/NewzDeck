@@ -1,22 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.70",
-  "base_version": "3.6.69",
-  "release": "Video Thumbnail Post-Processing Diagnostics",
-  "adapter_version": "3.6.70",
-  "name": "Video Thumbnail Post-Processing Diagnostics",
+  "version": "3.6.71",
+  "base_version": "3.6.70",
+  "release": "Video Thumbnail Decode Failure Suppression",
+  "adapter_version": "3.6.71",
+  "name": "Video Thumbnail Decode Failure Suppression",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds browser-side Video thumbnail post-processing failure classification so passive diagnostics can distinguish browser decode failure, no-frame samples, frame timeouts, capture failures, FFmpeg-required formats, and thumbnail-store failures.",
-    "Preserves visible/prefetch demand and partial/complete sample context in aggregate Video post-processing telemetry without recording media contents.",
-    "Browsing-performance schema 8 now retains reason-specific timing and counters for video_thumbnail_post while leaving the existing Image reason pipeline unchanged.",
+    "Preserves browser-side Video thumbnail error codes through the UI failure path so browser-decode-failed and ffmpeg-required are no longer downgraded to generic retryable preview_failed errors.",
+    "Treats confirmed browser codec/decoder limitations as non-retryable for the current runtime, retains them across group refreshes, excludes them from Related Media representative selection, and blocks stale thumbnail queue paths from re-requesting them.",
+    "Keeps transient browser frame timeout, frame capture, thumbnail-store, and other unknown failures retryable; cached non-retryable failures no longer render a Retry button.",
+    "Browsing-performance schema 9 adds passive video_thumbnail_policy reason telemetry so the decode-suppression policy can be accepted without recording media contents.",
     "Preserves the accepted six-slot Video ceiling, five-request Image HTTP gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, settings-save retry behavior, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
   ],
   "regression_guards": [
-    "Video scheduling, connection allocation, sample-size/segment limits, and browser frame timeout remain unchanged; v3.6.70 adds classification only.",
-    "video_thumbnail_post reason telemetry is retained server-side with demand and sample completeness context, and failure counters remain aggregate/passive.",
-    "Image admission stays 5, high-connection Video ceiling stays 6, browsing headers stay 800/800/1000, and All Posts render accumulator constants remain unchanged.",
+    "No FFmpeg or other decoder is bundled; this release changes retry/suppression semantics only for already-confirmed browser decode limitations.",
+    "browser-decode-failed and ffmpeg-required are definitive non-retryable client Video outcomes, while timeout/capture/store failures remain retryable.",
+    "Known unsupported media are not requeued through stale main-gallery or Related Media cover paths during the same runtime.",
+    "Image admission stays 5, high-connection Video ceiling stays 6, Video sample bounds stay 24 MB/12 segments, browsing headers stay 800/800/1000, and All Posts render accumulator constants remain unchanged.",
     "Settings save retry remains limited to WinError 5/32/33 for 3 seconds; SABnzbd remains 5.1.2 and terminal-history schema remains 3."
   ],
-  "release_name": "Video Thumbnail Post-Processing Diagnostics"
+  "release_name": "Video Thumbnail Decode Failure Suppression"
 }

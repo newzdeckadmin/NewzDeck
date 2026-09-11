@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.70** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.71** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.70_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.71_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.70 highlights
+## v3.6.71 highlights
 
-v3.6.70 is a focused Newsgroup Browser observability release driven by a production Video thumbnail post-processing failure sample.
+v3.6.71 is a focused Video thumbnail retry-policy release driven by v3.6.70 production diagnostics.
 
-- **Reason-specific Video post telemetry:** passive diagnostics now retain aggregate browser-side failure timing/counts rather than only a generic post-processing failure total.
-- **Actionable classifications:** distinguish browser decode, no-frame, frame-timeout, capture, FFmpeg-required and thumbnail-store failures, including visible/prefetch and partial/complete context.
-- **Schema 8:** browsing-performance schema advances only for this additive diagnostics contract.
+- **Real client error semantics:** browser-decode-failed and ffmpeg-required stay distinct instead of becoming generic retryable preview failures.
+- **Known-undecodable suppression:** confirmed browser codec/decoder limitations are retained across group refreshes, excluded from Related Media representative selection, and not requeued through stale thumbnail holders.
+- **Accurate Retry UI:** definitive unsupported Video thumbnails no longer show Retry; transient timeout/capture/store failures remain retryable.
+- **Schema 9:** passive video_thumbnail_policy telemetry measures non-retryable policy application without media contents.
 - **Performance tuning frozen:** the six-slot Video ceiling, five-request Image gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, settings-save retry, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover, Smart Import and Automation remain unchanged.
 
-See [the full v3.6.70 release notes](release/RELEASE_NOTES_v3.6.70.md).
+See [the full v3.6.71 release notes](release/RELEASE_NOTES_v3.6.71.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.70_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.71_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
