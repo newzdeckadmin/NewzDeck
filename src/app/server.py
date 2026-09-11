@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.73"
+APP_VERSION = "3.6.74"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -430,7 +430,7 @@ BROWSE_LARGE_PAGE_THRESHOLD = 1000
 _BROWSER_PERF_LOCK = threading.RLock()
 _BROWSER_PERF_SAMPLE_LIMIT = 240
 _BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
-_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_prefetch_dwell", "thumbnail_visible_wait", "thumbnail_task_identity", "thumbnail_admission", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "video_thumbnail_http", "video_thumbnail_post", "video_thumbnail_policy", "video_thumbnail_server_pair", "video_thumbnail_transport_gap", "name_resolution_batch", "name_resolution_render_wait", "preview", "viewer_preload"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_prefetch_dwell", "thumbnail_visible_wait", "thumbnail_task_identity", "thumbnail_admission", "video_thumbnail_client_lifecycle", "video_thumbnail_client_cancel", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "video_thumbnail_http", "video_thumbnail_post", "video_thumbnail_policy", "video_thumbnail_server_pair", "video_thumbnail_transport_gap", "name_resolution_batch", "name_resolution_render_wait", "preview", "viewer_preload"}
 _BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
@@ -438,6 +438,11 @@ _BROWSER_PERF_THUMBNAIL_ACTIVE: dict[str, int] = {}
 _BROWSER_PERF_THUMBNAIL_PEAK: dict[str, int] = {}
 _BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE: dict[str, int] = {}
 _BROWSER_PERF_VIDEO_THUMBNAIL_PEAK: dict[str, int] = {}
+_BROWSER_VIDEO_REQUEST_LOCK = threading.RLock()
+_BROWSER_VIDEO_ACTIVE_REQUESTS: dict[str, dict[str, Any]] = {}
+_BROWSER_VIDEO_RECENT_REQUESTS: deque[dict[str, Any]] = deque(maxlen=160)
+_BROWSER_VIDEO_CURRENT_PEAK: dict[str, int] = {}
+_BROWSER_VIDEO_SUPERSEDED_PEAK: dict[str, int] = {}
 
 def _browse_mode(value: Any) -> str:
     mode = str(value or "all").strip().casefold()
@@ -484,6 +489,85 @@ def _browse_video_thumbnail_endpoint_leave(mode: str) -> None:
     mode = _browse_mode(mode)
     with _BROWSER_PERF_LOCK:
         _BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE[mode] = max(0, int(_BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE.get(mode, 0) or 0) - 1)
+
+def _video_request_overlap_counts(mode: str) -> tuple[int, int]:
+    mode = _browse_mode(mode)
+    current = superseded = 0
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        for row in _BROWSER_VIDEO_ACTIVE_REQUESTS.values():
+            if row.get("mode") != mode:
+                continue
+            if row.get("superseded_at") is None:
+                current += 1
+            else:
+                superseded += 1
+        _BROWSER_VIDEO_CURRENT_PEAK[mode] = max(current, int(_BROWSER_VIDEO_CURRENT_PEAK.get(mode, 0) or 0))
+        _BROWSER_VIDEO_SUPERSEDED_PEAK[mode] = max(superseded, int(_BROWSER_VIDEO_SUPERSEDED_PEAK.get(mode, 0) or 0))
+    return current, superseded
+
+def _video_request_begin(request_id: str, mode: str, provider_id: str, group: str, browse_session: str, client_video_active: int, client_thumb_active: int) -> str:
+    request_id = str(request_id or "").strip()[:96] or f"server-{uuid.uuid4().hex[:20]}"
+    now = time.monotonic(); mode = _browse_mode(mode)
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        if request_id in _BROWSER_VIDEO_ACTIVE_REQUESTS:
+            request_id = f"{request_id[:70]}-{uuid.uuid4().hex[:12]}"
+        _BROWSER_VIDEO_ACTIVE_REQUESTS[request_id] = {
+            "request_id": request_id, "mode": mode, "provider_id": str(provider_id or "")[:96], "group": str(group or "")[:240],
+            "browse_session": str(browse_session or "")[:160], "started_at": now, "superseded_at": None, "cancel_detected_at": None,
+            "client_video_active": max(0, min(99, int(client_video_active or 0))), "client_thumb_active": max(0, min(199, int(client_thumb_active or 0))),
+        }
+    _video_request_overlap_counts(mode)
+    return request_id
+
+def _mark_video_requests_superseded(provider_id: str, group: str, current_token: str) -> None:
+    now = time.monotonic(); touched_modes: set[str] = set()
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        for row in _BROWSER_VIDEO_ACTIVE_REQUESTS.values():
+            if row.get("provider_id") != provider_id:
+                continue
+            if row.get("browse_session") == current_token and row.get("group") == group:
+                continue
+            if row.get("superseded_at") is None:
+                row["superseded_at"] = now; touched_modes.add(str(row.get("mode") or "all"))
+                _browse_perf_counter(str(row.get("mode") or "all"), "video_requests_superseded", 1)
+    for mode in touched_modes:
+        _video_request_overlap_counts(mode)
+
+def _video_request_cancel_detected(request_id: str) -> None:
+    now = time.monotonic(); mode = "all"; superseded_at = None
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        row = _BROWSER_VIDEO_ACTIVE_REQUESTS.get(request_id)
+        if not row or row.get("cancel_detected_at") is not None:
+            return
+        row["cancel_detected_at"] = now; mode = str(row.get("mode") or "all"); superseded_at = row.get("superseded_at")
+    _browse_perf_counter(mode, "video_cancel_detected", 1)
+    if superseded_at is not None:
+        _browse_perf_add(_BROWSER_PERF_SERVER, mode, "video_thumbnail_cancel_detect_delay", (now - float(superseded_at)) * 1000.0)
+
+def _video_request_end(request_id: str) -> None:
+    now = time.monotonic()
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        row = _BROWSER_VIDEO_ACTIVE_REQUESTS.pop(request_id, None)
+    if not row:
+        return
+    mode = str(row.get("mode") or "all"); started = float(row.get("started_at") or now); superseded_at = row.get("superseded_at"); detected_at = row.get("cancel_detected_at")
+    record = {
+        "request_id": str(row.get("request_id") or "")[:96], "mode": mode,
+        "client_video_active": int(row.get("client_video_active") or 0), "client_thumb_active": int(row.get("client_thumb_active") or 0),
+        "lifetime_ms": round(max(0.0, (now - started) * 1000.0), 3), "superseded": superseded_at is not None,
+        "cancel_detected": detected_at is not None, "cancel_detect_delay_ms": None, "cancel_drain_ms": None,
+    }
+    if superseded_at is not None:
+        drain = max(0.0, (now - float(superseded_at)) * 1000.0); record["cancel_drain_ms"] = round(drain, 3)
+        _browse_perf_add(_BROWSER_PERF_SERVER, mode, "video_thumbnail_cancel_drain", drain)
+        _browse_perf_counter(mode, "video_requests_finished_after_superseded", 1)
+        if detected_at is None:
+            _browse_perf_counter(mode, "video_cancel_not_detected_before_completion", 1)
+    if superseded_at is not None and detected_at is not None:
+        record["cancel_detect_delay_ms"] = round(max(0.0, (float(detected_at) - float(superseded_at)) * 1000.0), 3)
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        _BROWSER_VIDEO_RECENT_REQUESTS.append(record)
+    _video_request_overlap_counts(mode)
 
 def note_browser_performance_samples(items: Any) -> dict[str, Any]:
     accepted = 0
@@ -537,18 +621,26 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
         counters = json.loads(json.dumps(_BROWSER_PERF_COUNTERS))
         thumbnail_concurrency = {mode: {"active": int(_BROWSER_PERF_THUMBNAIL_ACTIVE.get(mode, 0) or 0), "peak": int(_BROWSER_PERF_THUMBNAIL_PEAK.get(mode, 0) or 0)} for mode in sorted(_BROWSER_PERF_ALLOWED_MODES)}
         video_thumbnail_concurrency = {mode: {"active": int(_BROWSER_PERF_VIDEO_THUMBNAIL_ACTIVE.get(mode, 0) or 0), "peak": int(_BROWSER_PERF_VIDEO_THUMBNAIL_PEAK.get(mode, 0) or 0)} for mode in sorted(_BROWSER_PERF_ALLOWED_MODES)}
+    with _BROWSER_VIDEO_REQUEST_LOCK:
+        video_recent = list(_BROWSER_VIDEO_RECENT_REQUESTS)
+        video_overlap = {}
+        for mode in sorted(_BROWSER_PERF_ALLOWED_MODES):
+            current = sum(1 for row in _BROWSER_VIDEO_ACTIVE_REQUESTS.values() if row.get("mode") == mode and row.get("superseded_at") is None)
+            superseded = sum(1 for row in _BROWSER_VIDEO_ACTIVE_REQUESTS.values() if row.get("mode") == mode and row.get("superseded_at") is not None)
+            video_overlap[mode] = {"current_active": current, "superseded_active": superseded, "current_peak": int(_BROWSER_VIDEO_CURRENT_PEAK.get(mode, 0) or 0), "superseded_peak": int(_BROWSER_VIDEO_SUPERSEDED_PEAK.get(mode, 0) or 0)}
     def shape(source: dict[tuple[str, str], list[float]]) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for (mode, stage), values in source.items():
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 10,
+        "schema_version": 11,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,
         "large_page_threshold": BROWSE_LARGE_PAGE_THRESHOLD,
         "client": shape(client), "server": shape(server), "counters": counters, "thumbnail_endpoint_concurrency": thumbnail_concurrency, "video_thumbnail_endpoint_concurrency": video_thumbnail_concurrency,
+        "video_thumbnail_cancellation": {"overlap": video_overlap, "recent_requests": video_recent},
     }
 
 def _overview_chunk_ranges(start: int, end: int, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS) -> list[tuple[int, int]]:
@@ -618,9 +710,10 @@ def register_browse_session(provider_id: str, group: str, token: str) -> dict[st
         raise ValueError("Provider, newsgroup, and browsing session are required")
     with _BROWSE_SESSION_LOCK:
         _BROWSE_SESSIONS[provider_id] = {"token": token, "group": group, "updated": time.monotonic()}
+    _mark_video_requests_superseded(provider_id, group, token)
     return {"ok": True, "provider_id": provider_id, "group": group, "browse_session": token}
 
-def browse_session_cancel_check(provider_id: str, group: str, token: str):
+def browse_session_cancel_check(provider_id: str, group: str, token: str, on_cancel=None):
     token = str(token or "").strip()
     if not token:
         return None
@@ -629,6 +722,9 @@ def browse_session_cancel_check(provider_id: str, group: str, token: str):
         with _BROWSE_SESSION_LOCK:
             current = _BROWSE_SESSIONS.get(provider_id)
         if not current or current.get("token") != token or current.get("group") != group:
+            if callable(on_cancel):
+                try: on_cancel()
+                except Exception: pass
             raise BrowseSessionCancelled("Browsing request superseded by a newer newsgroup session")
     return check
 
@@ -13617,15 +13713,14 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def video_thumbnail_api(self, data: dict[str, Any]):
         mode = _browse_mode(data.get("content_filter")); endpoint_started = time.perf_counter()
+        origin_provider_id = str(data.get("provider_id", "")); group = str(data.get("group", "")).strip(); browse_session = str(data.get("browse_session", "")).strip()
+        request_id = _video_request_begin(str(data.get("video_request_id") or ""), mode, origin_provider_id, group, browse_session, int(data.get("client_video_active") or 0), int(data.get("client_thumb_active") or 0))
         _browse_perf_counter(mode, "video_thumbnail_requests", 1); _browse_video_thumbnail_endpoint_enter(mode)
         def timed_payload(payload: dict[str, Any]) -> dict[str, Any]:
             return {**payload, "thumbnail_server_ms": round((time.perf_counter() - endpoint_started) * 1000.0, 3)}
         try:
-            origin_provider_id = str(data.get("provider_id", ""))
             provider = resolve_provider_for_purpose(origin_provider_id, "previews")
-            group = str(data.get("group", "")).strip()
-            browse_session = str(data.get("browse_session", "")).strip()
-            cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session)
+            cancel_check = browse_session_cancel_check(origin_provider_id, group, browse_session, lambda: _video_request_cancel_detected(request_id))
             if cancel_check is not None:
                 try:
                     cancel_check()
@@ -13666,6 +13761,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._json(200, timed_payload(result))
         finally:
             _browse_perf_add(_BROWSER_PERF_SERVER, mode, "video_thumbnail_endpoint_total", (time.perf_counter() - endpoint_started) * 1000.0)
+            _video_request_end(request_id)
             _browse_video_thumbnail_endpoint_leave(mode)
 
     def thumbnail_store_api(self, data: dict[str, Any]):

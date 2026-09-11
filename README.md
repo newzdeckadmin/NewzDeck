@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.73** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.74** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.73_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.74_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.73 highlights
+## v3.6.74 highlights
 
-v3.6.73 is a narrow thumbnail-task reliability and browsing-telemetry release driven by heavy Video browsing diagnostics.
+v3.6.74 is a diagnostics-only Video thumbnail cancellation-overlap observability release built on v3.6.73.
 
-- **Stable queued thumbnail identity:** Image and Video tasks verify their `sourceArticleKey` before execution and relocate to the live article index when continuous browsing changed the array.
-- **Stale work is dropped locally:** missing or incompatible thumbnail tasks no longer send mismatched media/segment payloads to thumbnail endpoints.
-- **Schema 10 queue visibility evidence:** total queue age remains available while offscreen/prefetch dwell and actual visible wait are measured separately; stable identity relocation/drop decisions are reported passively.
-- **Performance tuning frozen:** scheduler scoring, six-slot Video, five-request Image admission, 24 MB/12-segment Video samples, 800/800/1000 headers, All Posts waits, Settings reliability, SAB 5.1.2, Discover, Smart Import and Automation remain unchanged.
+- **Correlated Video lifecycle evidence:** each Video thumbnail request carries a local request ID and browser logical active counts into the backend.
+- **Superseded-work measurement:** schema 11 measures cancellation-detection delay, total cancellation drain, and current-session versus superseded server activity.
+- **Bounded recent request records:** diagnostics can determine whether backend peaks above six are abandoned older work or a true current-session admission problem.
+- **Performance tuning frozen:** scheduler scoring, six-slot Video, five-request Image admission, 24 MB/12-segment Video samples, 800/800/1000 headers, Settings reliability, SAB 5.1.2, Discover, Smart Import and Automation remain unchanged.
 
-See [the full v3.6.73 release notes](release/RELEASE_NOTES_v3.6.73.md).
+See [the full v3.6.74 release notes](release/RELEASE_NOTES_v3.6.74.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +65,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.73_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.74_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -19,8 +19,8 @@ for marker in (
  "?'frame-unavailable':'ffmpeg-required'",
  'thumb-store-${thumbnailErrorReason(e)}',
  "perfRecord('video_thumbnail_post'",
-): check(marker in (server+app),'v3.6.73 Video post diagnostics marker missing: '+marker)
-check('"schema_version": 10' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 8/contract missing')
+): check(marker in (server+app),'v3.6.74 Video post diagnostics marker missing: '+marker)
+check('"schema_version": 11' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 8/contract missing')
 # Accepted browsing behavior is frozen.
 check('const THUMBNAIL_HTTP_ADMISSION_LIMIT=5;' in app,'Image HTTP admission changed')
 formula='state.videoThumbConcurrency=Math.max(1,Math.min(6,connections>=48?6:connections>=24?3:connections>=12?2:1,state.thumbConcurrency));'
@@ -37,9 +37,9 @@ for node in tree.body:
  elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3670>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.73','version.txt mismatch')
-check("const UI_VERSION = '3.6.73'" in app and '3.6.73-thumbnail-task-identity-visibility-telemetry' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.73' and manifest.get('base_version')=='3.6.72' and manifest.get('adapter_version')=='3.6.73','build manifest identity mismatch')
-check(sab.ADAPTER_VERSION=='3.6.73' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.74','version.txt mismatch')
+check("const UI_VERSION = '3.6.74'" in app and '3.6.74-video-cancellation-overlap-diagnostics' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.74' and manifest.get('base_version')=='3.6.73' and manifest.get('adapter_version')=='3.6.74','build manifest identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.74' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.73 regression guard: PASS')
+print('v3.6.74 regression guard: PASS')

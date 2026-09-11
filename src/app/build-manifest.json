@@ -1,9 +1,9 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.73",
-  "base_version": "3.6.72",
+  "version": "3.6.74",
+  "base_version": "3.6.73",
   "release": "Thumbnail Task Identity & Visibility Telemetry",
-  "adapter_version": "3.6.73",
+  "adapter_version": "3.6.74",
   "name": "Thumbnail Task Identity & Visibility Telemetry",
   "sab_version": "5.1.2",
   "changes": [

@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.73
+## Current release: v3.6.74
 
-**v3.6.73 is the current stable production release.**
+**v3.6.74 is the current stable production release.**
 
-The `v3.6.73` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.74` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.74 - Video Cancellation Overlap Diagnostics.** Adds passive schema-11 request/session correlation, superseded-work peaks and cancellation-drain timing without retuning browsing or download behavior.
 
 - **v3.6.73 - Thumbnail Task Identity & Visibility Telemetry.** Rebinds queued Image/Video thumbnails to their stable source article before execution, drops stale/incompatible work locally, and adds schema-10 queue visibility/identity evidence without retuning scheduler or download behavior.
 

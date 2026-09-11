@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.73';
+const UI_VERSION = '3.6.74';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -42,6 +42,7 @@ let downloadPollTimer = null;
 let downloadPollInFlight = false;
 let thumbDemandRaf = 0;
 let thumbWatchdogTimer = null;
+let videoThumbRequestSeq = 0;
 
 function friendlyTransportErrorMessage(message,path='',source='network'){
   const text=String(message||'').trim(),low=text.toLocaleLowerCase(),route=String(path||'');
@@ -84,7 +85,7 @@ function makeBrowseSessionToken(){try{return crypto.randomUUID()}catch{return `$
 function browseRequestOptions(extra={}){return {...extra,...(state.browseAbortController?{signal:state.browseAbortController.signal}:{})}}
 function browsePayload(payload={}){return {...payload,...(state.browseSessionToken?{browse_session:state.browseSessionToken}:{})}}
 async function beginBrowseSession(group=state.selectedGroup,{preserveProgressive=false}={}){
-  if(state.browseAbortController)state.browseAbortController.abort();
+  if(state.browseAbortController){if(state.thumbVideoActive>0)perfRecord('video_thumbnail_client_cancel',0,true,{reason:`session-rotate-active-${Math.min(99,Number(state.thumbVideoActive||0))}`});state.browseAbortController.abort();}
   if(state.progressiveBinaryTimer){clearTimeout(state.progressiveBinaryTimer);state.progressiveBinaryTimer=null}
   state.headerPrefetch=null;if(!preserveProgressive)state.smartBinaryPending=false;state.browseAbortController=new AbortController();state.browseSessionToken=makeBrowseSessionToken();
   state.thumbQueue=[];state.thumbQueued.clear();state.thumbGeometry.clear();state.thumbGeometryTs=0;state.thumbHolderRegistry.clear();state.previewPromises.clear();state.imageThumbPromises.clear();state.setCoverImagePromises.clear();state.videoThumbPromises.clear();if(state.unavailableHideTimer){clearTimeout(state.unavailableHideTimer);state.unavailableHideTimer=null}state.unavailableHideQueue.clear();
@@ -1688,11 +1689,13 @@ async function fetchImageThumbnail(a,task=null){
 
 async function fetchVideoThumbnail(a,task=null){
   const key=previewKey(a);if(state.videoThumbCache.has(key))return state.videoThumbCache.get(key);if(state.videoThumbPromises.has(key))return state.videoThumbPromises.get(key);
-  const payload=browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,content_filter:browserPerfMode()}),demand=thumbnailDemandClass(task,'item');
+  const requestId=`v-${Date.now().toString(36)}-${(++videoThumbRequestSeq).toString(36)}`,requestSession=String(state.browseSessionToken||''),requestStarted=performance.now();
+  const payload=browsePayload({provider_id:state.providerId,group:articleGroup(a),segments:segmentPayload(a),media:a.media,content_filter:browserPerfMode(),video_request_id:requestId,client_video_active:Number(state.thumbVideoActive||0),client_thumb_active:Number(state.thumbActive||0)}),demand=thumbnailDemandClass(task,'item');
+  perfRecord('video_thumbnail_client_lifecycle',0,true,{reason:`start-active-${Math.min(99,Number(state.thumbVideoActive||0))}`});
   const request=(async()=>{
     let data;const httpStarted=performance.now();
-    try{data=await api('/api/thumbnail/video',payload,browseRequestOptions());const total=performance.now()-httpStarted,reason=`video-${demand}-primary`;perfRecord('video_thumbnail_http',total,true,{reason});recordPairedVideoThumbnailTransport(total,data?.thumbnail_server_ms,true,reason)}
-    catch(e){const total=performance.now()-httpStarted,reason=`video-${demand}-${thumbnailErrorReason(e)}`;perfRecord('video_thumbnail_http',total,false,{reason});recordPairedVideoThumbnailTransport(total,e?.data?.thumbnail_server_ms,false,reason);throw e}
+    try{data=await api('/api/thumbnail/video',payload,browseRequestOptions());const total=performance.now()-httpStarted,reason=`video-${demand}-primary`;perfRecord('video_thumbnail_http',total,true,{reason});perfRecord('video_thumbnail_client_lifecycle',performance.now()-requestStarted,true,{reason:'completed'});recordPairedVideoThumbnailTransport(total,data?.thumbnail_server_ms,true,reason)}
+    catch(e){const total=performance.now()-httpStarted,reason=`video-${demand}-${thumbnailErrorReason(e)}`;perfRecord('video_thumbnail_http',total,false,{reason});if(e?.code==='browse-cancelled')perfRecord('video_thumbnail_client_cancel',performance.now()-requestStarted,true,{reason:requestSession===String(state.browseSessionToken||'')?'same-session':'superseded'});else perfRecord('video_thumbnail_client_lifecycle',performance.now()-requestStarted,false,{reason:thumbnailErrorReason(e)});recordPairedVideoThumbnailTransport(total,e?.data?.thumbnail_server_ms,false,reason);throw e}
     const postStarted=performance.now(),sampleClass=data?.partial?'partial':'complete';let postOK=false,postReason=`${demand}-${sampleClass}-${String(data?.method||'response')}`;
     try{
       let url=data.thumbnail_url||'';
