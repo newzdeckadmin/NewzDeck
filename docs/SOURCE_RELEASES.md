@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.71
+## Current release: v3.6.72
 
-**v3.6.71 is the current stable production release.**
+**v3.6.72 is the current stable production release.**
 
-The `v3.6.71` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.72` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.72 - Browse Timeout Error Attribution.** Separates upstream article-header timeout/reset HTTP errors from genuine localhost transport failures, prevents misleading local-service toasts, and keeps schema-9 Video policy reason labels within the established 48-character diagnostics contract.
 
 - **v3.6.71 - Video Thumbnail Decode Failure Suppression.** Preserves client browser-decode/FFmpeg-required errors as definitive non-retryable thumbnail outcomes, prevents known-undecodable requeues, and adds passive schema-9 policy telemetry while preserving established Image/Video concurrency and sample bounds.
 

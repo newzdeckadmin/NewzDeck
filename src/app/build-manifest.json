@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.71",
-  "base_version": "3.6.70",
-  "release": "Video Thumbnail Decode Failure Suppression",
-  "adapter_version": "3.6.71",
-  "name": "Video Thumbnail Decode Failure Suppression",
+  "version": "3.6.72",
+  "base_version": "3.6.71",
+  "release": "Browse Timeout Error Attribution",
+  "adapter_version": "3.6.72",
+  "name": "Browse Timeout Error Attribution",
   "sab_version": "5.1.2",
   "changes": [
-    "Preserves browser-side Video thumbnail error codes through the UI failure path so browser-decode-failed and ffmpeg-required are no longer downgraded to generic retryable preview_failed errors.",
-    "Treats confirmed browser codec/decoder limitations as non-retryable for the current runtime, retains them across group refreshes, excludes them from Related Media representative selection, and blocks stale thumbnail queue paths from re-requesting them.",
-    "Keeps transient browser frame timeout, frame capture, thumbnail-store, and other unknown failures retryable; cached non-retryable failures no longer render a Retry button.",
-    "Browsing-performance schema 9 adds passive video_thumbnail_policy reason telemetry so the decode-suppression policy can be accepted without recording media contents.",
-    "Preserves the accepted six-slot Video ceiling, five-request Image HTTP gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, settings-save retry behavior, private SABnzbd 5.1.2, Discover, Smart Import, and Automation behavior."
+    "Distinguishes errors returned by the NewzDeck backend from actual browser-to-localhost transport failures so an upstream NNTP article timeout is no longer mislabeled as a local-service outage.",
+    "Article overview HTTP timeouts and connection resets now identify the news provider as the failing subsystem while preserving the existing recover-and-continue browsing behavior.",
+    "Real localhost fetch/refused/reset/timeout failures retain local-backend guidance, and the established Automation Grab transport wording remains source-aware.",
+    "Compacts schema-9 Video decode-suppression policy reason labels to fit the existing 48-character diagnostics reason contract without truncating the policy outcome.",
+    "Preserves the accepted six-slot Video ceiling, five-request Image HTTP gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, settings-save retry behavior, private SABnzbd 5.1.2, Discover, Smart Import, Automation and Metadata Server behavior."
   ],
   "regression_guards": [
-    "No FFmpeg or other decoder is bundled; this release changes retry/suppression semantics only for already-confirmed browser decode limitations.",
-    "browser-decode-failed and ffmpeg-required are definitive non-retryable client Video outcomes, while timeout/capture/store failures remain retryable.",
-    "Known unsupported media are not requeued through stale main-gallery or Related Media cover paths during the same runtime.",
-    "Image admission stays 5, high-connection Video ceiling stays 6, Video sample bounds stay 24 MB/12 segments, browsing headers stay 800/800/1000, and All Posts render accumulator constants remain unchanged.",
-    "Settings save retry remains limited to WinError 5/32/33 for 3 seconds; SABnzbd remains 5.1.2 and terminal-history schema remains 3."
-  ],
-  "release_name": "Video Thumbnail Decode Failure Suppression"
+    "HTTP response errors are never passed through the generic localhost/network translator a second time.",
+    "Only /api/articles provider timeout/reset HTTP errors receive the new provider-specific browse wording; unrelated backend HTTP detail is preserved.",
+    "Video policy reason shortening changes labels only; v3.6.71 definitive decode suppression semantics remain intact.",
+    "Browsing-performance schema remains 9 and terminal download-history schema remains 3.",
+    "Image admission stays 5, high-connection Video ceiling stays 6, Video sample bounds stay 24 MB/12 segments, headers stay 800/800/1000, All Posts wait bounds stay unchanged, and settings replacement retries remain Windows 5/32/33 for 3 seconds."
+  ]
 }

@@ -1,11 +1,12 @@
-NewzDeck v3.6.71
-Video Thumbnail Decode Failure Suppression
+NewzDeck v3.6.72 - Browse Timeout Error Attribution
 
-New in v3.6.71:
-- Fixes the client-side retry-policy gap exposed by v3.6.70 diagnostics: browser-decode-failed and ffmpeg-required Video thumbnail errors keep their real error codes instead of becoming generic retryable preview_failed errors.
-- Confirmed browser codec/decoder limitations are retained as non-retryable for the current runtime, are not requeued by group refresh/Related Media paths, and no longer show a misleading Retry button.
-- Transient browser frame timeout, capture, thumbnail-store, and unknown failures remain retryable.
-- Advances browsing-performance telemetry to schema 9 with passive video_thumbnail_policy reason counters for acceptance testing.
-- Preserves the accepted six-slot Video ceiling, five-request Image gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, Metadata Server v0.3.3, private SABnzbd 5.1.2, Discover, Smart Import and Automation.
+This release is a narrow reliability/diagnostic-clarity update built on v3.6.71.
 
-NewzDeck remains free and open source under GPL-3.0-only.
+Highlights:
+- Upstream NNTP article-header timeouts are no longer mislabeled as a local NewzDeck service outage.
+- HTTP/backend errors and browser-to-localhost transport errors are attributed separately.
+- Actual localhost backend connection failures still receive local-backend recovery guidance.
+- Schema-9 Video decode-suppression policy labels are shortened so the existing 48-character reason contract does not truncate them.
+- No browsing/download performance limits, sample sizes, provider allocation, SAB behavior, Automation, Smart Import, Discover, or Metadata Server behavior is retuned.
+
+See release/RELEASE_NOTES_v3.6.72.md for details.

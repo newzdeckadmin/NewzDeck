@@ -1,14 +1,11 @@
-NewzDeck v3.6.71
-Video Thumbnail Decode Failure Suppression
+NewzDeck v3.6.72 update notes
 
-INSTALLED NEWZDECK
--------------------
-Install the v3.6.71 Setup EXE normally. Setup owns the service/tray handoff; no manual service stop is required.
+Installed users
+- Run NewzDeck_v3.6.72_Setup.exe over the existing installation.
+- The installer handles the running NewzDeck/tray/service upgrade flow; no manual service stop should be required.
+- Existing settings, providers, queue state, Automation data, caches and history remain under the version-independent user data directory and are preserved.
 
-Existing settings, providers, Automation library/runtime state, queue ownership, durable Downloads history, statistics and private SABnzbd 5.1.2 state are preserved.
+Portable users
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.72 Portable ZIP contents, then restart NewzDeck.
 
-v3.6.71 is a narrow Newsgroup Browser Video-thumbnail reliability release. It changes only retry/suppression semantics for browser-decode-failed and ffmpeg-required thumbnail outcomes and adds passive policy telemetry. It does not retune Image/Video scheduling, provider allocation, Video sample bounds, All Posts rendering, Settings reliability, Metadata Server v0.3.3, SAB transfer/repair/extraction/retry, Smart Import, Automation reconciliation or Discover.
-
-PORTABLE NEWZDECK
------------------
-Close NewzDeck and extract the v3.6.71 Portable ZIP to a fresh folder. User data remains outside the application directory.
+v3.6.72 changes only error attribution for browsing/backend transport failures, schema-9 Video policy reason labels, and release identity. Accepted performance and download behavior remains unchanged.
