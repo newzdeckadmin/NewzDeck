@@ -1,23 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.72",
-  "base_version": "3.6.71",
-  "release": "Browse Timeout Error Attribution",
-  "adapter_version": "3.6.72",
-  "name": "Browse Timeout Error Attribution",
+  "version": "3.6.73",
+  "base_version": "3.6.72",
+  "release": "Thumbnail Task Identity & Visibility Telemetry",
+  "adapter_version": "3.6.73",
+  "name": "Thumbnail Task Identity & Visibility Telemetry",
   "sab_version": "5.1.2",
   "changes": [
-    "Distinguishes errors returned by the NewzDeck backend from actual browser-to-localhost transport failures so an upstream NNTP article timeout is no longer mislabeled as a local-service outage.",
-    "Article overview HTTP timeouts and connection resets now identify the news provider as the failing subsystem while preserving the existing recover-and-continue browsing behavior.",
-    "Real localhost fetch/refused/reset/timeout failures retain local-backend guidance, and the established Automation Grab transport wording remains source-aware.",
-    "Compacts schema-9 Video decode-suppression policy reason labels to fit the existing 48-character diagnostics reason contract without truncating the policy outcome.",
-    "Preserves the accepted six-slot Video ceiling, five-request Image HTTP gate, 24 MB/12-segment Video sample bounds, 800/800/1000 headers, All Posts accumulator, settings-save retry behavior, private SABnzbd 5.1.2, Discover, Smart Import, Automation and Metadata Server behavior."
+    "Queued Image and Video thumbnail tasks now verify their stable sourceArticleKey before execution and relocate to the live article index when continuous browsing has rebuilt or shifted the article array.",
+    "Thumbnail tasks whose source article disappeared or no longer contains compatible complete media are discarded locally instead of sending mismatched media/segment data to the thumbnail endpoint.",
+    "Browsing telemetry schema 10 preserves total thumbnail queue age while separately measuring offscreen/prefetch dwell and actual visible wait, and records stable-identity relocations/discards for passive acceptance evidence.",
+    "The thumbnail scheduler scoring formula, Image HTTP admission limit 5, high-connection Video ceiling 6, 24 MB/12-segment Video sample bounds, 800/800/1000 header strategy, All Posts resolver waits, Settings reliability, private SABnzbd 5.1.2, Smart Import, Automation, Discover and Metadata Server behavior are unchanged."
   ],
   "regression_guards": [
-    "HTTP response errors are never passed through the generic localhost/network translator a second time.",
-    "Only /api/articles provider timeout/reset HTTP errors receive the new provider-specific browse wording; unrelated backend HTTP detail is preserved.",
-    "Video policy reason shortening changes labels only; v3.6.71 definitive decode suppression semantics remain intact.",
-    "Browsing-performance schema remains 9 and terminal download-history schema remains 3.",
-    "Image admission stays 5, high-connection Video ceiling stays 6, Video sample bounds stay 24 MB/12 segments, headers stay 800/800/1000, All Posts wait bounds stay unchanged, and settings replacement retries remain Windows 5/32/33 for 3 seconds."
+    "Every queued gallery and Related Media thumbnail task is resolved against sourceArticleKey before Image/Video fetch execution; stale missing or incompatible work is discarded without a thumbnail HTTP request.",
+    "Stable-key relocation updates the live task index used for DOM/error completion without changing scheduler scoring, queue limits, cancellation/session/generation checks, cache keys, retry policy, or provider allocation.",
+    "thumbnail_queue remains total queue age; schema-10 thumbnail_prefetch_dwell and thumbnail_visible_wait partition offscreen dwell from time actually visible before execution, and thumbnail_task_identity reports only passive local decisions.",
+    "Image admission stays 5, high-connection Video ceiling stays 6, Video sample bounds stay 24 MB/12 segments, headers stay 800/800/1000, All Posts wait bounds stay unchanged, settings replacement retries remain Windows 5/32/33 for 3 seconds, SAB stays 5.1.2, and terminal-history schema stays 3."
   ]
 }

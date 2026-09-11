@@ -8,7 +8,7 @@ def load(name,path):
 def check(c,m):
  if not c: raise AssertionError(m)
 server=(APP/'server.py').read_text(encoding='utf-8'); app=(APP/'static'/'app.js').read_text(encoding='utf-8'); index=(APP/'static'/'index.html').read_text(encoding='utf-8'); manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8')); sab=load('newzdeck_v3671_sab_guard',APP/'sab_engine.py')
-# Evidence-driven v3.6.72 policy: preserve client code, suppress only definitive codec/decoder limits.
+# Evidence-driven v3.6.73 policy: preserve client code, suppress only definitive codec/decoder limits.
 for marker in (
  "data.error_code||error?.code||'preview_failed'",
  "clientPermanent=['browser-decode-failed','ffmpeg-required'].includes(code)",
@@ -21,9 +21,9 @@ for marker in (
  "perfRecord('video_thumbnail_policy',0,true",
  '"video_thumbnail_policy"',
  'stage in {"video_thumbnail_post", "video_thumbnail_policy"}',
-): check(marker in (server+app),'v3.6.72 Video decode suppression marker missing: '+marker)
+): check(marker in (server+app),'v3.6.73 Video decode suppression marker missing: '+marker)
 check('browser-frame-timeout' in app and 'frame-capture-failed' in app and 'thumb-store-${thumbnailErrorReason(e)}' in app,'Transient Video failure classifications disappeared')
-check('"schema_version": 9' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 9/contract missing')
+check('"schema_version": 10' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 9/contract missing')
 # Accepted browsing behavior stays frozen.
 check('const THUMBNAIL_HTTP_ADMISSION_LIMIT=5;' in app,'Image HTTP admission changed')
 formula='state.videoThumbConcurrency=Math.max(1,Math.min(6,connections>=48?6:connections>=24?3:connections>=12?2:1,state.thumbConcurrency));'
@@ -40,9 +40,9 @@ for node in tree.body:
  elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3671>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.72','version.txt mismatch')
-check("const UI_VERSION = '3.6.72'" in app and '3.6.72-browse-timeout-error-attribution' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.72' and manifest.get('base_version')=='3.6.71' and manifest.get('adapter_version')=='3.6.72','build manifest identity mismatch')
-check(sab.ADAPTER_VERSION=='3.6.72' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.73','version.txt mismatch')
+check("const UI_VERSION = '3.6.73'" in app and '3.6.73-thumbnail-task-identity-visibility-telemetry' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.73' and manifest.get('base_version')=='3.6.72' and manifest.get('adapter_version')=='3.6.73','build manifest identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.73' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.72 regression guard: PASS')
+print('v3.6.73 regression guard: PASS')

@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.72';
+const UI_VERSION = '3.6.73';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -1549,7 +1549,7 @@ function queueThumbnail(index,priority=1,distance=0,role='item',options=null){
     const existing=state.thumbQueue.find(t=>t.qkey===qkey);
     if(existing){
       const oldPriority=Number(existing.priority??1),nextPriority=Math.min(oldPriority,Number(priority??1));
-      existing.index=index;existing.pkey=pkey;existing.kind=a.media.kind;existing.setKey=setKey;existing.priority=nextPriority;existing.distance=nextPriority===0?0:Math.min(Math.max(0,Number(existing.distance||0)),Math.max(0,Number(distance||0)));existing.bytes=Number(a.bytes||0);existing.generation=generation;existing.browseSession=browseSession;existing.sourceArticleKey=articleKey(a);existing.group=articleGroup(a);existing.provider=state.providerId;
+      existing.index=index;existing.pkey=pkey;existing.kind=a.media.kind;existing.setKey=setKey;existing.priority=nextPriority;existing.distance=nextPriority===0?0:Math.min(Math.max(0,Number(existing.distance||0)),Math.max(0,Number(distance||0)));existing.bytes=Number(a.bytes||0);existing.generation=generation;existing.browseSession=browseSession;existing.sourceArticleKey=articleKey(a);existing.group=articleGroup(a);existing.provider=state.providerId;if(nextPriority===0&&!Number(existing.firstVisibleAt||0))existing.firstVisibleAt=Date.now();
       state.thumbQueued.add(qkey);
       if(nextPriority<oldPriority)state.relatedCoverStats.queuePromotions=Number(state.relatedCoverStats.queuePromotions||0)+1;
       pumpThumbQueue();return false;
@@ -1557,16 +1557,27 @@ function queueThumbnail(index,priority=1,distance=0,role='item',options=null){
     if(state.thumbActiveTasks.has(qkey))return false;
   }else if(state.thumbQueued.has(qkey))return false;
   if(holder&&!holder.dataset.thumbBornAt)holder.dataset.thumbBornAt=String(Date.now());
-  state.thumbQueued.add(qkey);state.thumbQueue.push({index,pkey,qkey,kind:a.media.kind,role,setKey,priority,distance,bytes:Number(a.bytes||0),queuedAt:Date.now(),generation,browseSession,sourceArticleKey:articleKey(a),group:articleGroup(a),provider:state.providerId});pumpThumbQueue();return true;
+  const queuedAt=Date.now();state.thumbQueued.add(qkey);state.thumbQueue.push({index,pkey,qkey,kind:a.media.kind,role,setKey,priority,distance,bytes:Number(a.bytes||0),queuedAt,firstVisibleAt:Number(priority??1)===0?queuedAt:0,generation,browseSession,sourceArticleKey:articleKey(a),group:articleGroup(a),provider:state.providerId});pumpThumbQueue();return true;
 }
 function liveThumbnailTaskScore(task){
-  const geo=state.thumbGeometry.get(thumbnailGeometryKey(task.index,task.role));const visible=geo?!!geo.visible:Number(task.priority||1)===0,distance=geo?Number(geo.distance||0):Math.max(0,Number(task.distance||0));
-  const mb=Math.max(0,Number(task.bytes||0)/1048576),sizePenalty=Math.min(240000,Math.log2(1+mb)*26000),ageSec=Math.max(0,(Date.now()-Number(task.queuedAt||Date.now()))/1000),ageCredit=Math.min(sizePenalty*.9,ageSec*14000);
+  const now=Date.now(),stableKey=String(task?.sourceArticleKey||'');let scoreIndex=Number(task?.index),scoreArticle=state.articles[scoreIndex];if(stableKey&&(!scoreArticle||articleKey(scoreArticle)!==stableKey)){const found=state.articles.findIndex(x=>articleKey(x)===stableKey);scoreIndex=found>=0?found:-1}const geo=scoreIndex>=0?state.thumbGeometry.get(thumbnailGeometryKey(scoreIndex,task.role)):null;const visible=geo?!!geo.visible:Number(task.priority||1)===0,distance=geo?Number(geo.distance||0):Math.max(0,Number(task.distance||0));
+  if(visible&&!Number(task.firstVisibleAt||0))task.firstVisibleAt=now;
+  const mb=Math.max(0,Number(task.bytes||0)/1048576),sizePenalty=Math.min(240000,Math.log2(1+mb)*26000),ageSec=Math.max(0,(now-Number(task.queuedAt||now))/1000),ageCredit=Math.min(sizePenalty*.9,ageSec*14000);
   return(visible?0:1)*1e9+Math.max(0,distance)*1000+Math.max(0,sizePenalty-ageCredit);
+}
+function resolveThumbnailTaskArticle(task){
+  let liveIndex=Number(task?.index),a=state.articles[liveIndex];const stableKey=String(task?.sourceArticleKey||'');
+  if(stableKey&&(!a||articleKey(a)!==stableKey)){
+    liveIndex=state.articles.findIndex(x=>articleKey(x)===stableKey);
+    if(liveIndex<0){perfRecord('thumbnail_task_identity',0,true,{reason:'stale-missing'});return null}
+    a=state.articles[liveIndex];task.index=liveIndex;task.pkey=previewKey(a);task.bytes=Number(a?.bytes||0);perfRecord('thumbnail_task_identity',0,true,{reason:'relocated'});
+  }
+  if(!a?.media||!a.complete||!['image','video'].includes(a.media.kind)||a.media.kind!==task.kind||articleGroup(a)!==task.group){perfRecord('thumbnail_task_identity',0,true,{reason:'incompatible-media'});return null}
+  return a;
 }
 function pumpThumbQueue(){
   while(state.thumbActive<state.thumbConcurrency&&state.thumbQueue.length){
-    const kept=[];for(const t of state.thumbQueue){const targetOK=t.role!=='set-cover'||!!relatedSetCardByKey(t.setKey),sameContext=t.group===state.selectedGroup&&t.provider===state.providerId;const live=t.role==='set-cover'?(sameContext&&t.browseSession===state.browseSessionToken&&targetOK):(t.generation===state.galleryGeneration&&sameContext&&!!state.articles[t.index]&&targetOK);if(live)kept.push(t);else state.thumbQueued.delete(t.qkey||t.pkey)}state.thumbQueue=kept;
+    const kept=[];for(const t of state.thumbQueue){const targetOK=t.role!=='set-cover'||!!relatedSetCardByKey(t.setKey),sameContext=t.group===state.selectedGroup&&t.provider===state.providerId,galleryIdentityAvailable=!!t.sourceArticleKey||!!state.articles[t.index];const live=t.role==='set-cover'?(sameContext&&t.browseSession===state.browseSessionToken&&targetOK):(t.generation===state.galleryGeneration&&sameContext&&galleryIdentityAvailable&&targetOK);if(live)kept.push(t);else state.thumbQueued.delete(t.qkey||t.pkey)}state.thumbQueue=kept;
     if(!state.thumbQueue.length)return;
     // r9: visible Related Media covers own up to two *reserved* slots inside the
     // existing global thumbnail limit. Gallery work cannot refill those slots while
@@ -1591,15 +1602,14 @@ function pumpThumbQueue(){
     }
     if(reservedCoverPos>=0)pos=reservedCoverPos;
     if(pos<0)return;
-    const task=state.thumbQueue.splice(pos,1)[0],sampleStarted=performance.now(),queueWaitMs=Math.max(0,Date.now()-Number(task.queuedAt||Date.now()));perfRecord('thumbnail_queue',queueWaitMs,true,{reason:thumbnailDemandClass(task)});
+    const task=state.thumbQueue.splice(pos,1)[0];if(!resolveThumbnailTaskArticle(task)){state.thumbQueued.delete(task.qkey||task.pkey);continue}const sampleStarted=performance.now(),queueStartedAt=Date.now(),queuedAt=Number(task.queuedAt||queueStartedAt),startGeo=state.thumbGeometry.get(thumbnailGeometryKey(task.index,task.role)),startVisible=startGeo?!!startGeo.visible:Number(task.priority||1)===0;if(startVisible&&!Number(task.firstVisibleAt||0))task.firstVisibleAt=queueStartedAt;const firstVisibleAt=Number(task.firstVisibleAt||0),queueWaitMs=Math.max(0,queueStartedAt-queuedAt),prefetchDwellMs=Math.max(0,(firstVisibleAt||queueStartedAt)-queuedAt),visibleWaitMs=firstVisibleAt?Math.max(0,queueStartedAt-firstVisibleAt):0;perfRecord('thumbnail_queue',queueWaitMs,true,{reason:thumbnailDemandClass(task)});if(prefetchDwellMs>0)perfRecord('thumbnail_prefetch_dwell',prefetchDwellMs,true,{reason:String(task.role||'item')});if(firstVisibleAt)perfRecord('thumbnail_visible_wait',visibleWaitMs,true,{reason:String(task.role||'item')});
     state.thumbActive++;state.thumbActiveTasks.set(task.qkey,Date.now());if(task.kind==='video')state.thumbVideoActive++;if(task.role==='set-cover'){state.thumbSetActive++;const s=state.relatedCoverStats;s.started++;s.totalQueueWaitMs+=queueWaitMs;s.maxQueueWaitMs=Math.max(Number(s.maxQueueWaitMs||0),queueWaitMs)};
     (async()=>{
       let sampleOK=false;
       try{
         const sameContext=task.group===state.selectedGroup&&task.provider===state.providerId,coverSessionLive=task.role==='set-cover'&&sameContext&&task.browseSession===state.browseSessionToken,galleryTaskLive=task.role!=='set-cover'&&task.generation===state.galleryGeneration&&sameContext;
         if(!(coverSessionLive||galleryTaskLive)){if(task.role==='set-cover')state.relatedCoverStats.staleSessionDrops++;return}
-        let a=state.articles[task.index];if(task.role==='set-cover'&&task.sourceArticleKey&&(!a||articleKey(a)!==task.sourceArticleKey)){const liveIndex=state.articles.findIndex(x=>articleKey(x)===task.sourceArticleKey);if(liveIndex>=0)a=state.articles[liveIndex]}
-        if(!a)return;
+        const a=resolveThumbnailTaskArticle(task);if(!a)return;
         let data,coverResult=null;if(task.kind==='video')data=await fetchVideoThumbnail(a,task);else if(task.role==='set-cover'){coverResult=await fetchMediaSetCover(task,a);data=coverResult.data}else data=await fetchImageThumbnail(a,task);sampleOK=true;
         const completionContext=task.group===state.selectedGroup&&task.provider===state.providerId,coverCompletionLive=task.role==='set-cover'&&completionContext&&task.browseSession===state.browseSessionToken,galleryCompletionLive=task.role!=='set-cover'&&task.generation===state.galleryGeneration&&completionContext;
         if(task.kind==='image'&&data?.suppressed_small){

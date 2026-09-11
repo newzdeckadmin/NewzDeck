@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.72"
+APP_VERSION = "3.6.73"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -430,7 +430,7 @@ BROWSE_LARGE_PAGE_THRESHOLD = 1000
 _BROWSER_PERF_LOCK = threading.RLock()
 _BROWSER_PERF_SAMPLE_LIMIT = 240
 _BROWSER_PERF_ALLOWED_MODES = {"images", "videos", "media", "all"}
-_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_admission", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "video_thumbnail_http", "video_thumbnail_post", "video_thumbnail_policy", "video_thumbnail_server_pair", "video_thumbnail_transport_gap", "name_resolution_batch", "name_resolution_render_wait", "preview", "viewer_preload"}
+_BROWSER_PERF_ALLOWED_CLIENT_STAGES = {"headers", "render", "group_index", "virtualize", "search", "thumbnail", "thumbnail_queue", "thumbnail_prefetch_dwell", "thumbnail_visible_wait", "thumbnail_task_identity", "thumbnail_admission", "thumbnail_http", "thumbnail_post", "thumbnail_recovery", "thumbnail_server_pair", "thumbnail_transport_gap", "video_thumbnail_http", "video_thumbnail_post", "video_thumbnail_policy", "video_thumbnail_server_pair", "video_thumbnail_transport_gap", "name_resolution_batch", "name_resolution_render_wait", "preview", "viewer_preload"}
 _BROWSER_PERF_CLIENT: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_SERVER: dict[tuple[str, str], deque[float]] = {}
 _BROWSER_PERF_COUNTERS: dict[str, dict[str, int]] = {}
@@ -543,7 +543,7 @@ def newsgroup_browsing_performance_snapshot() -> dict[str, Any]:
             out.setdefault(mode, {})[stage] = _browse_perf_summary(values)
         return out
     return {
-        "schema_version": 9,
+        "schema_version": 10,
         "contract": "passive-runtime-browsing-performance",
         "overview_chunk_headers": BROWSE_OVERVIEW_CHUNK_HEADERS,
         "first_paint_headers": BROWSE_FIRST_PAINT_HEADERS,

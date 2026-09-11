@@ -31,7 +31,7 @@ class DummyDownloadManager:
 
 
 def make_auto(root: Path):
-    engine = auto.MediaAutomationEngine(root, lambda value: value, lambda value: value, DummyDownloadManager(), lambda: [], version='3.6.72')
+    engine = auto.MediaAutomationEngine(root, lambda value: value, lambda value: value, DummyDownloadManager(), lambda: [], version='3.6.73')
     # Keep timer-driven persistence out of deterministic fixture timing. Tests call
     # the same production flush method explicitly after verifying in-memory state.
     engine._metadata_cache_flush_delay_seconds = 60
@@ -129,19 +129,19 @@ app_js = (APP / 'static' / 'app.js').read_text(encoding='utf-8')
 index_html = (APP / 'static' / 'index.html').read_text(encoding='utf-8')
 check('_discover_library_index_snapshot' in auto_text and "'library_index':library_stats" in auto_text, 'Discover library-index implementation/telemetry is missing.')
 check('_flush_metadata_cache_now' in auto_text and '_metadata_cache_coalesced_write_requests' in auto_text, 'Metadata-cache write coalescing implementation is missing.')
-check('cache_write_requests=' in server_text and 'library_index_builds=' in server_text, 'Diagnostics report does not expose v3.6.72 local-data-path telemetry.')
-check("const UI_VERSION = '3.6.72'" in app_js, 'UI version marker is not v3.6.72.')
+check('cache_write_requests=' in server_text and 'library_index_builds=' in server_text, 'Diagnostics report does not expose v3.6.73 local-data-path telemetry.')
+check("const UI_VERSION = '3.6.73'" in app_js, 'UI version marker is not v3.6.73.')
 check('discoverDetailPrefetchLimit:2' in app_js and '},650)' in app_js, 'v3.6.59 conservative hover prefetch was not preserved.')
-check('3.6.72-browse-timeout-error-attribution' in index_html, 'v3.6.72 static cache identity marker is missing.')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.72</span></div>' in index_html, 'Visible sidebar footer version is not v3.6.72.')
+check('3.6.73-thumbnail-task-identity-visibility-telemetry' in index_html, 'v3.6.73 static cache identity marker is missing.')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.73</span></div>' in index_html, 'Visible sidebar footer version is not v3.6.73.')
 
 # 5. Release identities stay coherent while Metadata Server/SAB/terminal history stay unchanged.
 manifest = json.loads((APP / 'build-manifest.json').read_text(encoding='utf-8'))
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.72', 'version.txt is not v3.6.72.')
-check(manifest.get('version') == '3.6.72' and manifest.get('base_version') == '3.6.71', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.72' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.72', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
-check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.72 changed SAB 5.1.2 or terminal-history schema unexpectedly.')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.73', 'version.txt is not v3.6.73.')
+check(manifest.get('version') == '3.6.73' and manifest.get('base_version') == '3.6.72', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.73' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.73', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.73 changed SAB 5.1.2 or terminal-history schema unexpectedly.')
 check("timeout=8" in auto_text and "interaction=='prefetch'" in auto_text, 'v3.6.59 bounded Detail/prefetch semantics were not preserved.')
 
-print('v3.6.72 regression guard: PASS')
+print('v3.6.73 regression guard: PASS')
