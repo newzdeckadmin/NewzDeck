@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.82';
+const UI_VERSION = '3.6.83';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -26,7 +26,7 @@ const els = {
   downloadSelectionBar:$('downloadSelectionBar'), downloadSelectionCount:$('downloadSelectionCount'), downloadPrioritySelect:$('downloadPrioritySelect'), downloadMoveTopBtn:$('downloadMoveTopBtn'), downloadMoveBottomBtn:$('downloadMoveBottomBtn'), downloadPauseSelectedBtn:$('downloadPauseSelectedBtn'), downloadResumeSelectedBtn:$('downloadResumeSelectedBtn'), downloadRetrySelectedBtn:$('downloadRetrySelectedBtn'), downloadCancelSelectedBtn:$('downloadCancelSelectedBtn'), downloadRemoveSelectedBtn:$('downloadRemoveSelectedBtn'), downloadClearSelectionBtn:$('downloadClearSelectionBtn'),
   nzbImportModal:$('nzbImportModal'), nzbImportCloseBtn:$('nzbImportCloseBtn'), nzbImportCancelBtn:$('nzbImportCancelBtn'), nzbCollectionName:$('nzbCollectionName'), nzbImportSummary:$('nzbImportSummary'), nzbImportFiles:$('nzbImportFiles'), nzbImportSelectionSummary:$('nzbImportSelectionSummary'), nzbImportQueueBtn:$('nzbImportQueueBtn'), nzbSelectAllBtn:$('nzbSelectAllBtn'), nzbSelectRecommendedBtn:$('nzbSelectRecommendedBtn'), nzbSelectNoneBtn:$('nzbSelectNoneBtn'),
   archivePasswordModal:$('archivePasswordModal'), archivePasswordInput:$('archivePasswordInput'), archivePasswordCloseBtn:$('archivePasswordCloseBtn'), archivePasswordCancelBtn:$('archivePasswordCancelBtn'), archivePasswordSubmitBtn:$('archivePasswordSubmitBtn'),
-  aboutModal:$('aboutModal'), aboutInstallStatus:$('aboutInstallStatus'), aboutRuntimeStatus:$('aboutRuntimeStatus'), aboutInstallPath:$('aboutInstallPath'), aboutDataPath:$('aboutDataPath'), onlineUpdateStatus:$('onlineUpdateStatus'), onlineUpdateDetail:$('onlineUpdateDetail'), onlineReleaseNotes:$('onlineReleaseNotes'), onlineUpdateResult:$('onlineUpdateResult'), checkUpdatesBtn:$('checkUpdatesBtn'), installOnlineUpdateBtn:$('installOnlineUpdateBtn'), updatePackageInput:$('updatePackageInput'), updatePackageName:$('updatePackageName'), installUpdateBtn:$('installUpdateBtn'), updateResult:$('updateResult'), openDataFolderBtn:$('openDataFolderBtn'), aboutCloseBtn:$('aboutCloseBtn'),
+  aboutModal:$('aboutModal'), aboutVersion:$('aboutVersion'), aboutInstallStatus:$('aboutInstallStatus'), aboutRuntimeStatus:$('aboutRuntimeStatus'), aboutRuntimeVersion:$('aboutRuntimeVersion'), aboutInstallPath:$('aboutInstallPath'), aboutDataPath:$('aboutDataPath'), onlineUpdateStatus:$('onlineUpdateStatus'), onlineUpdateDetail:$('onlineUpdateDetail'), onlineReleaseNotes:$('onlineReleaseNotes'), onlineUpdateResult:$('onlineUpdateResult'), checkUpdatesBtn:$('checkUpdatesBtn'), installOnlineUpdateBtn:$('installOnlineUpdateBtn'), updatePackageInput:$('updatePackageInput'), updatePackageName:$('updatePackageName'), installUpdateBtn:$('installUpdateBtn'), updateResult:$('updateResult'), openDataFolderBtn:$('openDataFolderBtn'), aboutCloseBtn:$('aboutCloseBtn'),
   groupSearchModal:$('groupSearchModal'), entireGroupSearchInput:$('entireGroupSearchInput'), entireGroupSearchGroup:$('entireGroupSearchGroup'),
   entireGroupSearchProgress:$('entireGroupSearchProgress'), entireGroupSearchStatus:$('entireGroupSearchStatus'), entireGroupSearchPercent:$('entireGroupSearchPercent'), entireGroupSearchProgressFill:$('entireGroupSearchProgressFill'), entireGroupSearchStats:$('entireGroupSearchStats'), entireGroupSearchError:$('entireGroupSearchError'),
   startEntireGroupSearchBtn:$('startEntireGroupSearchBtn'), cancelEntireGroupSearchBtn:$('cancelEntireGroupSearchBtn'), viewEntireGroupSearchResultsBtn:$('viewEntireGroupSearchResultsBtn'), closeGroupSearchModalBtn:$('closeGroupSearchModalBtn'), entireSearchKind:$('entireSearchKind'), entireSearchPoster:$('entireSearchPoster'), entireSearchMinMb:$('entireSearchMinMb'), entireSearchMaxMb:$('entireSearchMaxMb'), entireSearchAge:$('entireSearchAge'), entireSearchExtensions:$('entireSearchExtensions'), savedSearchSelect:$('savedSearchSelect'), saveCurrentSearchBtn:$('saveCurrentSearchBtn'), deleteSavedSearchBtn:$('deleteSavedSearchBtn'),
@@ -2501,17 +2501,37 @@ function handleKeyboardShortcuts(e){
 }
 
 
+function updateVersionTuple(value=''){
+  const nums=(String(value||'').match(/\d+/g)||[]).slice(0,4).map(Number);while(nums.length<4)nums.push(0);return nums;
+}
+function compareUpdateVersions(a,b){
+  const aa=updateVersionTuple(a),bb=updateVersionTuple(b);for(let i=0;i<4;i++){if(aa[i]!==bb[i])return aa[i]>bb[i]?1:-1}return 0;
+}
 function renderOnlineUpdate(d={}){
-  state.onlineUpdate=d;
   if(!els.onlineUpdateStatus)return;
-  const latest=String(d.latest_version||d.current_version||UI_VERSION),available=!!d.update_available;
+  const latest=String(d.latest_version||d.installed_version||d.current_version||UI_VERSION).replace(/^v/i,'').trim()||UI_VERSION;
+  const installed=String(d.installed_version||d.current_version||d.version||UI_VERSION).replace(/^v/i,'').trim()||UI_VERSION;
+  const runtime=String(d.runtime_version||d.version||'').replace(/^v/i,'').trim();
+  const effectiveCurrent=compareUpdateVersions(installed,UI_VERSION)>=0?installed:UI_VERSION;
+  const runtimeMismatch=!!d.runtime_mismatch||(runtime&&compareUpdateVersions(runtime,installed)!==0)||compareUpdateVersions(installed,UI_VERSION)!==0;
+  const available=compareUpdateVersions(latest,effectiveCurrent)>0;
+  state.onlineUpdate={...d,latest_version:latest,installed_version:installed,runtime_version:runtime,update_available:available,runtime_mismatch:runtimeMismatch};
   if(d.online_feed===false){els.onlineUpdateStatus.textContent='Private development build';els.onlineUpdateDetail.textContent='No public update channel is configured. Manual Setup EXE updates remain available.';els.installOnlineUpdateBtn.disabled=true;$('aboutBtn')?.classList.remove('update-available');els.onlineReleaseNotes?.classList.add('hidden');return;}
+  if(runtimeMismatch&&!available){
+    els.onlineUpdateStatus.textContent='Runtime restart required';
+    els.onlineUpdateDetail.textContent=`Installed v${installed} • backend ${runtime?`v${runtime}`:'version unknown'} • UI v${UI_VERSION}. NewzDeck will not offer the installed release as an update.`;
+    els.installOnlineUpdateBtn.disabled=true;$('aboutBtn')?.classList.remove('update-available');els.onlineReleaseNotes?.classList.add('hidden');return;
+  }
   if(d.feed_error&&!d.latest_version){els.onlineUpdateStatus.textContent='Update check unavailable';els.onlineUpdateDetail.textContent=d.feed_error;els.installOnlineUpdateBtn.disabled=true;$('aboutBtn')?.classList.remove('update-available');return;}
-  els.onlineUpdateStatus.textContent=available?`NewzDeck v${latest} available`:`NewzDeck v${UI_VERSION} is current`;
+  els.onlineUpdateStatus.textContent=available?`NewzDeck v${latest} available`:`NewzDeck v${effectiveCurrent} is current`;
   if(available){
     const verified=!!d.verified_download;els.onlineUpdateDetail.textContent=verified?`Verified installer ready${d.installer_size?` • ${formatBytes(d.installer_size)}`:''}`:'Release found, but no SHA-256 checksum is published yet.';
     els.installOnlineUpdateBtn.disabled=!verified;$('aboutBtn')?.classList.toggle('update-available',true);
-  }else{els.onlineUpdateDetail.textContent=d.checked_at?`Checked ${new Date(Number(d.checked_at)*1000).toLocaleString()}`:'No newer release found.';els.installOnlineUpdateBtn.disabled=true;$('aboutBtn')?.classList.remove('update-available');}
+  }else{
+    const checked=d.checked_at?`Checked ${new Date(Number(d.checked_at)*1000).toLocaleString()}`:'No newer release found.';
+    els.onlineUpdateDetail.textContent=d.feed_error?`${checked} • Feed refresh failed; the installed version is still current.`:checked;
+    els.installOnlineUpdateBtn.disabled=true;$('aboutBtn')?.classList.remove('update-available');
+  }
   const notes=String(d.release_notes||'').trim();if(notes&&available){els.onlineReleaseNotes.classList.remove('hidden');els.onlineReleaseNotes.innerHTML=`<b>Release notes</b><p>${escapeHtml(notes.slice(0,3000)).replace(/\n/g,'<br>')}</p>`}else els.onlineReleaseNotes.classList.add('hidden');
 }
 async function checkOnlineUpdates(force=false,{quiet=false}={}){
@@ -2537,12 +2557,17 @@ async function openAboutModal(){
   els.updateResult.className='test-result hidden';els.updateResult.textContent='';els.onlineUpdateResult.className='test-result hidden';els.onlineUpdateResult.textContent='';
   try{
     const d=await api('/api/update/status');
+    const installed=String(d.installed_version||d.current_version||d.version||UI_VERSION).replace(/^v/i,'').trim()||UI_VERSION;
+    const runtime=String(d.runtime_version||d.version||'').replace(/^v/i,'').trim();
+    const mismatch=!!d.runtime_mismatch||(runtime&&compareUpdateVersions(runtime,installed)!==0)||compareUpdateVersions(installed,UI_VERSION)!==0;
+    if(els.aboutVersion)els.aboutVersion.textContent=`v${installed}`;
     els.aboutInstallStatus.textContent=d.installed?'Installed Windows app':'Portable app';
-    els.aboutRuntimeStatus.textContent=d.private_runtime?'Private Python runtime ready':'Runtime bootstrap required';
+    els.aboutRuntimeStatus.textContent=mismatch?'Runtime version mismatch':(d.private_runtime?'Private Python runtime ready':'Runtime bootstrap required');
+    if(els.aboutRuntimeVersion)els.aboutRuntimeVersion.textContent=mismatch?`Installed v${installed} • backend ${runtime?`v${runtime}`:'unknown'} • UI v${UI_VERSION}`:`Backend v${runtime||installed} matches installed v${installed}.`;
     els.aboutInstallPath.textContent=d.app_dir||'';els.aboutInstallPath.title=d.app_dir||'';
     els.aboutDataPath.textContent=d.data_dir||'';els.aboutDataPath.title=d.data_dir||'';
     els.updatePackageInput.disabled=false;els.installUpdateBtn.disabled=!els.updatePackageInput.files?.[0];
-  }catch(e){toast(e.message,'error')}
+  }catch(e){if(els.aboutVersion)els.aboutVersion.textContent=`v${UI_VERSION}`;toast(e.message,'error')}
   checkOnlineUpdates(false,{quiet:true});
 }
 function closeAboutModal(){els.aboutModal.classList.add('hidden')}

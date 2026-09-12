@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.82** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.83** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.82_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.83_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.82 highlights
+## v3.6.83 highlights
 
-v3.6.82 is a release-pipeline recovery hotfix that carries the complete reviewed v3.6.81 Automation Intelligence & Quality Profiles application behavior forward unchanged.
+v3.6.83 is a focused Quality Profile UI and update-version coherency release built on the published v3.6.82 baseline.
 
-- **v3.6.81 functionality preserved:** independent monitored metadata refresh, WEB-DL/source-aware upgrades, HDR/Dolby Vision upgrade intelligence, Smart Import alignment and the structured Quality Profile Builder are unchanged.
-- **Canonical trigger repaired:** the guarded publisher now emits the exact `Source commit: <sha>` metadata required by the fail-closed production workflow.
-- **Immutable history preserved:** the existing v3.6.81 source tag is not moved and `main` is not force-pushed; v3.6.82 is a normal new source/tag/trigger release.
-- **Frozen architecture preserved:** Newsgroup Browser performance tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and the Defender-clean yEnc pipeline are unchanged.
+- **Quality Profile dialog polish:** dedicated scrollable body, stable action footer, aligned controls, consistent spacing and responsive policy grids.
+- **Correct About identity:** removes the stale hard-coded v3.6.62 label and reports the installed version dynamically.
+- **Update-version coherency:** installed, runtime and UI versions are tracked separately; same-version releases cannot be offered as upgrades.
+- **Cache safety:** update-feed cache entries are accepted only when they belong to the currently installed version, and fallback availability is recomputed.
+- **Behavior preserved:** v3.6.81 Automation intelligence, v3.6.82 release topology, Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc remain unchanged.
 
-See [the full v3.6.82 release notes](release/RELEASE_NOTES_v3.6.82.md).
+See [the full v3.6.83 release notes](release/RELEASE_NOTES_v3.6.83.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.82_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.83_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

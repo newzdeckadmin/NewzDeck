@@ -24,7 +24,7 @@ def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
 phase3='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
-check(styles.count(phase3)==1,'v3.6.82 Phase 3 stylesheet marker count mismatch')
+check(styles.count(phase3)==1,'v3.6.83 Phase 3 stylesheet marker count mismatch')
 styles_prefix,_phase3_tail=styles.split(phase3,1)
 check(digest_text(styles_prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','v3.6.78 UX stylesheet baseline changed')
 
@@ -40,14 +40,14 @@ for marker in (
     'canonical_git_source_bytes',
     'shutil.copy2(prebuilt_yenc, stage/exe)',
     '"build_origin":"linux-lf-prebuilt" if prebuilt_yenc else "local-source-build"',
-): check(marker in builder,'v3.6.82 builder protection missing: '+marker)
+): check(marker in builder,'v3.6.83 builder protection missing: '+marker)
 for marker in (
     'yenc-helper:', 'runs-on: ubuntu-24.04', 'actions/upload-artifact@v6', 'actions/download-artifact@v6',
     'newzdeck-yenc-defender-lf', 'needs: yenc-helper', '--prebuilt-yenc $yenc',
     'ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd',
     '4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad',
     'python release/windows/validate-v3678-regressions.py',
-): check(marker in workflow,'v3.6.82 canonical workflow protection missing: '+marker)
+): check(marker in workflow,'v3.6.83 canonical workflow protection missing: '+marker)
 
 # Carry forward frozen runtime behavior.
 for marker in (
@@ -72,10 +72,10 @@ for node in tree.body:
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3678>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.82','version.txt mismatch')
-check("const UI_VERSION = '3.6.82'" in app and '3.6.82-release-pipeline-recovery' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.82' and manifest.get('base_version')=='3.6.81' and manifest.get('adapter_version')=='3.6.82','build manifest identity mismatch')
-check(manifest.get('release')=='Automation Intelligence & Quality Profiles','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.82' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.83','version.txt mismatch')
+check("const UI_VERSION = '3.6.83'" in app and '3.6.83-quality-profile-ui-update-version-coherency' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.83' and manifest.get('base_version')=='3.6.82' and manifest.get('adapter_version')=='3.6.83','build manifest identity mismatch')
+check(manifest.get('release')=='Quality Profile UI & Update Version Coherency','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.83' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.82 Defender LF build-pipeline regression guard: PASS')
+print('v3.6.83 Defender LF build-pipeline regression guard: PASS')

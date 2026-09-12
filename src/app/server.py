@@ -298,7 +298,23 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.82"
+APP_VERSION = "3.6.83"
+
+def installed_version() -> str:
+    """Return the version currently installed on disk.
+
+    The running backend can briefly outlive an in-place Setup replacement. The
+    update center must therefore compare the release feed against version.txt,
+    not only the process-start APP_VERSION constant.
+    """
+    try:
+        value = (APP_DIR / "version.txt").read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"\d+\.\d+\.\d+", value):
+            return value
+    except Exception:
+        pass
+    return APP_VERSION
+
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -1053,6 +1069,15 @@ def _version_tuple(value: str) -> tuple[int, ...]:
     nums = [int(x) for x in re.findall(r"\d+", str(value or ""))[:4]]
     return tuple((nums + [0, 0, 0, 0])[:4])
 
+def _update_available_for(latest: str, installed: str | None = None) -> bool:
+    current = str(installed or installed_version()).strip() or APP_VERSION
+    return _version_tuple(latest) > _version_tuple(current)
+
+def _update_cache_matches_install(cached: dict[str, Any], installed: str | None = None) -> bool:
+    current = str(installed or installed_version()).strip() or APP_VERSION
+    cached_version = str(cached.get("installed_version") or cached.get("current_version") or "").strip()
+    return bool(cached_version) and _version_tuple(cached_version) == _version_tuple(current)
+
 def _release_http(url: str, *, timeout: float = 8.0, accept: str = "application/vnd.github+json"):
     req = urllib.request.Request(
         str(url),
@@ -1125,17 +1150,39 @@ def _select_online_update_assets(assets: list[dict[str, Any]], latest_version: s
 
 
 def online_update_status(force: bool = False) -> dict[str, Any]:
+    installed = installed_version()
+    runtime_mismatch = _version_tuple(installed) != _version_tuple(APP_VERSION)
     cached = json_read(UPDATE_FEED_CACHE_FILE, {})
     if not isinstance(cached, dict):
         cached = {}
+    cache_coherent = _update_cache_matches_install(cached, installed)
     now = time.time()
-    if not force and cached.get("checked_at") and now - float(cached.get("checked_at") or 0) < UPDATE_FEED_TTL_SECONDS:
-        return {**cached, "cached": True}
+
+    def coherent(payload: dict[str, Any], *, cached_result: bool = False) -> dict[str, Any]:
+        latest = str(payload.get("latest_version") or installed).strip() or installed
+        return {
+            **payload,
+            "current_version": installed,
+            "installed_version": installed,
+            "runtime_version": APP_VERSION,
+            "runtime_mismatch": runtime_mismatch,
+            "latest_version": latest,
+            "update_available": _update_available_for(latest, installed),
+            "cached": bool(cached_result),
+        }
+
+    if (not force and cache_coherent and cached.get("checked_at")
+            and now - float(cached.get("checked_at") or 0) < UPDATE_FEED_TTL_SECONDS):
+        return coherent(cached, cached_result=True)
+
     base = {
         "online_feed": True,
         "feed_url": UPDATE_FEED_URL,
-        "current_version": APP_VERSION,
-        "latest_version": APP_VERSION,
+        "current_version": installed,
+        "installed_version": installed,
+        "runtime_version": APP_VERSION,
+        "runtime_mismatch": runtime_mismatch,
+        "latest_version": installed,
         "update_available": False,
         "verified_download": False,
         "installer_name": "",
@@ -1155,13 +1202,12 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
             raw = resp.read(4 * 1024 * 1024)
         release = json.loads(raw.decode("utf-8", "replace"))
         tag = str(release.get("tag_name") or release.get("name") or "").strip()
-        latest = re.sub(r"^[vV]", "", tag).strip() or APP_VERSION
+        latest = re.sub(r"^[vV]", "", tag).strip() or installed
         assets = [x for x in (release.get("assets") or []) if isinstance(x, dict)]
         installer, checksum = _select_online_update_assets(assets, latest)
-        result = {
+        result = coherent({
             **base,
             "latest_version": latest,
-            "update_available": _version_tuple(latest) > _version_tuple(APP_VERSION),
             "installer_name": str((installer or {}).get("name") or ""),
             "installer_url": str((installer or {}).get("browser_download_url") or ""),
             "installer_size": int((installer or {}).get("size") or 0),
@@ -1171,13 +1217,14 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
             "release_notes": str(release.get("body") or "")[:12000],
             "published_at": str(release.get("published_at") or release.get("created_at") or ""),
             "checked_at": now,
-        }
+        })
         json_write(UPDATE_FEED_CACHE_FILE, result)
         return result
     except Exception as exc:
-
-        if cached.get("latest_version"):
-            return {**cached, "cached": True, "feed_error": str(exc), "checked_at": float(cached.get("checked_at") or 0)}
+        # A stale cache from an older installed version must never resurrect a
+        # same-version update after Setup has replaced the application files.
+        if cache_coherent and cached.get("latest_version"):
+            return {**coherent(cached, cached_result=True), "feed_error": str(exc), "checked_at": float(cached.get("checked_at") or 0)}
         return {**base, "feed_error": str(exc)}
 
 def _launch_update_handoff(staged: Path, *, target_version: str = "") -> None:
@@ -12893,6 +12940,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             online = online_update_status(force=force) if check_online else {"online_feed": True}
             return self._json(200, {
                 "version": APP_VERSION,
+                "runtime_version": APP_VERSION,
+                "installed_version": installed_version(),
                 "installed": _is_installed_runtime(),
                 "private_runtime": (APP_DIR / "runtime" / "python.exe").exists(),
                 "app_dir": str(APP_DIR),
