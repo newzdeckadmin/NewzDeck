@@ -1,21 +1,22 @@
-NewzDeck v3.6.83 update notes
+NewzDeck v3.6.84 update notes
 
 Installed users
-- Run NewzDeck_v3.6.83_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.84_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.83 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.84 Portable ZIP contents, then restart NewzDeck.
 
 What changes
-- Quality Profile creation/editing receives a dedicated aligned, consistently spaced dialog layout.
-- About & Updates reports the installed version dynamically instead of showing stale hard-coded version text.
-- Update availability is calculated from the installed version on disk, with explicit runtime/UI mismatch reporting and a frontend same-version safety check.
-- Update-feed cache data is accepted only when it belongs to the currently installed version.
+- Wanted/Quality Upgrades now reports the actual reason an existing file is upgradeable instead of claiming an identical quality has not reached itself.
+- Dynamic-range Allow is treated as acceptable, not as a mandatory upgrade target; Prefer/Require continues to drive intended HDR/Dolby Vision progression.
+- Generic WEB at an explicit WEB-DL cutoff remains a source upgrade and is labeled as such.
+- Library and Calendar responses recalculate derived cutoff status from the active profile so stale stored cutoff flags are corrected immediately in the UI.
 
 What stays frozen
-- v3.6.81 Automation quality/source/HDR/Dolby Vision decision behavior and monitored metadata refresh behavior.
-- Newsgroup browsing performance architecture and accepted tuning constants.
-- SABnzbd 5.1.2 integration, download queue, post-processing and throughput behavior.
+- v3.6.83 installed/runtime/UI version coherency and same-version update protection.
+- v3.6.81 structured Quality Profiles and explicit WEB-DL / HDR / Dolby Vision selection behavior outside this policy-semantics fix.
+- Newsgroup Browser performance architecture and accepted tuning constants.
+- SABnzbd 5.1.2 integration, download queue, post-processing and Smart Import behavior.
 - Metadata Server v0.3.3 and Diagnostic Collector v1.0.31.
 - Defender-accepted NewzDeckYenc.exe source/build/hash identity and canonical LF/Linux build path.

@@ -1,29 +1,29 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.83",
-  "base_version": "3.6.82",
-  "release": "Quality Profile UI & Update Version Coherency",
-  "adapter_version": "3.6.83",
-  "name": "Quality Profile UI & Update Version Coherency",
+  "version": "3.6.84",
+  "base_version": "3.6.83",
+  "release": "Wanted Upgrade Reasoning & Cutoff Policy Fix",
+  "adapter_version": "3.6.84",
+  "name": "Wanted Upgrade Reasoning & Cutoff Policy Fix",
   "sab_version": "5.1.2",
   "changes": [
-    "Reworks the Quality Profile editor into a dedicated fixed-header / scroll-body / fixed-footer dialog with consistent gutters, aligned controls, uniform field heights, clearer section spacing and responsive layouts.",
-    "Removes the stale hard-coded v3.6.62 text from About & Updates and reports the installed version dynamically.",
-    "Separates installed, runtime and UI versions in the update center so version mismatches are shown explicitly instead of being misrepresented as an available update.",
-    "Uses the installed version.txt value as the backend update-comparison authority and invalidates update-feed cache entries created by a different installed version.",
-    "Adds a frontend same-version safety check so the currently installed/UI release can never be offered as an upgrade even if an older runtime or stale feed result reports otherwise.",
-    "Recomputes cached-feed update availability against the current installed version on fallback after a feed error.",
-    "Carries the v3.6.81 Automation Intelligence & Quality Profiles behavior and the v3.6.82 canonical release pipeline forward unchanged outside these targeted fixes.",
-    "Preserves the accepted Newsgroup Browser performance architecture, SABnzbd 5.1.2 integration, download/post-processing pipeline, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc pipeline."
+    "Separates base quality cutoff, release-source specificity and preferred dynamic range when deciding whether an existing library file still needs an upgrade.",
+    "Stops Allow-only dynamic-range policies from being treated as mandatory terminal upgrade targets; 1080p Balanced files at 1080p WEB-DL no longer become false Wanted upgrades solely because they are SDR.",
+    "Keeps the 4K Preferred SDR to HDR to Dolby Vision to Dolby Vision + HDR fallback progression when the profile explicitly marks those dynamic-range states Prefer or Require.",
+    "Makes Wanted explain the real upgrade dimension instead of rendering contradictions such as Current 2160p WEB-DL has not reached 2160p WEB-DL.",
+    "Adds explicit Wanted paths for base-quality, WEB to WEB-DL source, and dynamic-range upgrades and keeps manual/automatic release evaluation on the same policy target.",
+    "Recomputes derived cutoff flags in live Library and Calendar responses so stale pre-v3.6.84 cutoff_met booleans do not leave the UI showing obsolete upgrade states until another library scan.",
+    "Carries v3.6.83 About/update-version coherency, v3.6.81 quality-profile behavior, and the canonical source-tag-trigger release pipeline forward unchanged outside this targeted fix.",
+    "Preserves frozen Newsgroup Browser tuning, SABnzbd 5.1.2, Smart Import/post-processing, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and the Defender-clean yEnc pipeline."
   ],
   "regression_guards": [
-    "v3.6.83 pins the reviewed server, UI, stylesheet and profile-layout payload hashes and behavior checks.",
-    "A same-version latest release must never set update_available when installed version.txt already matches that release.",
-    "An update cache created by an older installed version must not be accepted as a coherent current cache.",
-    "The About dialog must not contain any hard-coded historical NewzDeck v3.6.62 label and must expose dynamic installed/runtime version fields.",
-    "The Quality Profile modal must use dedicated scroll-body/footer layout markers and preserve all structured profile controls introduced in v3.6.81.",
-    "v3.6.81 quality upgrade semantics and monitored metadata independence remain guarded.",
-    "The canonical Source commit trigger parser/writer and source -> tag -> trigger release topology remain fail-closed.",
-    "The v3.6.78 LF/Linux yEnc source and accepted helper hash gates remain unchanged along with frozen browser admission/sampling/header/resolver constants and SABnzbd 5.1.2."
+    "v3.6.84 pins the reviewed Automation engine, UI and versioned payload hashes and exercises contradictory-Wanted regression cases.",
+    "Allow-only dynamic-range policy values must never create an upgrade requirement; Prefer/Require values may define a terminal upgrade target.",
+    "1080p Balanced 1080p WEB-DL SDR must satisfy cutoff, while 4K Preferred 2160p WEB-DL SDR remains an explicitly explained preferred dynamic-range upgrade.",
+    "Generic WEB at an explicit WEB-DL cutoff remains upgradeable without claiming that its base quality tier is below cutoff.",
+    "Wanted must never emit the identical-quality has-not-reached-identical-quality contradiction for same-tier source or dynamic-range upgrades.",
+    "v3.6.81 WEB-DL preference and SDR to HDR to Dolby Vision to Dolby Vision + HDR fallback progression remain guarded for profiles that explicitly prefer those states.",
+    "v3.6.83 installed/runtime/UI version coherency and same-version update protection remain guarded.",
+    "The canonical Source commit trigger parser/writer and source -> annotated tag -> trigger topology remain fail-closed, with frozen browser/yEnc/SAB behavior unchanged."
   ]
 }

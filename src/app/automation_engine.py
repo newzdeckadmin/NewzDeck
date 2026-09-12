@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.83'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.84'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -4745,42 +4745,89 @@ class MediaAutomationEngine:
             return merged
         return info
 
+    @staticmethod
+    def _dynamic_range_label(rank:int) -> str:
+        return {0:'Dolby Vision + HDR fallback',1:'Dolby Vision',2:'HDR10+',3:'HDR',4:'SDR'}.get(int(rank),'dynamic range target')
+
+    def _dynamic_range_upgrade_target(self, profile:dict[str,Any]) -> int|None:
+        """Return the best explicitly preferred/required dynamic-range rank.
+
+        v3.6.81 introduced structured Allow/Prefer/Require/Avoid policy values.  An
+        Allow policy means the trait is acceptable; it must not silently become a
+        terminal upgrade requirement.  Only Prefer/Require policies participate in
+        the ongoing dynamic-range upgrade target.
+        """
+        if not bool(profile.get('upgrade_dynamic_range',True)): return None
+        policies=self._effective_trait_policies(profile).get('dynamic_range') or {}
+        ranks={'dv_hdr':0,'dolby_vision':1,'hdr10_plus':2,'hdr':3}
+        targets=[rank for key,rank in ranks.items() if policies.get(key) in {'prefer','require'}]
+        return min(targets) if targets else None
+
+    def _base_quality_cutoff_met(self, quality:str, profile:dict[str,Any]) -> bool:
+        rank=self._quality_rank(quality,profile); cutoff=self._quality_rank(str(profile.get('cutoff') or ''),profile)
+        if rank<999 and cutoff<999: return rank<=cutoff
+        current=self._quality_resolution_value(quality); goal=self._quality_resolution_value(profile.get('cutoff'))
+        return bool(current and goal and current>=goal)
+
+    def _quality_upgrade_status(self, quality:str, profile:dict[str,Any], release_info:dict[str,Any]|None=None) -> dict[str,Any]:
+        """Describe whether an existing file still has a profile-approved upgrade.
+
+        The Wanted view used to infer every non-terminal profile state as "quality
+        below cutoff", which produced contradictions such as 2160p WEB-DL not
+        reaching 2160p WEB-DL.  Keep base cutoff, source specificity, and preferred
+        dynamic range as separate decisions so the UI and scheduler share one clear
+        explanation.
+        """
+        current=str(quality or 'Unknown'); cutoff=str(profile.get('cutoff') or '')
+        info=release_info if isinstance(release_info,dict) else parse_release(current)
+        current_parsed_quality=str(info.get('quality') or current)
+        rank=self._quality_rank(current,profile); cutoff_rank=self._quality_rank(cutoff,profile)
+        if not self._base_quality_cutoff_met(current,profile):
+            return {'wanted':True,'reason_code':'quality_below_cutoff','reason_label':'Quality below cutoff',
+                    'reason_detail':f"Current {current} has not reached {cutoff or 'the profile cutoff'}.",
+                    'upgrade_path':f"Current: {current} → {cutoff or 'profile cutoff'}"}
+
+        # Generic WEB is intentionally rank-compatible with WEB-DL, but explicit
+        # WEB-DL is still a real upgrade at the cutoff tier.  Only require the
+        # source refinement when the existing item is exactly at the cutoff rank;
+        # a higher-ranked Remux/BluRay must never be demoted just to match source.
+        if rank<999 and cutoff_rank<999 and rank==cutoff_rank:
+            cur_source=self._quality_source_specificity(current_parsed_quality)
+            goal_source=self._quality_source_specificity(cutoff)
+            if goal_source>cur_source:
+                return {'wanted':True,'reason_code':'release_source_upgrade','reason_label':'Release source upgrade',
+                        'reason_detail':f"Current {current} meets the quality tier, but the profile cutoff prefers explicit {cutoff} source.",
+                        'upgrade_path':f"Source: {current_parsed_quality} → {cutoff}"}
+
+        target=self._dynamic_range_upgrade_target(profile)
+        if target is not None:
+            current_hdr=self._dynamic_range_rank(info)
+            if current_hdr>target:
+                return {'wanted':True,'reason_code':'dynamic_range_upgrade','reason_label':'Preferred dynamic range upgrade',
+                        'reason_detail':f"Current {current} meets the base quality cutoff; the profile prefers {self._dynamic_range_label(target)}.",
+                        'upgrade_path':f"Dynamic range: {self._dynamic_range_label(current_hdr)} → {self._dynamic_range_label(target)}"}
+        return {'wanted':False,'reason_code':'cutoff_met','reason_label':'Cutoff met','reason_detail':'Current file meets the active quality profile cutoff.','upgrade_path':''}
+
     def _is_quality_upgrade(self, incoming_info:dict[str,Any], current_quality:str, profile:dict[str,Any], current_info:dict[str,Any]|None=None) -> tuple[bool,str]:
         incoming_quality=str(incoming_info.get('quality') or '')
         ir=self._quality_rank(incoming_quality,profile); cr=self._quality_rank(str(current_quality or ''),profile)
         if ir<999 and cr<999:
             if ir<cr: return True,'base quality tier improves'
             if ir>cr: return False,'base quality tier is lower'
-            inc_source=self._quality_source_specificity(incoming_quality); cur_source=self._quality_source_specificity(current_quality)
+            inc_source=self._quality_source_specificity(incoming_quality); cur_source=self._quality_source_specificity((current_info or {}).get('quality') or current_quality)
             if inc_source>cur_source: return True,'release source improves'
             if inc_source<cur_source: return False,'release source is lower'
-            if bool(profile.get('upgrade_dynamic_range',True)):
+            target=self._dynamic_range_upgrade_target(profile)
+            if target is not None:
                 incoming_hdr=self._dynamic_range_rank(incoming_info); current_hdr=self._dynamic_range_rank(current_info or parse_release(str(current_quality or '')))
-                if incoming_hdr<current_hdr: return True,'dynamic range improves'
+                if current_hdr>target and incoming_hdr<current_hdr: return True,'dynamic range improves'
                 if incoming_hdr>current_hdr: return False,'dynamic range is lower'
             return False,'same quality tier'
         incoming_res=self._quality_resolution_value(incoming_quality); current_res=self._quality_resolution_value(current_quality)
         return (bool(incoming_res and current_res and incoming_res>current_res),'resolution improves' if incoming_res>current_res else 'not provably better')
 
     def _quality_cutoff_met(self, quality:str, profile:dict[str,Any], release_info:dict[str,Any]|None=None) -> bool:
-        rank=self._quality_rank(quality,profile); cutoff=self._quality_rank(str(profile.get('cutoff') or ''),profile)
-        base_met=bool(rank<999 and cutoff<999 and rank<=cutoff)
-        if base_met:
-            if not bool(profile.get('upgrade_dynamic_range',True)): return True
-            info=release_info if isinstance(release_info,dict) else parse_release(str(quality or ''))
-            policies=self._effective_trait_policies(profile).get('dynamic_range') or {}
-            # The best allowed dynamic-range state is the terminal target. By default
-            # DV+HDR fallback is ideal; profile Avoid rules can deliberately cap it.
-            targets=[('dv_hdr',0),('dolby_vision',1),('hdr10_plus',2),('hdr',3)]
-            allowed=[r for key,r in targets if policies.get(key)!='avoid']
-            target=min(allowed) if allowed else 5
-            return self._dynamic_range_rank(info)<=target
-
-        def res(q):
-            m=re.search(r'(?i)\b(2160|1080|720|576|480)p\b',str(q or ''))
-            return int(m.group(1)) if m else 0
-        current,goal=res(quality),res(profile.get('cutoff'))
-        return bool(current and goal and current>=goal)
+        return not bool(self._quality_upgrade_status(quality,profile,release_info).get('wanted'))
 
     def _quality_rank(self, quality:str, profile:dict[str,Any]):
         vals=list(profile.get('qualities') or [])
@@ -6158,9 +6205,10 @@ class MediaAutomationEngine:
                         if not existing_quality or existing_quality=='Unknown':
                             existing_quality=quality if action=='DUPLICATE' else (existing_quality or 'Unknown')
                         fp=self._media_fingerprint(existing)
-                        cutoff=self._quality_cutoff_met(existing_quality,profile)
+                        media_info=self._probe_media_traits(existing)
+                        cutoff=self._quality_cutoff_met(existing_quality,profile,media_info)
                         media_bytes=int(existing.stat().st_size)
-                        record={'path':str(existing),'quality':existing_quality,'size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':self._probe_media_traits(existing),'cutoff_met':cutoff}
+                        record={'path':str(existing),'quality':existing_quality,'size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':media_info,'cutoff_met':cutoff}
                         if item.get('kind')=='tv':
                             ep=e.get('episode_ref')
                             if isinstance(ep,dict):
@@ -6432,6 +6480,30 @@ class MediaAutomationEngine:
         wanted_date, _availability = self._movie_wanted_date(item, self.public_config())
         return bool(wanted_date and self._aired(wanted_date))
 
+    def _decorate_live_cutoff_flags(self, lib:list[dict[str,Any]], profiles:list[dict[str,Any]]|None=None) -> list[dict[str,Any]]:
+        """Refresh derived cutoff flags in a loaded library snapshot without writing it.
+
+        v3.6.84 changes the policy interpretation behind cutoff_met. Older persisted
+        booleans must not keep the Library or Calendar UI in a stale "upgrade wanted"
+        state until the user happens to run another disk scan.
+        """
+        rows=profiles if isinstance(profiles,list) and profiles else self._profiles()
+        by_id={str(p.get('id')):p for p in rows if isinstance(p,dict)}
+        fallback=rows[0] if rows else copy.deepcopy(DEFAULT_PROFILES[0])
+        for item in lib or []:
+            if not isinstance(item,dict): continue
+            profile=by_id.get(str(item.get('quality_profile_id'))) or fallback
+            if item.get('kind')=='movie':
+                rec=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
+                if rec:
+                    rec['cutoff_met']=self._quality_cutoff_met(str(rec.get('quality') or 'Unknown'),profile,rec.get('release_traits') or rec.get('media_info'))
+                continue
+            for season in item.get('seasons') or []:
+                for ep in season.get('episodes') or []:
+                    if isinstance(ep,dict) and ep.get('has_file'):
+                        ep['cutoff_met']=self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,ep.get('release_traits') or ep.get('media_info'))
+        return lib
+
     def wanted(self):
         lib=self._library(); profiles={str(p.get('id')):p for p in self._profiles()}; cfg=self.public_config(); missing=[];upgrades=[]
         for item in lib:
@@ -6447,20 +6519,26 @@ class MediaAutomationEngine:
                 if released:
                     if not item.get('movie_file'):
                         row={'item_id':item['id'],'kind':'movie','title':item['title'],'year':item.get('year'),'date':wanted_date,'availability':availability,'label':item['title'],'cutoff':cutoff,'reason_code':'missing','reason_label':'Missing movie file','reason_detail':'The movie is available under your release policy but no library file is present.'}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
-                    elif str(item.get('monitor_mode') or 'movie')!='missing' and not self._quality_cutoff_met(str(item['movie_file'].get('quality') or 'Unknown'),profile,item['movie_file'].get('release_traits') or item['movie_file'].get('media_info')):
-                        row={'item_id':item['id'],'kind':'movie','title':item['title'],'date':wanted_date,'availability':availability,'current_quality':item['movie_file'].get('quality'),'cutoff':cutoff,'label':item['title'],'reason_code':'upgrade','reason_label':'Quality below cutoff','reason_detail':f"Current {item['movie_file'].get('quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=True); upgrades.append(row)
+                    elif str(item.get('monitor_mode') or 'movie')!='missing':
+                        current_quality=str(item['movie_file'].get('quality') or 'Unknown')
+                        upgrade=self._quality_upgrade_status(current_quality,profile,item['movie_file'].get('release_traits') or item['movie_file'].get('media_info'))
+                        if upgrade.get('wanted'):
+                            row={'item_id':item['id'],'kind':'movie','title':item['title'],'date':wanted_date,'availability':availability,'current_quality':current_quality,'cutoff':cutoff,'label':item['title'],**upgrade}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=True); upgrades.append(row)
             else:
                 for season in item.get('seasons') or []:
                     if not season.get('monitored',True): continue
                     for ep in season.get('episodes') or []:
                         if not ep.get('monitored',True) or not self._aired(str(ep.get('air_date') or '')): continue
                         selected_mode=str(item.get('monitor_mode') or 'all')=='selected'
-                        row={'item_id':item['id'],'kind':'tv','title':item['title'],'season':season.get('season_number'),'episode':ep.get('episode_number'),'episode_name':ep.get('name'),'date':ep.get('air_date'),'label':f"{item['title']} S{int(season.get('season_number',0)):02d}E{int(ep.get('episode_number',0)):02d}",'cutoff':cutoff,'selected_monitoring':selected_mode,'reason_code':'missing' if not ep.get('has_file') else 'upgrade','reason_label':'Selected episode missing' if selected_mode and not ep.get('has_file') else 'Missing episode' if not ep.get('has_file') else 'Selected episode below cutoff' if selected_mode else 'Quality below cutoff','reason_detail':'Explicitly selected episode has no library file.' if selected_mode and not ep.get('has_file') else 'Released monitored episode has no library file.' if not ep.get('has_file') else f"Current {ep.get('file_quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}
+                        row={'item_id':item['id'],'kind':'tv','title':item['title'],'season':season.get('season_number'),'episode':ep.get('episode_number'),'episode_name':ep.get('name'),'date':ep.get('air_date'),'label':f"{item['title']} S{int(season.get('season_number',0)):02d}E{int(ep.get('episode_number',0)):02d}",'cutoff':cutoff,'selected_monitoring':selected_mode,'reason_code':'missing','reason_label':'Selected episode missing' if selected_mode and not ep.get('has_file') else 'Missing episode','reason_detail':'Explicitly selected episode has no library file.' if selected_mode and not ep.get('has_file') else 'Released monitored episode has no library file.'}
                         row['target_key']=self._auto_target_key(row=row)
                         if not ep.get('has_file'):
                             row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
-                        elif str(item.get('monitor_mode') or 'all')!='missing' and not self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,ep.get('release_traits') or ep.get('media_info')):
-                            upgrade_row={**row,'current_quality':ep.get('file_quality')}; upgrade_row['automation_policy']=self._wanted_automatic_policy(upgrade_row,item,cfg,upgrade=True); upgrades.append(upgrade_row)
+                        elif str(item.get('monitor_mode') or 'all')!='missing':
+                            current_quality=str(ep.get('file_quality') or 'Unknown')
+                            upgrade=self._quality_upgrade_status(current_quality,profile,ep.get('release_traits') or ep.get('media_info'))
+                            if upgrade.get('wanted'):
+                                upgrade_row={**row,'current_quality':current_quality,**upgrade}; upgrade_row['automation_policy']=self._wanted_automatic_policy(upgrade_row,item,cfg,upgrade=True); upgrades.append(upgrade_row)
         missing.sort(key=lambda x:(x.get('date') or '',x.get('label') or '')); upgrades.sort(key=lambda x:x.get('label') or '')
         policy_counts={'backlog_paused':0,'upgrades_paused':0}
         for row in missing+upgrades:
@@ -6487,18 +6565,19 @@ class MediaAutomationEngine:
         derives status from the same library state used by Wanted so Calendar and Wanted
         cannot disagree about missing/upgrade/imported media.
         """
-        now_date=datetime.now().date(); today=now_date.isoformat(); events=[]; cfg=self.public_config()
+        now_date=datetime.now().date(); today=now_date.isoformat(); events=[]; cfg=self.public_config(); profile_rows=self._profiles(); profiles={str(p.get('id')):p for p in profile_rows if isinstance(p,dict)}
         start=(now_date-timedelta(days=max(0,int(history_days or 0)))).isoformat()
         end=(now_date+timedelta(days=max(30,int(days or 400)))).isoformat()
         for item in self._library():
             if not item.get('monitored',True): continue
+            profile=profiles.get(str(item.get('quality_profile_id'))) or profile_rows[0]
             poster=str(item.get('poster_url') or ''); backdrop=str(item.get('backdrop_url') or '')
             common={'item_id':item.get('id'),'title':str(item.get('title') or 'Untitled'),'poster_url':poster,'backdrop_url':backdrop,'overview':str(item.get('overview') or ''),'year':item.get('year'),'rating':item.get('rating'),'network':str(item.get('network') or ''),'monitor_mode':str(item.get('monitor_mode') or '')}
             if item.get('kind')=='movie':
                 d,availability=self._movie_wanted_date(item,cfg)
                 if not d or d<start or d>end: continue
                 mf=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
-                has_file=bool(mf); cutoff_met=bool((mf or {}).get('cutoff_met')) if has_file else False
+                has_file=bool(mf); cutoff_met=self._quality_cutoff_met(str((mf or {}).get('quality') or 'Unknown'),profile,(mf or {}).get('release_traits') or (mf or {}).get('media_info')) if has_file else False
                 upgrade=bool(has_file and str(item.get('monitor_mode') or 'movie')!='missing' and not cutoff_met)
                 if upgrade: status='upgrade'; status_label='Upgrade wanted'
                 elif has_file: status='imported'; status_label='Imported'
@@ -6514,7 +6593,7 @@ class MediaAutomationEngine:
                     for ep in season.get('episodes') or []:
                         d=str(ep.get('air_date') or '')[:10]
                         if not ep.get('monitored',True) or not d or d<start or d>end: continue
-                        en=int(ep.get('episode_number') or 0); has_file=bool(ep.get('has_file')); cutoff_met=bool(ep.get('cutoff_met')) if has_file else False
+                        en=int(ep.get('episode_number') or 0); has_file=bool(ep.get('has_file')); cutoff_met=self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,ep.get('release_traits') or ep.get('media_info')) if has_file else False
                         upgrade=bool(has_file and str(item.get('monitor_mode') or 'all')!='missing' and not cutoff_met)
                         if upgrade: status='upgrade'; status_label='Upgrade wanted'
                         elif has_file: status='imported'; status_label='Imported'
@@ -6596,6 +6675,13 @@ class MediaAutomationEngine:
             profiles=self._profiles()
         except Exception as exc:
             profiles=list(DEFAULT_PROFILES);warnings.append(f'Quality profiles could not be read: {exc}')
+        # v3.6.84: cutoff flags are derived from the active profile. Recompute them
+        # in this response snapshot so pre-v3.6.84 persisted booleans cannot leave
+        # Library cards stuck on a stale "upgrade wanted" label.
+        try:
+            self._decorate_live_cutoff_flags(lib,profiles)
+        except Exception as exc:
+            warnings.append(f'Quality cutoff status could not be refreshed: {exc}')
         try:
             config=self.public_config()
         except Exception as exc:
