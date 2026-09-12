@@ -19,11 +19,11 @@ builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
 # v3.6.80's approved visual polish remains byte-for-byte intact before the
-# reviewed v3.6.85 Quality Profile Builder suffix.
+# reviewed v3.6.86 Quality Profile Builder suffix.
 marker='/* v3.6.80 UX Polish Phase 4 - Final Consistency & Accessibility */'
 next_marker='/* v3.6.81 Automation Intelligence & Quality Profiles - Quality Profile Builder */'
 check(styles.count(marker)==1,'v3.6.80 Phase 4 stylesheet marker count mismatch')
-check(styles.count(next_marker)==1,'v3.6.85 stylesheet suffix marker count mismatch')
+check(styles.count(next_marker)==1,'v3.6.86 stylesheet suffix marker count mismatch')
 prefix,after=styles.split(marker,1); phase4,_v3681=after.split(next_marker,1)
 check(digest_text(prefix.rstrip('\n')+'\n')=='60ff32537ccb858cba5366a482a70b5cf6d835e369598d2fb0d4b645c5cbb0f4','Pre-v3.6.80 stylesheet baseline changed')
 check(digest_text('\n'+marker+phase4.rstrip('\n')+'\n')=='5daad7e0a3eb02c37eafa0330ce88ad8de878aa0127b563c46fc6ac9e59587c7','v3.6.80 UX Phase 4 block changed')
@@ -57,9 +57,9 @@ for node in tree.body:
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3680>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.85','version.txt mismatch')
-check("const UI_VERSION = '3.6.85'" in app and '3.6.85-wanted-search-trait-coherency-fix' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.85' and manifest.get('base_version')=='3.6.84' and manifest.get('adapter_version')=='3.6.85','build manifest identity mismatch')
-check(sab.ADAPTER_VERSION=='3.6.85' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.86','version.txt mismatch')
+check("const UI_VERSION = '3.6.86'" in app and '3.6.86-automation-cache-snapshot-performance-fix' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.86' and manifest.get('base_version')=='3.6.85' and manifest.get('adapter_version')=='3.6.86','build manifest identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.86' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
 print('v3.6.80 protected baseline / frozen runtime regression guard: PASS')

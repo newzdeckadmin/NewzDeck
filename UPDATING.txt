@@ -1,18 +1,19 @@
-NewzDeck v3.6.85 update notes
+NewzDeck v3.6.86 update notes
 
 Installed users
-- Run NewzDeck_v3.6.85_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.86_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.85 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.86 Portable ZIP contents, then restart NewzDeck.
 
 What changes
-- Wanted, Library/Calendar and release evaluation now resolve current-file traits through the same canonical helper and evidence precedence.
-- Fingerprint-bound release metadata can no longer make Interactive Search disagree with Wanted about whether the current file already contains DV+HDR fallback.
-- True Dolby Vision-only files remain upgradeable to Dolby Vision + HDR fallback; already-terminal DV+HDR files no longer remain falsely Wanted.
+- Automation summary generation shares one media quality cache snapshot across Library cutoff decoration, Wanted, and Calendar instead of reparsing the cache per file record.
+- Interactive Search resolves the current file traits once per request and reuses them for all candidate scoring and safety checks.
+- Automatic feed/scheduler candidate evaluation reuses one current-file trait snapshot per upgrade target.
 
 What stays frozen
+- v3.6.85 current-file trait precedence and DV/DV+HDR upgrade correctness.
 - v3.6.84 cutoff-policy semantics, including Allow-versus-Prefer handling and accurate Wanted reason labels.
 - v3.6.83 installed/runtime/UI version coherency and same-version update protection.
 - v3.6.81 structured Quality Profiles, WEB-DL preference and intended HDR/Dolby Vision progression.

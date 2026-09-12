@@ -1,14 +1,14 @@
-NewzDeck v3.6.85 - Wanted & Interactive Search Trait Coherency Fix
+NewzDeck v3.6.86 - Automation Cache Snapshot Performance Hotfix
 
-This is a narrow Automation correctness release built on v3.6.84.
+This is a targeted performance hotfix built on v3.6.85.
 
 What changed:
-- Wanted, Library/Calendar cutoff state, Interactive Search and automatic upgrade evaluation now use one canonical view of the traits already present in the current library file.
-- Stored release traits remain authoritative; otherwise NewzDeck uses the fingerprint-bound original release title before falling back to conservative media probing.
-- A current DV+HDR file can no longer appear in Wanted just because media probing reported only Dolby Vision while Interactive Search simultaneously rejects DV+HDR candidates as same-tier.
-- A genuinely Dolby Vision-only current file still requests Dolby Vision + HDR fallback, and matching DV+HDR candidates are accepted as dynamic-range improvements.
-- v3.6.84's 1080p Balanced Allow semantics and accurate Wanted reason labels remain intact.
+- Automation no longer rereads and reparses media-quality-cache.json for every existing episode/movie while building the Library, Wanted, and Calendar response.
+- One cache snapshot is shared across the complete Automation summary request, restoring normal Library/TV/Movies/Wanted load behavior for larger libraries.
+- Interactive Search resolves the current library file traits once and reuses them for every candidate, eliminating the v3.6.85 Search Releases slowdown/stall.
+- Automatic feed and scheduler upgrade evaluation use the same per-target snapshot so unattended searches do not repeat cache I/O per candidate.
+- v3.6.85's canonical DV/DV+HDR trait-coherency fix remains intact.
 
 Frozen Newsgroup Browser tuning, SABnzbd 5.1.2, Smart Import/post-processing, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc behavior are unchanged.
 
-See release/RELEASE_NOTES_v3.6.85.md for details.
+See release/RELEASE_NOTES_v3.6.86.md for details.

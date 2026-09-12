@@ -16,13 +16,13 @@ index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
-# v3.6.82's pipeline recovery remains protected while v3.6.85 carries the
-# v3.6.84 cutoff-policy work forward and fixes current-file trait-source coherency.
-check((APP/'version.txt').read_text().strip()=='3.6.85','current version mismatch')
-check(automation.count("version='3.6.85'")==1,'Automation version identity mismatch')
-check(sab_text.count('ADAPTER_VERSION = "3.6.85"')==1,'SAB adapter version identity mismatch')
+# v3.6.82's pipeline recovery remains protected while v3.6.86 carries the
+# v3.6.84/v3.6.85 Automation correctness work forward and fixes cache-read scaling.
+check((APP/'version.txt').read_text().strip()=='3.6.86','current version mismatch')
+check(automation.count("version='3.6.86'")==1,'Automation version identity mismatch')
+check(sab_text.count('ADAPTER_VERSION = "3.6.86"')==1,'SAB adapter version identity mismatch')
 check("Where-Object { $_ -like 'Source commit:*' }" in workflow and "-replace '^Source commit:\\s*',''" in workflow,'canonical Source commit parser regressed')
-check('python release/windows/validate-v3682-regressions.py' in workflow and 'python release/windows/validate-v3683-regressions.py' in workflow and 'python release/windows/validate-v3684-regressions.py' in workflow and 'python release/windows/validate-v3685-regressions.py' in workflow,'current guard chain incomplete')
+check('python release/windows/validate-v3682-regressions.py' in workflow and 'python release/windows/validate-v3683-regressions.py' in workflow and 'python release/windows/validate-v3684-regressions.py' in workflow and 'python release/windows/validate-v3685-regressions.py' in workflow and 'python release/windows/validate-v3686-regressions.py' in workflow,'current guard chain incomplete')
 
 # The full v3.6.82 stylesheet is an immutable prefix; v3.6.83 may only append its reviewed suffix.
 marker='/* v3.6.83 Quality Profile UI & Update Version Coherency */'
@@ -33,7 +33,7 @@ check(hashlib.sha256((prefix.rstrip('\n')+'\n').encode()).hexdigest()=='8a8d8f0c
 # Re-prove v3.6.81 functionality that v3.6.82 intentionally carried forward.
 auto=load('newzdeck_v3682_guard_current',APP/'automation_engine.py')
 class DummyDownloadManager: pass
-engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3682-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.85')
+engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3682-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.86')
 profile=auto.DEFAULT_PROFILES[0]
 def info(title): return auto.parse_release(title)
 current=info('Show.S01E01.2160p.WEB.x265-GRP')
