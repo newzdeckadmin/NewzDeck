@@ -19,7 +19,7 @@ for marker in (
  "if(e instanceof Error&&!e?.status)e.message=friendlyTransportErrorMessage(e.message,path,'network')",
  "NewzDeck's local backend could not be reached. It may still be starting; try again in a moment.",
  "NewzDeck's local backend did not respond in time. Try again in a moment.",
-): check(marker in app,'v3.6.79 transport-attribution marker missing: '+marker)
+): check(marker in app,'v3.6.80 transport-attribution marker missing: '+marker)
 check('const unavailable=/(?:winerror|errno)' not in app,'Old broad timeout-to-local-service translator remains')
 check("A required local service was temporarily unavailable" not in app,'Retired misleading generic local-service toast remains')
 # v3.6.71 decode suppression remains, but policy telemetry reasons are compact enough for the 48-char server contract.
@@ -30,7 +30,7 @@ for marker in (
  "policyCode=failureReason==='browser-decode-failed'?'browser-decode':failureReason",
  "reason:`${demand}-${sampleClass}-${policyCode}-nr`",
  "perfRecord('video_thumbnail_policy',0,true",
-): check(marker in app,'v3.6.79 Video policy marker missing: '+marker)
+): check(marker in app,'v3.6.80 Video policy marker missing: '+marker)
 check('-nonretryable' not in app,'Long v3.6.71 Video policy suffix remains')
 for demand in ('visible-item','visible-set-cover','prefetch-item'):
  for sample in ('partial','complete'):
@@ -54,9 +54,9 @@ for node in tree.body:
  elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3672>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.79','version.txt mismatch')
-check("const UI_VERSION = '3.6.79'" in app and '3.6.79-ux-feedback-state-clarity' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.79' and manifest.get('base_version')=='3.6.78' and manifest.get('adapter_version')=='3.6.79','build manifest identity mismatch')
-check(sab.ADAPTER_VERSION=='3.6.79' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.80','version.txt mismatch')
+check("const UI_VERSION = '3.6.80'" in app and '3.6.80-ux-final-consistency-accessibility' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.80' and manifest.get('base_version')=='3.6.79' and manifest.get('adapter_version')=='3.6.80','build manifest identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.80' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.79 regression guard: PASS')
+print('v3.6.80 regression guard: PASS')

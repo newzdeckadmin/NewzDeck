@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.79",
-  "base_version": "3.6.78",
-  "release": "UX Feedback & State Clarity",
-  "adapter_version": "3.6.79",
-  "name": "UX Feedback & State Clarity",
+  "version": "3.6.80",
+  "base_version": "3.6.79",
+  "release": "UX Final Consistency & Accessibility",
+  "adapter_version": "3.6.80",
+  "name": "UX Final Consistency & Accessibility",
   "sab_version": "5.1.2",
   "changes": [
-    "Continues the staged UX polish program with a CSS-only feedback/state-clarity pass built on the proven v3.6.78 Defender-clean release.",
-    "Improves visual distinction for success/error/info toasts, Settings/test callouts, loading/empty states, metadata/download errors, and Automation activity feedback.",
-    "Adds subtle visual-only hover/focus/busy-state polish to existing cards and controls without changing actions, timing, state transitions, routes, or data flow.",
+    "Completes the staged broad UX polish program with a CSS-only consistency and accessibility pass built on v3.6.79.",
+    "Standardizes dialog framing, section rhythm, disabled-state presentation, helper text, keyboard focus, and common status/action alignment across established UI surfaces.",
+    "Adds visual-only responsive dialog insets for constrained/high-scaling Windows viewports and respects reduced-motion preferences for nonessential polish transitions.",
     "Preserves the v3.6.78 LF/Linux Defender-accepted NewzDeckYenc.exe build pipeline and exact accepted helper SHA-256.",
     "No Newsgroup Browser performance, SABnzbd, download, Automation, Smart Import, Discover data, Settings persistence, launcher/service/tray, Metadata Server, or decoder behavior changes are included."
   ],
   "regression_guards": [
-    "server.py, sab_engine.py, automation_engine.py and app.js must normalize byte-for-byte to v3.6.78 after replacing only the v3.6.79 identity.",
-    "static/index.html must normalize byte-for-byte to v3.6.78 after replacing only the version/cache identity.",
-    "styles.css must be the exact v3.6.78 canonical LF stylesheet followed by one exact reviewed v3.6.79 Phase 3 CSS suffix.",
+    "server.py, sab_engine.py, automation_engine.py and app.js must normalize byte-for-byte to v3.6.79 after replacing only the v3.6.80 identity.",
+    "static/index.html must normalize byte-for-byte to v3.6.79 after replacing only the version/cache identity.",
+    "styles.css must be the exact v3.6.79 canonical LF stylesheet followed by one exact reviewed v3.6.80 Phase 4 CSS suffix.",
     "The v3.6.78 LF/Linux yEnc source and accepted helper hash gates remain present and unchanged in the canonical workflow/builder.",
     "All established five-Image/six-Video admission, 24 MB/12-segment sampling, 800/800/1000 headers, resolver timing, Settings reliability, SABnzbd 5.1.2, terminal-history schema 3, Smart Import and Automation protections remain carried forward."
   ]

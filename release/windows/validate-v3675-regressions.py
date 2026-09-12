@@ -15,7 +15,7 @@ sab=load('newzdeck_v3675_sab_guard',APP/'sab_engine.py')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
-# v3.6.75 yEnc build compatibility protections are carried forward in v3.6.79. The native yEnc decoder source must
+# v3.6.75 yEnc build compatibility protections are carried forward in v3.6.80. The native yEnc decoder source must
 # stay byte-for-byte at the accepted v3.6.74 Git blob identity.
 blob=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD:src/windows/NewzDeckYenc.go'],text=True).strip()
 check(blob=='38f6df7ed77bc7d3b5d8c83b1973e86fc6fa9c15','NewzDeckYenc.go Git blob changed; v3.6.75 yEnc compatibility protection regressed')
@@ -31,7 +31,7 @@ for marker in (
     '"purpose":"Windows Defender compatibility"',
     '"source_behavior_changed":False',
 ):
-    check(marker in builder,'v3.6.79 portable-builder guard missing: '+marker)
+    check(marker in builder,'v3.6.80 portable-builder guard missing: '+marker)
 check("run(['go','build','-trimpath','-ldflags=-s -w -H windowsgui -buildid='" not in builder,
       'Portable builder still applies the stripped profile unconditionally to all helpers')
 
@@ -43,7 +43,7 @@ for marker in (
     "$yencOverride = $manifest.binary_build_overrides.PSObject.Properties['NewzDeckYenc.exe'].Value",
     "$yencSymbols = @(& go tool nm $yencBinary 2>&1)",
 ):
-    check(marker in workflow,'Canonical release workflow missing v3.6.79 Defender-compatibility verification: '+marker)
+    check(marker in workflow,'Canonical release workflow missing v3.6.80 Defender-compatibility verification: '+marker)
 
 # Carry forward the accepted v3.6.74 browsing/diagnostics architecture unchanged.
 for marker in (
@@ -82,10 +82,10 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3675>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
-check((APP/'version.txt').read_text().strip()=='3.6.79','version.txt mismatch')
-check("const UI_VERSION = '3.6.79'" in app and '3.6.79-ux-feedback-state-clarity' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.79' and manifest.get('base_version')=='3.6.78' and manifest.get('adapter_version')=='3.6.79','build manifest identity mismatch')
-check(manifest.get('release')=='UX Feedback & State Clarity','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.79' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.80','version.txt mismatch')
+check("const UI_VERSION = '3.6.80'" in app and '3.6.80-ux-final-consistency-accessibility' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.80' and manifest.get('base_version')=='3.6.79' and manifest.get('adapter_version')=='3.6.80','build manifest identity mismatch')
+check(manifest.get('release')=='UX Final Consistency & Accessibility','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.80' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.79 regression guard: PASS')
+print('v3.6.80 regression guard: PASS')

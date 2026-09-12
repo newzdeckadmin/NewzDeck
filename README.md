@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.79** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.80** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.79_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.80_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.79 highlights
+## v3.6.80 highlights
 
-v3.6.79 resumes the staged UX polish program with a presentation-only feedback and state-clarity pass built on the Defender-clean v3.6.78 baseline.
+v3.6.80 completes the current staged broad UX polish program with a presentation-only final consistency and accessibility pass built on v3.6.79.
 
-- **Clearer feedback:** success, error and informational states are easier to distinguish without changing their timing or semantics.
-- **More intentional state surfaces:** loading, empty, metadata-error, download-error and Settings/test states receive consistent visual treatment.
-- **Subtle micro-interactions:** existing cards and controls gain restrained visual-only hover/focus/busy feedback.
+- **Consistent dialogs and hierarchy:** dialog framing, section rhythm, helper text and status/action alignment are more uniform across established surfaces.
+- **Clear keyboard focus:** existing navigation, tabs, actions and dialogs use one predictable high-contrast focus treatment.
+- **Scaling and motion polish:** constrained/high-scaling viewports receive safer dialog insets and nonessential polish respects reduced-motion preferences.
 - **Functionality frozen:** Newsgroup Browser behavior/performance, downloads, Automation, Smart Import, Discover data, Settings persistence, SABnzbd 5.1.2 and Metadata Server v0.3.3 are unchanged.
 - **Defender-clean pipeline preserved:** the exact v3.6.78 LF/Linux yEnc build and accepted helper hash gate remain unchanged.
 
-See [the full v3.6.79 release notes](release/RELEASE_NOTES_v3.6.79.md).
+See [the full v3.6.80 release notes](release/RELEASE_NOTES_v3.6.80.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.79_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.80_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

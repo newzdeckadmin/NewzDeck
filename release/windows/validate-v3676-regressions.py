@@ -25,11 +25,11 @@ workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(en
 def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
-check(normalized_hash(server,'3.6.75','3.6.79')=='afa455cbaf78c4fbe1f335941ee92fdd9d6b1c49d0cd0610660b259eb3c92b11','server.py changed beyond APP_VERSION')
-check(normalized_hash(sab_text,'3.6.75','3.6.79')=='cde69646f933636f6af39ef7c40fd0e57a8829ba2485e8e80d7af99c42bc4121','sab_engine.py changed beyond ADAPTER_VERSION')
-check(normalized_hash(automation,'3.6.75','3.6.79')=='1a1d6c451924d401bc7e5db84be12a54c201830d161d645496ea1bf4b1a8592a','automation_engine.py changed beyond version identity')
-check(normalized_hash(app,'3.6.75','3.6.79')=='53d86a699e0ddb62d47c681e2565c791b27b5b067b9ab93ad73d9308e6469114','app.js logic changed; v3.6.79 must be UX/CSS-only')
-normalized_index=index.replace('3.6.79-ux-feedback-state-clarity','3.6.75-windows-defender-compatibility').replace('v3.6.79','v3.6.75')
+check(normalized_hash(server,'3.6.75','3.6.80')=='afa455cbaf78c4fbe1f335941ee92fdd9d6b1c49d0cd0610660b259eb3c92b11','server.py changed beyond APP_VERSION')
+check(normalized_hash(sab_text,'3.6.75','3.6.80')=='cde69646f933636f6af39ef7c40fd0e57a8829ba2485e8e80d7af99c42bc4121','sab_engine.py changed beyond ADAPTER_VERSION')
+check(normalized_hash(automation,'3.6.75','3.6.80')=='1a1d6c451924d401bc7e5db84be12a54c201830d161d645496ea1bf4b1a8592a','automation_engine.py changed beyond version identity')
+check(normalized_hash(app,'3.6.75','3.6.80')=='53d86a699e0ddb62d47c681e2565c791b27b5b067b9ab93ad73d9308e6469114','app.js logic changed; v3.6.80 must be UX/CSS-only')
+normalized_index=index.replace('3.6.80-ux-final-consistency-accessibility','3.6.75-windows-defender-compatibility').replace('v3.6.80','v3.6.75')
 check(digest_text(normalized_index)=='68d189298d648d812eae1e320dc9b96e92ea7dbd79d13426cb04a74a1f316a4a','index.html changed beyond version/cache identity')
 
 # The stylesheet must be the exact v3.6.75 production CSS followed by one
@@ -92,10 +92,10 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3676>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
-check((APP/'version.txt').read_text().strip()=='3.6.79','version.txt mismatch')
-check("const UI_VERSION = '3.6.79'" in app and '3.6.79-ux-feedback-state-clarity' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.79' and manifest.get('base_version')=='3.6.78' and manifest.get('adapter_version')=='3.6.79','build manifest identity mismatch')
-check(manifest.get('release')=='UX Feedback & State Clarity','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.79' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.80','version.txt mismatch')
+check("const UI_VERSION = '3.6.80'" in app and '3.6.80-ux-final-consistency-accessibility' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.80' and manifest.get('base_version')=='3.6.79' and manifest.get('adapter_version')=='3.6.80','build manifest identity mismatch')
+check(manifest.get('release')=='UX Final Consistency & Accessibility','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.80' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.79 UX-only regression guard: PASS')
+print('v3.6.80 UX-only regression guard: PASS')

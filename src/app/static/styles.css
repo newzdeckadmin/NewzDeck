@@ -2166,3 +2166,87 @@ button.is-busy{cursor:progress;box-shadow:0 0 0 1px rgba(82,191,224,.16) inset}
   .toast-stack{left:12px;right:12px;bottom:12px}
   .toast{width:100%;max-width:none}
 }
+/* v3.6.80 UX Polish Phase 4 - Final Consistency & Accessibility */
+/* Final presentation-only consistency pass. No application actions, routes,
+   timers, data flow, download behavior, Automation logic, or browser scheduling changes. */
+:root{
+  --ux-focus-ring:rgba(86,205,231,.82);
+  --ux-focus-halo:rgba(86,205,231,.16);
+  --ux-dialog-radius:18px;
+  --ux-surface-divider:rgba(139,174,204,.13);
+}
+
+/* Dialog framing: consistent radius, hierarchy and close-button placement. */
+.modal-card,.settings-modal-card,.automation-modal-card,.automation-item-modal-card,
+.about-modal-card,.release-modal-card,.manual-import-modal-card,.archive-password-modal-card,
+.nzb-import-modal-card,.group-search-modal-card,.welcome-modal-card{
+  border-radius:var(--ux-dialog-radius);
+  box-shadow:0 30px 90px rgba(0,0,0,.48),inset 0 1px 0 rgba(255,255,255,.025);
+}
+.modal-head{min-height:68px;align-items:flex-start;gap:16px}
+.modal-head>div{min-width:0}
+.modal-head h2{line-height:1.2;letter-spacing:-.025em}
+.modal-head p{line-height:1.5}
+.modal-head .close-btn{flex:0 0 auto;margin-top:-2px}
+
+/* Section rhythm and supporting-copy consistency across primary application areas. */
+.settings-section h3,.automation-section-head h2,.automation-section-head h3,
+.discover-section-head h2,.discover-section-head h3{line-height:1.25}
+.settings-section>p,.automation-section-head p,.discover-section-head p,
+.downloads-header p,.diagnostics-header p{line-height:1.58}
+.settings-footer,.downloads-panel-head{border-color:var(--ux-surface-divider)}
+
+/* Keyboard focus: one predictable, high-contrast treatment for existing controls. */
+.icon-btn:focus-visible,.ghost-btn:focus-visible,.close-btn:focus-visible,
+.nav-item:focus-visible,.settings-nav button:focus-visible,.automation-tabs button:focus-visible,
+.discover-tabs button:focus-visible,.download-tab:focus-visible,
+.download-row-actions button:focus-visible,.automation-actions button:focus-visible,
+.discover-detail-actions button:focus-visible,.settings-actions-row button:focus-visible{
+  outline:2px solid var(--ux-focus-ring);
+  outline-offset:2px;
+  box-shadow:0 0 0 4px var(--ux-focus-halo);
+}
+
+/* Disabled controls should read as intentionally unavailable, not broken. */
+.primary-btn:disabled,.secondary-btn:disabled,.danger-btn:disabled,
+.icon-btn:disabled,.ghost-btn:disabled,.close-btn:disabled{
+  opacity:.52;
+  filter:saturate(.72);
+  cursor:not-allowed;
+}
+
+/* Common field and helper-text polish in configuration/add-media surfaces. */
+.settings-content input::placeholder,.settings-content textarea::placeholder,
+.automation-modal-card input::placeholder,.automation-modal-card textarea::placeholder{
+  color:#6f8497;
+  opacity:1;
+}
+.settings-grid>label:not(.settings-check),.settings-section>label,
+.automation-modal-card label{line-height:1.35}
+.settings-check b,.automation-card-body h3,.discover-card-copy h3{line-height:1.3}
+.settings-check small,.automation-item-settings label small,.metadata-result span,.metadata-result p{line-height:1.52}
+
+/* Keep status/action rows visually aligned without changing their content or behavior. */
+.download-status-chip,.automation-monitor-chip,.post-chip{vertical-align:middle}
+.download-row-actions,.automation-item-actions,.discover-detail-actions{align-items:center}
+.settings-actions-row{align-items:center}
+
+/* High display scaling reduces available CSS viewport width; keep dialogs comfortably inset. */
+@media(max-width:1180px){
+  .settings-modal-card,.automation-modal-card,.automation-item-modal-card,.release-modal-card,
+  .manual-import-modal-card,.about-modal-card{max-width:calc(100vw - 32px)}
+}
+@media(max-width:760px){
+  .modal{padding:12px}
+  .modal-head{min-height:62px;padding:16px 17px}
+  .settings-footer{padding:10px 12px;gap:8px;flex-wrap:wrap}
+  .settings-footer>span{width:100%;margin-right:0}
+}
+
+/* Respect reduced-motion preferences for nonessential UX polish only. */
+@media(prefers-reduced-motion:reduce){
+  .primary-btn,.secondary-btn,.danger-btn,
+  .metadata-result,.release-row,.settings-check,.download-stat,.about-status-card,
+  .automation-media-card,.discover-card{transition:none!important}
+  .primary-btn:active,.secondary-btn:active,.danger-btn:active{transform:none}
+}
