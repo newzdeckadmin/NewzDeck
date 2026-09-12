@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.76 durable-history compaction and Automation startup guards."""
+"""NewzDeck v3.6.77 durable-history compaction and Automation startup guards."""
 from __future__ import annotations
 import copy
 import importlib.util
@@ -20,7 +20,7 @@ def load(name,path):
 
 sab=load('v3654_sab',SAB)
 auto=load('v3654_auto',AUTO)
-if sab.ADAPTER_VERSION!='3.6.76': raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
+if sab.ADAPTER_VERSION!='3.6.77': raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
 if sab.TERMINAL_HISTORY_VERSION!=3 or sab.TERMINAL_HISTORY_MAX_ROWS!=5000:
     raise SystemExit('Terminal-history v3/5,000-row contract is missing.')
 if sab.STATISTICS_ACCOUNTED_MAX_ROWS!=20000:
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3654-sidebar-') as td:
         ('media-quality-cache.json',{}),('automation-activity.json',[]),('indexers.json',[]),
     ):
         (data/name).write_text(json.dumps(value),encoding='utf-8')
-    engine=auto.MediaAutomationEngine(data,lambda x:x,lambda x:x,DummyDM(),lambda:[],version='3.6.76')
+    engine=auto.MediaAutomationEngine(data,lambda x:x,lambda x:x,DummyDM(),lambda:[],version='3.6.77')
     # Isolate cache mechanics from unrelated Wanted fixture complexity.
     engine._library=lambda:[{'kind':'tv'},{'kind':'movie'}]
     engine.wanted=lambda:{'missing':[1,2],'upgrades':[1]}
@@ -118,20 +118,20 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3654-sidebar-') as td:
 
 sab_source=SAB.read_text(encoding='utf-8'); auto_source=AUTO.read_text(encoding='utf-8'); server_source=SERVER.read_text(encoding='utf-8'); js=JS.read_text(encoding='utf-8')
 for marker in (
-    'ADAPTER_VERSION = "3.6.76"','TERMINAL_HISTORY_VERSION = 3','STATISTICS_ACCOUNTED_MAX_ROWS = 20000',
+    'ADAPTER_VERSION = "3.6.77"','TERMINAL_HISTORY_VERSION = 3','STATISTICS_ACCOUNTED_MAX_ROWS = 20000',
     '_terminal_history_index','_terminal_status_counts','_retire_finalized_terminal_jobs_locked',
     'Durable NewzDeck terminal history already owns this presentation','page_native',
     'if mode=="failed": view["matching_ids"]=matching_ids','matching_ids=list(ids) if mode=="failed" else []',
 ):
-    if marker not in sab_source: raise SystemExit(f'Missing v3.6.76 SAB/history marker: {marker}')
+    if marker not in sab_source: raise SystemExit(f'Missing v3.6.77 SAB/history marker: {marker}')
 for marker in ('sidebar_counts_cache_signature','sidebar_counts_cache_result','def _sidebar_counts_signature','cache_hit'):
-    if marker not in auto_source: raise SystemExit(f'Missing v3.6.76 Automation cache marker: {marker}')
-for marker in ("const UI_VERSION = '3.6.76';",'automationStartupPrimeGeneration++;','if(!state.automation)void loadAutomation'):
-    if marker not in js: raise SystemExit(f'Missing v3.6.76 startup-probe guard: {marker}')
-if 'APP_VERSION = "3.6.76"' not in server_source: raise SystemExit('Server version is not 3.6.76.')
+    if marker not in auto_source: raise SystemExit(f'Missing v3.6.77 Automation cache marker: {marker}')
+for marker in ("const UI_VERSION = '3.6.77';",'automationStartupPrimeGeneration++;','if(!state.automation)void loadAutomation'):
+    if marker not in js: raise SystemExit(f'Missing v3.6.77 startup-probe guard: {marker}')
+if 'APP_VERSION = "3.6.77"' not in server_source: raise SystemExit('Server version is not 3.6.77.')
 manifest=json.loads(MANIFEST.read_text(encoding='utf-8'))
-if manifest.get('version')!='3.6.76' or manifest.get('adapter_version')!='3.6.76' or manifest.get('base_version')!='3.6.75':
+if manifest.get('version')!='3.6.77' or manifest.get('adapter_version')!='3.6.77' or manifest.get('base_version')!='3.6.76':
     raise SystemExit(f'Build manifest identity is wrong: {manifest.get("version")}/{manifest.get("adapter_version")}/{manifest.get("base_version")}')
 if WORKFLOW.exists() and 'python release/windows/validate-v3654-regressions.py' not in WORKFLOW.read_text(encoding='utf-8'):
-    raise SystemExit('Canonical release workflow does not run the v3.6.76 regression guard.')
-print('v3.6.76 regression guard passed (bounded operational ledger + 5,000-row indexed terminal history + compact page transport + durable lazy detail + SAB re-adoption guard + sidebar cache/probe cancellation).')
+    raise SystemExit('Canonical release workflow does not run the v3.6.77 regression guard.')
+print('v3.6.77 regression guard passed (bounded operational ledger + 5,000-row indexed terminal history + compact page transport + durable lazy detail + SAB re-adoption guard + sidebar cache/probe cancellation).')

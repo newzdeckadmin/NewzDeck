@@ -16,45 +16,42 @@ app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
-sab=load('newzdeck_v3676_sab_guard',APP/'sab_engine.py')
+sab=load('newzdeck_v3677_sab_guard',APP/'sab_engine.py')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
-# UX-only proof: all runtime logic files must normalize byte-for-byte to the
-# canonical v3.6.75 production release after removing only the version identity.
+# Phase 2 is presentation-only: runtime logic normalizes exactly to v3.6.76.
 def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
-check(normalized_hash(server,'3.6.75','3.6.77')=='afa455cbaf78c4fbe1f335941ee92fdd9d6b1c49d0cd0610660b259eb3c92b11','server.py changed beyond APP_VERSION')
-check(normalized_hash(sab_text,'3.6.75','3.6.77')=='cde69646f933636f6af39ef7c40fd0e57a8829ba2485e8e80d7af99c42bc4121','sab_engine.py changed beyond ADAPTER_VERSION')
-check(normalized_hash(automation,'3.6.75','3.6.77')=='1a1d6c451924d401bc7e5db84be12a54c201830d161d645496ea1bf4b1a8592a','automation_engine.py changed beyond version identity')
-check(normalized_hash(app,'3.6.75','3.6.77')=='53d86a699e0ddb62d47c681e2565c791b27b5b067b9ab93ad73d9308e6469114','app.js logic changed; v3.6.77 must be UX/CSS-only')
-normalized_index=index.replace('3.6.77-ux-layout-control-consistency','3.6.75-windows-defender-compatibility').replace('v3.6.77','v3.6.75')
-check(digest_text(normalized_index)=='68d189298d648d812eae1e320dc9b96e92ea7dbd79d13426cb04a74a1f316a4a','index.html changed beyond version/cache identity')
+check(normalized_hash(server,'3.6.76','3.6.77')=='7376e78b5f8da0868712aad2d1a297e06688d34c6427fe6db5f042955767a443','server.py changed beyond APP_VERSION')
+check(normalized_hash(sab_text,'3.6.76','3.6.77')=='f2c92f1ec593eb633d77570137af90ce0f057aed39b2771e2d7aa30057aa7687','sab_engine.py changed beyond ADAPTER_VERSION')
+check(normalized_hash(automation,'3.6.76','3.6.77')=='b832afbd5c7b339d5092817d5b6a243136922139c95efec00bba2e69e750d94d','automation_engine.py changed beyond version identity')
+check(normalized_hash(app,'3.6.76','3.6.77')=='92cc57995e8b45725d70ed13071142729bc59ea7f2e3721bf5428ed29a26d169','app.js logic changed; v3.6.77 must remain UX/CSS-only')
+normalized_index=index.replace('3.6.77-ux-layout-control-consistency','3.6.76-ux-readability-visual-rhythm').replace('v3.6.77','v3.6.76')
+check(digest_text(normalized_index)=='5e000db6d33524cbf6348dd493955ba3af387f844f400126e51ca0ae7d112eb9','index.html changed beyond version/cache identity')
 
-# The stylesheet must be the exact v3.6.75 production CSS followed by one
-# guarded visual-only override block.
-marker='/* v3.6.76 UX Polish Phase 1 - Readability & Visual Rhythm */'
-phase2='/* v3.6.77 UX Polish Phase 2 - Layout & Control Consistency */'
-check(styles.count(marker)==1,'v3.6.76 Phase 1 stylesheet marker count mismatch')
-check(styles.count(phase2)==1,'v3.6.77 Phase 2 stylesheet marker count mismatch')
+# The stylesheet must be exact v3.6.76 plus one reviewed Phase 2 suffix.
+marker='/* v3.6.77 UX Polish Phase 2 - Layout & Control Consistency */'
+check(styles.count(marker)==1,'v3.6.77 UX stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
-phase1_body,_phase2_tail=suffix.split(phase2,1)
-check(digest_text(prefix.rstrip('\n')+'\n')=='14dda592762274237cde3fec91abbce0175f7c30fd46460cdfb897c0f4e5cab4','Pre-v3.6.76 stylesheet baseline changed')
-check(digest_text('\n'+marker+phase1_body.rstrip('\n')+'\n')=='9e4ef1570f499aac230dd8a38b0889cb85af0bbf8dd83f80690f510014990e95','v3.6.76 Phase 1 UX override block changed')
+check(digest_text(prefix.rstrip('\n')+'\n')=='08489cb6b9b6581584b98976609f66d57880f165f374b84ee811a5f92b6eaf15','Pre-v3.6.77 stylesheet baseline changed')
+check(digest_text('\n'+marker+suffix)=='13afd01b65cd9ff7d568e74fcac91a998aa49ae257a51b030c1b439109b8699e','v3.6.77 UX override block changed outside the reviewed payload')
 for marker2 in (
-    '--ux-copy:12px;',
-    '.discover-card-copy h3{font-size:13.5px!important;',
-    '.automation-card-body>p{font-size:12px!important;',
-    '.download-statistics-head p{font-size:11.5px;',
-    '.settings-section>p{font-size:13px;',
-    '.empty-state p,.automation-empty p,.diag-empty,.metadata-hint{font-size:12.25px;',
-): check(marker2 in styles,'UX polish marker missing: '+marker2)
-# Do not allow the Phase 1 suffix to touch performance-sensitive browser geometry/classes.
-for forbidden in ('THUMBNAIL_HTTP_ADMISSION_LIMIT','videoThumbConcurrency','VIDEO_THUMB_SAMPLE_MB','max_segments','binary-set-row','gallery-virtual-spacer','article-row{','workspace.all-posts-wide','related-set-card'):
-    check(forbidden not in phase1_body,'Phase 1 CSS touches protected browser/performance surface: '+forbidden)
+    '--ux-control-height:40px;',
+    '.primary-btn,.secondary-btn,.danger-btn{',
+    '.automation-modal-card{width:min(1020px,calc(100vw - 48px))}',
+    '.settings-content{padding:26px 28px}',
+    '.download-tab{height:34px;min-height:34px;padding:0 12px}',
+    '@media(max-width:620px){',
+): check(marker2 in styles,'UX Phase 2 marker missing: '+marker2)
+for forbidden in (
+    'THUMBNAIL_HTTP_ADMISSION_LIMIT','videoThumbConcurrency','VIDEO_THUMB_SAMPLE_MB','max_segments',
+    'binary-set-row','gallery-virtual-spacer','article-row{','workspace.all-posts-wide','related-set-card',
+    '.articles-toolbar','.groups-pane','.preview-pane'
+): check(forbidden not in suffix,'UX-only CSS suffix touches protected Newsgroup Browser/performance surface: '+forbidden)
 
-# v3.6.75 Defender-compatible yEnc build remains exactly frozen.
+# v3.6.75 Defender-compatible yEnc build remains frozen.
 check(digest_text(builder)=='a0c23db400246a97cac85769ccc3cd4cf98fd830a85089b7580cece540234f2f','build-portable.py changed in UX-only release')
 blob=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD:src/windows/NewzDeckYenc.go'],text=True).strip()
 check(blob=='38f6df7ed77bc7d3b5d8c83b1973e86fc6fa9c15','NewzDeckYenc.go source blob changed')
@@ -64,10 +61,10 @@ for marker2 in (
     'return YENC_GO_LDFLAGS if exe == "NewzDeckYenc.exe" else DEFAULT_GO_LDFLAGS',
     '"purpose":"Windows Defender compatibility"',
 ): check(marker2 in builder,'Defender-compatible yEnc build protection missing: '+marker2)
-for marker2 in ('python release/windows/validate-v3676-regressions.py',"$yencSymbols = @(& go tool nm $yencBinary 2>&1)"):
+for marker2 in ('python release/windows/validate-v3677-regressions.py',"$yencSymbols = @(& go tool nm $yencBinary 2>&1)"):
     check(marker2 in workflow,'Canonical release workflow protection missing: '+marker2)
 
-# Carry forward frozen runtime behavior from v3.6.75.
+# Carry forward frozen runtime behavior.
 for marker2 in (
     'let videoThumbRequestSeq = 0;', 'video_request_id:requestId',
     "perfRecord('video_thumbnail_client_lifecycle'", 'function resolveThumbnailTaskArticle(task)',
@@ -90,7 +87,7 @@ tree=ast.parse(server); wanted={'BROWSE_OVERVIEW_CHUNK_HEADERS','BROWSE_FIRST_PA
 for node in tree.body:
     if isinstance(node,ast.Assign) and any(isinstance(x,ast.Name) and x.id in wanted for x in node.targets): body.append(node)
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
-mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3676>','exec'),ns)
+mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3677>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
 check((APP/'version.txt').read_text().strip()=='3.6.77','version.txt mismatch')

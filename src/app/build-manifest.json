@@ -1,20 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.76",
-  "base_version": "3.6.75",
-  "release": "UX Readability & Visual Rhythm",
-  "adapter_version": "3.6.76",
-  "name": "UX Readability & Visual Rhythm",
+  "version": "3.6.77",
+  "base_version": "3.6.76",
+  "release": "UX Layout & Control Consistency",
+  "adapter_version": "3.6.77",
+  "name": "UX Layout & Control Consistency",
   "sab_version": "5.1.2",
   "changes": [
-    "Begins the staged UX polish program with a visual-only readability and hierarchy pass across application chrome, Discover, Automation, Downloads, Settings, dialogs and empty/help states.",
-    "Raises undersized secondary labels and microcopy, improves line-height and contrast, and strengthens visual rhythm without changing controls, actions, routes, data contracts or runtime behavior.",
-    "Preserves the accepted Automation 2:3 poster geometry, card row structure, Discover poster behavior, Downloads state model, Settings semantics and Newsgroup Browser layout/performance architecture.",
+    "Continues the staged UX polish program with a visual-only layout, spacing and control-consistency pass across Settings, Add Media/Automation dialogs, Automation, Discover and Downloads.",
+    "Normalizes common action-button height/alignment, improves form and dialog breathing room, standardizes section/card spacing, and strengthens keyboard focus visibility without changing actions, routes or data contracts.",
+    "Preserves Newsgroup Browser geometry/performance surfaces, Automation poster/card structure, Discover media behavior, Downloads state/progress semantics, Settings persistence and all existing functional wiring.",
     "No backend, download, Automation, Smart Import, Discover data, provider/NNTP, thumbnail scheduler, browsing concurrency, sampling, resolver timing, SABnzbd 5.1.2, Metadata Server v0.3.3, launcher/service/tray or yEnc behavior is changed."
   ],
   "regression_guards": [
-    "v3.6.76 application logic files must normalize byte-for-byte to the v3.6.75 production baseline after replacing only the release identity string.",
-    "styles.css must equal the exact v3.6.75 production stylesheet followed only by the guarded v3.6.76 UX Polish Phase 1 override block.",
+    "v3.6.77 application logic files must normalize byte-for-byte to the exact v3.6.76 production files after replacing only the release identity string.",
+    "index.html must normalize byte-for-byte to v3.6.76 after replacing only the version/cache identity.",
+    "styles.css must equal the exact v3.6.76 production stylesheet followed only by the guarded v3.6.77 UX Polish Phase 2 override block.",
     "The v3.6.75 Defender-compatible NewzDeckYenc.exe build profile and exact NewzDeckYenc.go source blob remain frozen.",
     "All established schema-11 browsing, five-Image/six-Video admission, 24 MB/12-segment sampling, 800/800/1000 headers, resolver timing, Settings reliability, SABnzbd 5.1.2, terminal-history schema 3, Smart Import and Automation protections remain carried forward."
   ]

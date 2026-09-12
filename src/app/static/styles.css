@@ -1997,3 +1997,93 @@ button.is-busy::before{content:"";display:inline-block;width:12px;height:12px;fl
   .discover-card-copy h3{font-size:13px!important}
   .settings-section>p{font-size:12.5px}
 }
+
+/* v3.6.77 UX Polish Phase 2 - Layout & Control Consistency */
+/* Visual-only overrides. No application behavior, data flow, scheduling,
+   download, Automation, Discover, provider, or Newsgroup Browser logic changes. */
+:root{
+  --ux-control-height:40px;
+  --ux-control-radius:9px;
+  --ux-control-gap:10px;
+  --ux-section-gap:16px;
+}
+
+/* Shared action controls: align common button geometry without changing actions. */
+.primary-btn,.secondary-btn,.danger-btn{
+  height:var(--ux-control-height);
+  min-height:var(--ux-control-height);
+  padding:0 15px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  line-height:1;
+  white-space:nowrap;
+  transition:transform .14s ease,border-color .14s ease,background .14s ease,box-shadow .14s ease;
+}
+.primary-btn:active,.secondary-btn:active,.danger-btn:active{transform:translateY(1px)}
+.automation-actions,.download-actions,.diagnostics-actions,.setup-card-actions,.automation-item-actions{gap:var(--ux-control-gap)}
+
+/* Clear keyboard focus while retaining the established visual language. */
+.primary-btn:focus-visible,.secondary-btn:focus-visible,.danger-btn:focus-visible,
+.settings-content input:focus-visible,.settings-content select:focus-visible,.settings-content textarea:focus-visible,
+.automation-modal-card input:focus-visible,.automation-modal-card select:focus-visible,.automation-modal-card textarea:focus-visible{
+  outline:2px solid rgba(91,202,227,.72);
+  outline-offset:2px;
+}
+
+/* Settings: consistent control rhythm and section breathing room. */
+.settings-content{padding:26px 28px}
+.settings-grid{gap:16px 14px}
+.settings-check{min-height:68px;padding:13px 14px}
+.settings-content input:not([type=checkbox]):not([type=radio]),.settings-content select{min-height:var(--ux-control-height);border-radius:var(--ux-control-radius)}
+.settings-content textarea{padding:10px 12px;line-height:1.48;border-radius:var(--ux-control-radius)}
+.settings-footer{min-height:64px;display:flex;align-items:center}
+
+/* Add Media / Automation dialogs: more edge room, aligned fields and clearer groups. */
+.automation-modal-card{width:min(1020px,calc(100vw - 48px))}
+.automation-modal-card .automation-add-options{gap:16px;padding:22px 24px 14px}
+.automation-modal-card .automation-add-controls{padding:0 24px}
+.automation-modal-card .metadata-results{margin:16px 24px 0;border-radius:10px}
+.automation-modal-card .automation-manual-add{margin:18px 24px 24px;padding-top:18px}
+.automation-modal-card .automation-add-options select,
+.automation-modal-card .automation-search input,
+.automation-modal-card .automation-search button,
+.automation-modal-card .automation-manual-add input{min-height:var(--ux-control-height)}
+
+/* Automation library and supporting rows. Poster geometry and card structure stay intact. */
+.automation-panel{padding:22px}
+.automation-library-grid{gap:16px}
+.automation-card-body{padding:15px}
+.automation-section-head{min-height:44px;margin-bottom:15px}
+.wanted-row,.indexer-row,.history-row{padding:12px 13px}
+
+/* Discover filter/control alignment only; poster/image behavior is unchanged. */
+.discover-filters{padding:14px 16px}
+.discover-filters select,.discover-filters input{min-height:var(--ux-control-height);border-radius:var(--ux-control-radius)}
+.discover-section-head{min-height:44px;margin-bottom:14px}
+
+/* Downloads: cleaner tab, statistics, row and action alignment. */
+.download-stat{padding:14px 15px}
+.downloads-panel-head{padding:0 16px;gap:14px}
+.download-tabs{gap:5px}
+.download-tab{height:34px;min-height:34px;padding:0 12px}
+.download-row{column-gap:14px;padding-left:14px;padding-right:14px}
+.download-row-actions{gap:7px}
+
+@media(max-width:900px){
+  .automation-modal-card{width:min(780px,calc(100vw - 32px))}
+  .automation-modal-card .automation-add-options{padding:18px 20px 12px}
+  .automation-modal-card .automation-add-controls{padding:0 20px}
+  .automation-modal-card .metadata-results{margin-left:20px;margin-right:20px}
+  .automation-modal-card .automation-manual-add{margin-left:20px;margin-right:20px}
+}
+@media(max-width:620px){
+  .settings-content{padding:18px}
+  .automation-panel{padding:14px}
+  .automation-modal-card{width:calc(100vw - 20px)}
+  .automation-modal-card .automation-add-options{padding:14px 16px 10px}
+  .automation-modal-card .automation-add-controls{padding:0 16px}
+  .automation-modal-card .metadata-results,.automation-modal-card .automation-manual-add{margin-left:16px;margin-right:16px}
+  .primary-btn,.secondary-btn,.danger-btn{padding-left:13px;padding-right:13px}
+}

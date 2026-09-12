@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.76** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.77** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.76_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.77_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.76 highlights
+## v3.6.77 highlights
 
-v3.6.76 begins NewzDeck's staged UX polish work with a conservative readability and visual-hierarchy pass.
+v3.6.77 continues NewzDeck's staged UX polish with a presentation-only layout and control-consistency pass.
 
-- **Easier-to-read supporting text:** undersized labels, captions and help text are more legible across Discover, Automation, Downloads, Settings and dialogs.
-- **Stronger hierarchy:** secondary copy uses more consistent line-height and contrast without making the interface oversized.
-- **Geometry preserved:** accepted poster ratios, card layout, controls and page actions remain unchanged.
-- **Logic frozen:** Newsgroup browsing, downloads, Automation, Smart Import, Discover data, Settings persistence, provider/NNTP behavior, SABnzbd 5.1.2 and Metadata Server v0.3.3 are unchanged.
+- **Aligned controls:** common action buttons and form fields use a more consistent height and internal alignment.
+- **Cleaner spacing:** Settings, Add Media/Automation dialogs, Automation, Discover and Downloads have more consistent padding and section rhythm.
+- **Better focus feedback:** keyboard focus is clearer and common buttons have subtle press feedback.
+- **Functionality frozen:** routes, actions, data flow, Newsgroup Browser behavior, downloads, Automation, Smart Import, Discover data, Settings persistence, SABnzbd 5.1.2 and Metadata Server v0.3.3 are unchanged.
 - **Defender fix preserved:** the v3.6.75 yEnc helper build profile remains unchanged.
 
-See [the full v3.6.76 release notes](release/RELEASE_NOTES_v3.6.76.md).
+See [the full v3.6.77 release notes](release/RELEASE_NOTES_v3.6.77.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.76_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.77_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

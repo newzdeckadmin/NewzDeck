@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.76 import-hold semantics and Downloads-count integrity guards."""
+"""NewzDeck v3.6.77 import-hold semantics and Downloads-count integrity guards."""
 from __future__ import annotations
 import importlib.util
 import json
@@ -19,7 +19,7 @@ def load(name,path):
 
 sab=load('v3657_sab',SAB)
 auto=load('v3657_auto',AUTO)
-if sab.ADAPTER_VERSION!='3.6.76': raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
+if sab.ADAPTER_VERSION!='3.6.77': raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
 if sab.TERMINAL_HISTORY_VERSION!=3 or sab.TERMINAL_HISTORY_MAX_ROWS!=5000: raise SystemExit('Durable terminal-history contract changed.')
 if sab.STATISTICS_ACCOUNTED_MAX_ROWS!=20000: raise SystemExit('Statistics-accounting retention changed.')
 
@@ -27,7 +27,7 @@ class DummyDownloadManager:
     def snapshot(self,*args,**kwargs): return {'jobs':[],'collections':[],'counts':{},'telemetry':{}}
 
 def make_auto(root:pathlib.Path):
-    return auto.MediaAutomationEngine(root,lambda value:value,lambda value:value,DummyDownloadManager(),lambda:[],version='3.6.76')
+    return auto.MediaAutomationEngine(root,lambda value:value,lambda value:value,DummyDownloadManager(),lambda:[],version='3.6.77')
 
 def make_sab(root:pathlib.Path):
     return sab.SabDownloadManager(user_root=root/'user',app_dir=root/'app',download_dir_getter=lambda:root/'completed',settings_getter=lambda:{},providers_getter=lambda:[],secret_unprotect=lambda x:x,parse_nzb=lambda b,n:{'files':[]},diagnostics=None,start_threads=False)
@@ -108,30 +108,30 @@ with tempfile.TemporaryDirectory(prefix='newzdeck-v3657-integrity-hold-') as td:
 
 sab_source=SAB.read_text(encoding='utf-8'); auto_source=AUTO.read_text(encoding='utf-8'); server_source=SERVER.read_text(encoding='utf-8'); js=JS.read_text(encoding='utf-8'); index=INDEX.read_text(encoding='utf-8')
 for marker in (
-    'ADAPTER_VERSION = "3.6.76"','_terminal_transfer_status_counts','terminal_presentation_counts','terminal_transfer_counts',
+    'ADAPTER_VERSION = "3.6.77"','_terminal_transfer_status_counts','terminal_presentation_counts','terminal_transfer_counts',
     'import_failure_class','import_integrity_hold','Smart Import held for review','record_import_integrity_hold',
     '_engine_warning_resolved_by_terminal_history','resolved_engine_warnings','raw_sab_active_overlap_episodes',
     'terminal_history_index_rebuilds_avoided',
 ):
-    if marker not in sab_source: raise SystemExit(f'Missing v3.6.76 SAB/count marker: {marker}')
+    if marker not in sab_source: raise SystemExit(f'Missing v3.6.77 SAB/count marker: {marker}')
 for marker in (
     'def record_import_integrity_hold','integrity_hold_releases_blacklisted','integrity_hold_targets_paused',
     "if bool(rec.get('integrity_hold'))",'automatic search paused for manual review','integrity_hold_resolved_ts',
     '_preimport_cross_episode_fingerprint_conflicts','cross_episode_fingerprint_imports_blocked',
 ):
-    if marker not in auto_source: raise SystemExit(f'Missing v3.6.76 Automation integrity-hold marker: {marker}')
+    if marker not in auto_source: raise SystemExit(f'Missing v3.6.77 Automation integrity-hold marker: {marker}')
 for marker in (
-    'APP_VERSION = "3.6.76"',"'presentation_terminal_counts':presentation_terminal_counts","'transfer_terminal_counts':transfer_terminal_counts",
+    'APP_VERSION = "3.6.77"',"'presentation_terminal_counts':presentation_terminal_counts","'transfer_terminal_counts':transfer_terminal_counts",
     'integrity_hold_releases_blacklisted=','integrity_hold_targets_paused=',
     'DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS = 1.5','resolved_historical=',
 ):
-    if marker not in server_source: raise SystemExit(f'Missing v3.6.76 diagnostics/count marker: {marker}')
-for marker in ("const UI_VERSION = '3.6.76';",'INTEGRITY HOLDS','automatic search paused'):
-    if marker not in js: raise SystemExit(f'Missing v3.6.76 UI hold marker: {marker}')
-if '3.6.76-ux-readability-visual-rhythm' not in index: raise SystemExit('Static cache identity is not v3.6.76.')
+    if marker not in server_source: raise SystemExit(f'Missing v3.6.77 diagnostics/count marker: {marker}')
+for marker in ("const UI_VERSION = '3.6.77';",'INTEGRITY HOLDS','automatic search paused'):
+    if marker not in js: raise SystemExit(f'Missing v3.6.77 UI hold marker: {marker}')
+if '3.6.77-ux-layout-control-consistency' not in index: raise SystemExit('Static cache identity is not v3.6.77.')
 manifest=json.loads(MANIFEST.read_text(encoding='utf-8'))
-if manifest.get('version')!='3.6.76' or manifest.get('adapter_version')!='3.6.76' or manifest.get('base_version')!='3.6.75':
+if manifest.get('version')!='3.6.77' or manifest.get('adapter_version')!='3.6.77' or manifest.get('base_version')!='3.6.76':
     raise SystemExit(f'Build manifest identity is wrong: {manifest.get("version")}/{manifest.get("adapter_version")}/{manifest.get("base_version")}')
 if WORKFLOW.exists() and 'python release/windows/validate-v3657-regressions.py' not in WORKFLOW.read_text(encoding='utf-8'):
-    raise SystemExit('Canonical release workflow does not run the v3.6.76 regression guard.')
-print('v3.6.76 regression guard passed (presentation-vs-transfer counts + explicit import_integrity_hold + exact release blacklist + repeated-conflict target pause + carried v3.6.56 protections).')
+    raise SystemExit('Canonical release workflow does not run the v3.6.77 regression guard.')
+print('v3.6.77 regression guard passed (presentation-vs-transfer counts + explicit import_integrity_hold + exact release blacklist + repeated-conflict target pause + carried v3.6.56 protections).')
