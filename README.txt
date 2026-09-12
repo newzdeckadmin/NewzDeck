@@ -1,14 +1,13 @@
-NewzDeck v3.6.86 - Automation Cache Snapshot Performance Hotfix
+NewzDeck v3.6.87 - Dynamic Range Evidence Authority Fix
 
-This is a targeted performance hotfix built on v3.6.85.
+This is a targeted Automation correctness hotfix built on v3.6.86.
 
-What changed:
-- Automation no longer rereads and reparses media-quality-cache.json for every existing episode/movie while building the Library, Wanted, and Calendar response.
-- One cache snapshot is shared across the complete Automation summary request, restoring normal Library/TV/Movies/Wanted load behavior for larger libraries.
-- Interactive Search resolves the current library file traits once and reuses them for every candidate, eliminating the v3.6.85 Search Releases slowdown/stall.
-- Automatic feed and scheduler upgrade evaluation use the same per-target snapshot so unattended searches do not repeat cache I/O per candidate.
-- v3.6.85's canonical DV/DV+HDR trait-coherency fix remains intact.
+Highlights:
+- A successful probe of the actual imported media file now overrides stale or optimistic DV/HDR claims from the original release name for dynamic-range decisions only.
+- Release provenance still owns facts the container cannot prove, including WEB-DL/WEBRip source identity and release-group metadata.
+- An SDR 2160p WEB-DL current file can now upgrade to Dolby Vision-only at the same base quality tier instead of being rejected as "same quality tier".
+- A true Dolby Vision-only current file still upgrades to Dolby Vision + HDR fallback, while an actual DV+HDR current file remains terminal.
+- The v3.6.86 one-cache-snapshot Automation and Interactive Search performance fix is preserved.
+- Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 are unchanged.
 
-Frozen Newsgroup Browser tuning, SABnzbd 5.1.2, Smart Import/post-processing, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc behavior are unchanged.
-
-See release/RELEASE_NOTES_v3.6.86.md for details.
+See release/RELEASE_NOTES_v3.6.87.md for details.

@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.86'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.87'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -4731,34 +4731,72 @@ class MediaAutomationEngine:
     def _record_release_info(self, rec:dict[str,Any]|None, current_quality:str='Unknown', quality_cache:dict[str,Any]|None=None) -> dict[str,Any]:
         """Resolve one canonical trait view for an existing library file.
 
-        Wanted, Library/Calendar cutoff state, Interactive Search and automatic
-        release evaluation must agree about the traits already present in the
-        current file.  Prefer stored release traits when available, then the
-        fingerprint-bound original release title, then conservative media-probe
-        data, and finally the stored base quality.
+        Release provenance and the media file itself answer different questions.
+        The original release name remains authoritative for facts a container probe
+        cannot prove (for example WEB-DL vs WEBRip and the release group), while a
+        successful media probe is authoritative for *intrinsic dynamic-range state*.
 
-        v3.6.86 lets callers pass one read-only media-quality-cache snapshot for a
-        complete logical operation.  v3.6.85 reread and reparsed that JSON file for
-        every episode and every Interactive Search candidate, which made Automation
-        startup and Search Releases scale with record/candidate count.  A snapshot
-        keeps one coherent trait view while avoiding repeated disk I/O.
+        This distinction matters when a Usenet post is labelled ``DV``/``HDR`` but
+        the imported file does not actually contain those signals.  v3.6.86 trusted
+        release-name provenance before ``media_info`` and could therefore treat an
+        SDR file as Dolby Vision, causing a real DV candidate at the same 2160p
+        WEB-DL tier to be rejected as "same quality tier".  v3.6.87 keeps the
+        provenance fields but overlays probe-backed Dolby Vision/HDR booleans when
+        the probe completed successfully.
+
+        Callers may still pass one read-only media-quality-cache snapshot for the
+        complete logical operation; the v3.6.86 cache-snapshot performance fix is
+        intentionally preserved.
         """
-        info=parse_release(str(current_quality or ''))
-        if not isinstance(rec,dict): return info
+        base=parse_release(str(current_quality or ''))
+        if not isinstance(rec,dict): return base
+
+        # Build the provenance view first. Stored import traits are preferred,
+        # followed by the fingerprint-bound original release title. Neither is
+        # allowed to override intrinsic dynamic-range evidence from the actual file.
         stored=rec.get('release_traits') if isinstance(rec.get('release_traits'),dict) else None
-        if stored: return dict(stored)
-        fp=str(rec.get('file_fingerprint') or '')
-        if fp:
-            cache=quality_cache if isinstance(quality_cache,dict) else self._media_quality_cache()
-            cached=cache.get(fp)
-            if isinstance(cached,dict) and str(cached.get('release_title') or '').strip():
-                return parse_release(str(cached.get('release_title') or ''))
+        info=dict(stored) if stored else dict(base)
+        if not stored:
+            fp=str(rec.get('file_fingerprint') or '')
+            if fp:
+                cache=quality_cache if isinstance(quality_cache,dict) else self._media_quality_cache()
+                cached=cache.get(fp)
+                if isinstance(cached,dict) and str(cached.get('release_title') or '').strip():
+                    info=parse_release(str(cached.get('release_title') or ''))
+
         media=rec.get('media_info') if isinstance(rec.get('media_info'),dict) else {}
-        if media:
+        if not media:
+            return info
+
+        # Preserve the established conservative enrichment for records that have no
+        # explicit release provenance. This keeps old/manual library records useful
+        # without manufacturing source metadata from the container.
+        if not stored and not str(rec.get('file_fingerprint') or ''):
             merged=dict(info); merged.update({k:v for k,v in media.items() if v not in {'',None,'Unknown'}})
             if str(media.get('video_codec') or '') not in {'','Unknown'}: merged['codec']=str(media.get('video_codec'))
             if str(media.get('audio_codec') or '') not in {'','Unknown'}: merged['audio']=str(media.get('audio_codec'))
-            return merged
+            info=merged
+
+        # _probe_media_traits() only writes these boolean keys after it successfully
+        # reads the file. Their simultaneous presence therefore distinguishes a real
+        # probe result from an inaccessible/failed probe whose fields remain Unknown.
+        # False is meaningful here: it proves the probe did *not* find the trait and
+        # must be allowed to correct a stale/optimistic release title.
+        probe_dynamic_range=all(k in media for k in ('dolby_vision','hdr10_plus','hdr_present'))
+        if probe_dynamic_range:
+            dv=bool(media.get('dolby_vision'))
+            plus=bool(media.get('hdr10_plus'))
+            hdr_present=bool(media.get('hdr_present')) or plus
+            info['dolby_vision']=dv
+            info['hdr10_plus']=plus
+            info['hdr_present']=hdr_present
+            # Do not let a provenance-only HDR10 flag leak back into rank decisions.
+            info['hdr10']=bool(media.get('hdr10')) if 'hdr10' in media else False
+            if dv and hdr_present: info['hdr']='Dolby Vision + HDR'
+            elif dv: info['hdr']='Dolby Vision'
+            elif plus: info['hdr']='HDR10+'
+            elif hdr_present: info['hdr']='HDR/HDR10'
+            else: info['hdr']='SDR/Unknown'
         return info
 
     def _current_target_release_info(self, item:dict[str,Any]|None, season=None, episode=None, current_quality:str='Unknown', quality_cache:dict[str,Any]|None=None) -> dict[str,Any]:

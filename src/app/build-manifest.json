@@ -1,29 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.86",
-  "base_version": "3.6.85",
-  "release": "Automation Cache Snapshot Performance Hotfix",
-  "adapter_version": "3.6.86",
-  "name": "Automation Cache Snapshot Performance Hotfix",
+  "version": "3.6.87",
+  "base_version": "3.6.86",
+  "release": "Dynamic Range Evidence Authority Fix",
+  "adapter_version": "3.6.87",
+  "name": "Dynamic Range Evidence Authority Fix",
   "sab_version": "5.1.2",
   "changes": [
-    "Fixes the v3.6.85 Automation load regression caused by rereading and reparsing media-quality-cache.json once per existing episode/movie while recomputing live cutoff state.",
-    "Shares one read-only media quality cache snapshot across the complete Automation summary response, including Library cutoff decoration, Wanted, and Calendar.",
-    "Fixes Interactive Search stalls by resolving the current file traits once per Search Releases request and reusing that result for every candidate evaluation and automatic-eligibility check.",
-    "Reuses one current-file trait snapshot for automatic feed candidate evaluation and the scheduler's post-search safety pass, eliminating candidate-count-dependent cache I/O in unattended upgrades.",
-    "Preserves v3.6.85 canonical current-file trait precedence and DV-only to DV+HDR fallback upgrade correctness without reverting the trait-coherency fix.",
-    "Preserves v3.6.84 Allow-versus-Prefer cutoff semantics, accurate Wanted reason labels, 1080p Balanced behavior, and 4K preferred dynamic-range progression.",
-    "Preserves v3.6.83 installed/runtime/UI update-version coherency and the guarded source commit -> annotated tag -> separate trigger commit release topology.",
-    "Preserves frozen Newsgroup Browser tuning, SABnzbd 5.1.2, Smart Import/post-processing, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and the Defender-clean yEnc pipeline."
+    "Fixes same-tier 2160p upgrade rejection when release-name provenance says Dolby Vision/HDR but the imported media probe proves the current file does not actually contain those dynamic-range traits.",
+    "Separates release provenance from intrinsic media evidence: WEB-DL/WEBRip and release-group identity remain provenance-driven, while a successful current-file media probe is authoritative for Dolby Vision, HDR10+, and HDR presence.",
+    "Allows a real Dolby Vision-only candidate to upgrade an SDR 2160p WEB-DL current file, and allows Dolby Vision + HDR fallback to upgrade a true Dolby Vision-only current file.",
+    "Keeps a current file that actually probes as Dolby Vision + HDR fallback terminal even if its original release name omitted those traits.",
+    "Preserves the v3.6.86 one-snapshot-per-operation Automation and Interactive Search performance fix without reintroducing repeated media-quality-cache reads.",
+    "Preserves v3.6.84 1080p Balanced Allow semantics, source refinement behavior, Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, and guarded publication topology."
   ],
   "regression_guards": [
-    "A full Automation summary with hundreds of file records must load media-quality-cache.json once, not once per Library/Wanted/Calendar record.",
-    "Interactive Search with hundreds of candidates must resolve the current-file trait snapshot once and must not reload media-quality-cache.json per candidate.",
-    "Automatic feed evaluation and scheduler safety matching reuse one current-file trait view per target rather than per candidate.",
-    "v3.6.85 DV/DV+HDR canonical trait precedence and same-tier dynamic-range upgrade acceptance remain guarded.",
-    "v3.6.84 Allow-only dynamic-range policies remain acceptable rather than mandatory upgrade targets, while Prefer/Require continues to drive intended 4K progression.",
-    "Generic WEB to explicit WEB-DL source upgrades and base-quality cutoff behavior remain unchanged.",
-    "v3.6.83 same-version update protection and installed/runtime/UI version coherency remain guarded.",
-    "The canonical Source commit parser, immutable tag topology, frozen browser values, SABnzbd 5.1.2 and Defender-clean yEnc source/build identity remain unchanged."
+    "Current-file media probe can correct stale/optimistic release-title DV/HDR claims without discarding provenance-only source/release-group metadata.",
+    "SDR current 2160p WEB-DL accepts Dolby Vision-only and Dolby Vision + HDR fallback same-tier candidates as dynamic range improves.",
+    "True Dolby Vision-only current media still accepts Dolby Vision + HDR fallback, while actual DV+HDR remains terminal.",
+    "v3.6.86 Automation summary and Interactive Search cache-snapshot performance behavior remains guarded.",
+    "Frozen Newsgroup Browser, yEnc, download, SAB, Metadata Server, and Diagnostic Collector boundaries remain guarded."
   ]
 }

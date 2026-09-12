@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.86** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.87** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.86_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.87_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.86 highlights
+## v3.6.87 highlights
 
-v3.6.86 is a targeted Automation performance hotfix built on the published v3.6.85 baseline.
+v3.6.87 is a targeted Automation correctness hotfix built on the published v3.6.86 baseline.
 
-- **Automation loading restored:** Library cutoff decoration, Wanted, and Calendar share one media-quality-cache snapshot for the complete Automation summary instead of reparsing the same JSON once per file record.
-- **Interactive Search restored:** the current library file is resolved once per Search Releases request and reused for every candidate score and automatic-eligibility decision.
-- **Automatic upgrades stay efficient:** feed candidates and scheduler safety checks reuse one current-file trait view per target instead of doing cache I/O per candidate.
-- **v3.6.85 correctness preserved:** DV-only -> DV+HDR fallback upgrades still work and already-terminal DV+HDR files stay satisfied.
-- **Prior cutoff semantics preserved:** 1080p Balanced Allow policies remain acceptable and 4K Preferred Prefer/Require progression remains intact.
+- **Actual file traits win:** successful media inspection is authoritative for Dolby Vision/HDR state, so optimistic post names can no longer make SDR files look like DV.
+- **Same-tier DV upgrades work:** an actual SDR 2160p WEB-DL can upgrade to Dolby Vision at the same 2160p WEB-DL base tier instead of being rejected as `same quality tier`.
+- **Progression remains ordered:** HDR -> Dolby Vision -> Dolby Vision + HDR fallback remains upgradeable, while actual DV+HDR fallback stays terminal.
+- **Provenance is preserved:** release names remain authoritative for source identity such as WEB-DL/WEBRip and release group when the container cannot prove those facts.
+- **v3.6.86 performance preserved:** Automation and Interactive Search continue sharing one quality-cache/current-file snapshot per logical operation.
 - **Frozen behavior preserved:** Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc remain unchanged.
 
-See [the full v3.6.86 release notes](release/RELEASE_NOTES_v3.6.86.md).
+See [the full v3.6.87 release notes](release/RELEASE_NOTES_v3.6.87.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.86_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.87_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

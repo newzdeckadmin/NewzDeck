@@ -1,23 +1,18 @@
-NewzDeck v3.6.86 update notes
+NewzDeck v3.6.87 update notes
 
-Installed users
-- Run NewzDeck_v3.6.86_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
-- You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
+Installed build:
+- Run NewzDeck_v3.6.87_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- No manual service stop is required; the installer/launcher handoff remains unchanged.
 
-Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.86 Portable ZIP contents, then restart NewzDeck.
+Portable build:
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.87 Portable ZIP contents, then restart NewzDeck.
 
-What changes
-- Automation summary generation shares one media quality cache snapshot across Library cutoff decoration, Wanted, and Calendar instead of reparsing the cache per file record.
-- Interactive Search resolves the current file traits once per request and reuses them for all candidate scoring and safety checks.
-- Automatic feed/scheduler candidate evaluation reuses one current-file trait snapshot per upgrade target.
+Preserved user state:
+- Providers, indexers, Automation library, quality profiles, download history, caches and local settings remain version-independent user data.
 
-What stays frozen
-- v3.6.85 current-file trait precedence and DV/DV+HDR upgrade correctness.
-- v3.6.84 cutoff-policy semantics, including Allow-versus-Prefer handling and accurate Wanted reason labels.
-- v3.6.83 installed/runtime/UI version coherency and same-version update protection.
-- v3.6.81 structured Quality Profiles, WEB-DL preference and intended HDR/Dolby Vision progression.
-- Newsgroup Browser performance architecture and accepted tuning constants.
-- SABnzbd 5.1.2 integration, download queue, post-processing and Smart Import behavior.
-- Metadata Server v0.3.3 and Diagnostic Collector v1.0.31.
-- Defender-accepted NewzDeckYenc.exe source/build/hash identity and canonical LF/Linux build path.
+What this hotfix changes:
+- Actual file-probe Dolby Vision/HDR evidence is authoritative over release-name claims when deciding dynamic-range upgrades.
+- Release provenance still remains authoritative for source/release-group facts that cannot be proven from the container.
+- v3.6.86 cache-snapshot performance behavior remains intact.
+
+No Metadata Server or Diagnostic Collector update is required for this release.

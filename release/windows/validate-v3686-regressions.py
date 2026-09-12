@@ -11,16 +11,16 @@ def load(name,path):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'9ec739fef5e7c8f32de3e3b398cbe7ee7c1c09fbbec960ba53ee7d433c604b14',
-    'automation_engine.py':'1b6b01e3d375ff78e465bf6b8043bf4be69ba534577ee8a16709d1055608c6f8',
-    'sab_engine.py':'e10f913620be66c9a674dcf39713493816358b68b21fe7ae3ed17dd0e618d66d',
-    'static/app.js':'a62ba7e5971187b6011097d5ac40e33d11e370a705fa13e2a06dac880ed68007',
-    'static/index.html':'a4bd451145a0732b3019a940ecdc1b5f8a8bfc6731a206af91ef15ce681836c7',
+    'server.py':'3d45cec7ab9d836a7ff2cadc5ed8f8caab75e911aece19acd729e79d2c6bf7e5',
+    'automation_engine.py':'eba353ca751ec259262918444f7d96e0a04262ffc9c8ca934e438e9ba702478e',
+    'sab_engine.py':'262406b082712c73ffcce8b30d0de15247d9e5a93b6fb82c7132ad7db22e3680',
+    'static/app.js':'2d41baf1935dc99015d4c401c2bdd610b4486477ee3429abca808af4eb5dfb54',
+    'static/index.html':'53259051490170fa79acf0b11454d1b96f5049e79ea7a6a690f1319f05559183',
     'static/styles.css':'ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2',
-    'build-manifest.json':'0415a15229dcd89060f7539b291ca060e71dbbba866ca80bb50e813f8bc74223',
-    'version.txt':'fb45ad74dd08008dab15001fb828d3a222321c7b44b41b6875cd75c37111f788',
+    'build-manifest.json':'2d06e148b86ee2da4cf98f0e3f0caa099efb5e8294ab66e01b31df4cb07cb519',
+    'version.txt':'428801e7d19029d5cacd7d5f906a4c329d88b4b3efa3eaeee183b9cf5aec3d40',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.86 payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.87 payload')
 
 auto=load('newzdeck_v3686_automation_guard',APP/'automation_engine.py')
 server=(APP/'server.py').read_text(encoding='utf-8')
@@ -31,13 +31,13 @@ manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 
-check((APP/'version.txt').read_text().strip()=='3.6.86','version.txt mismatch')
-check('APP_VERSION = "3.6.86"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.86';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.86' and manifest.get('base_version')=='3.6.85' and manifest.get('adapter_version')=='3.6.86','build manifest lineage mismatch')
-check(manifest.get('release')=='Automation Cache Snapshot Performance Hotfix','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.87','version.txt mismatch')
+check('APP_VERSION = "3.6.87"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.87';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.87' and manifest.get('base_version')=='3.6.86' and manifest.get('adapter_version')=='3.6.87','build manifest lineage mismatch')
+check(manifest.get('release')=='Dynamic Range Evidence Authority Fix','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
-check('v=3.6.86-automation-cache-snapshot-performance-fix' in index,'v3.6.86 asset cache identity missing')
+check('v=3.6.87-dynamic-range-evidence-authority-fix' in index,'v3.6.87 asset cache identity missing')
 check(sha(APP/'static'/'styles.css')=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','frozen stylesheet changed')
 
 # The fix must be structural: callers may provide one cache snapshot and one
@@ -53,30 +53,30 @@ for required in (
     'current_info=self._current_target_release_info(item,season,episode,current_quality,quality_cache)',
     'current_info=current_info)',
 ):
-    check(required in automation,'v3.6.86 snapshot reuse marker missing: '+required)
+    check(required in automation,'v3.6.87 snapshot reuse marker missing: '+required)
 
 class DummyDownloadManager: pass
 root=Path(tempfile.mkdtemp(prefix='newzdeck-v3686-guard-'))
-engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.86')
+engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.87')
 p4=copy.deepcopy(auto.DEFAULT_PROFILES[0]); p1080=copy.deepcopy(auto.DEFAULT_PROFILES[1])
 
-# v3.6.85 correctness remains intact before measuring performance behavior.
+# v3.6.87 evidence authority remains intact before measuring performance behavior.
 candidate_title='Dark.Matter.2024.S02E02.A.Perfect.World.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR.HEVC-GRP'
 candidate=auto.parse_release(candidate_title)
 terminal_rec={
     'episode_number':2,'name':'A Perfect World','air_date':'2020-01-01','monitored':True,
     'has_file':True,'file_quality':'2160p WEB-DL','file_fingerprint':'terminal-fp',
-    'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr_present':False,'hdr':'Dolby Vision'},
+    'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr10_plus':False,'hdr_present':True,'hdr':'Dolby Vision + HDR'},
 }
 terminal_item={'id':'terminal','kind':'tv','title':'Dark Matter','year':2024,'monitored':True,'monitor_mode':'all','quality_profile_id':'quality-4k-preferred','seasons':[{'season_number':2,'monitored':True,'episodes':[terminal_rec]}]}
-qterminal={'terminal-fp':{'quality':'2160p WEB-DL','source':'newzdeck-import','release_title':candidate_title}}
+qterminal={'terminal-fp':{'quality':'2160p WEB-DL','source':'newzdeck-import','release_title':'Dark.Matter.2024.S02E02.2160p.ATVP.WEB-DL.DV.HEVC-PROVENANCE'}}
 terminal_info=engine._record_release_info(terminal_rec,'2160p WEB-DL',qterminal)
-check(engine._dynamic_range_rank(terminal_info)==0,'Fingerprint-bound DV+HDR evidence was lost')
+check(engine._dynamic_range_rank(terminal_info)==0,'Successful media probe did not preserve terminal DV+HDR state')
 check(engine._quality_upgrade_status('2160p WEB-DL',p4,terminal_info).get('wanted') is False,'Already-terminal DV+HDR file remains falsely Wanted')
 true_dv_rec={
     'episode_number':2,'name':'A Perfect World','air_date':'2020-01-01','monitored':True,
     'has_file':True,'file_quality':'2160p WEB-DL',
-    'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr_present':False,'hdr':'Dolby Vision'},
+    'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr10_plus':False,'hdr_present':False,'hdr':'Dolby Vision'},
 }
 true_dv_item={'id':'true-dv','kind':'tv','title':'Dark Matter','year':2024,'monitored':True,'monitor_mode':'all','quality_profile_id':'quality-4k-preferred','seasons':[{'season_number':2,'monitored':True,'episodes':[true_dv_rec]}]}
 true_dv_info=engine._record_release_info(true_dv_rec,'2160p WEB-DL',{})
@@ -88,7 +88,7 @@ check(engine._dynamic_range_upgrade_target(p1080) is None,'1080p Balanced Allow 
 
 # Health is a separate UI endpoint and must also own exactly one snapshot rather
 # than referencing a summary-local variable or re-reading per Wanted record.
-health_engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3686-health-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.86')
+health_engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3686-health-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.87')
 health_engine._library=lambda:[]
 health_engine.public_config=lambda:{'tv_roots':[],'movie_roots':[],'automatic_grab_enabled':False,'automatic_feed_enabled':True}
 health_engine.public_indexers=lambda:[]
@@ -111,11 +111,12 @@ for n in range(1,181):
     rec={
         'episode_number':n,'name':f'Episode {n}','air_date':'2020-01-01','monitored':True,
         'has_file':True,'file_quality':'2160p WEB-DL','file_fingerprint':fp,
-        'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr_present':False,'hdr':'Dolby Vision'},
+        'media_info':({'quality':'2160p WEB-DL','dolby_vision':True,'hdr10_plus':False,'hdr_present':True,'hdr':'Dolby Vision + HDR'} if n%2 else {'quality':'2160p WEB-DL','dolby_vision':True,'hdr10_plus':False,'hdr_present':False,'hdr':'Dolby Vision'}),
     }
     episodes.append(rec)
-    if n%2:
-        summary_cache[fp]={'quality':'2160p WEB-DL','release_title':f'Perf.Show.S01E{n:03d}.2160p.WEB-DL.DV.HDR.HEVC-GRP'}
+    # Provenance deliberately disagrees with some actual files. v3.6.87 must keep
+    # the one-snapshot performance fix while using successful media evidence.
+    summary_cache[fp]={'quality':'2160p WEB-DL','release_title':f'Perf.Show.S01E{n:03d}.2160p.WEB-DL.DV.HEVC-PROVENANCE'}
 summary_item={'id':'perf','kind':'tv','title':'Perf Show','year':2026,'monitored':True,'monitor_mode':'all','quality_profile_id':'quality-4k-preferred','seasons':[{'season_number':1,'monitored':True,'episodes':episodes}]}
 engine._library=lambda:[copy.deepcopy(summary_item)]
 engine._profiles=lambda:[copy.deepcopy(p4)]
@@ -147,7 +148,7 @@ check(len(summary.get('wanted',{}).get('upgrades') or [])==90,'Summary snapshot 
 search_current={
     'episode_number':1,'name':'Pilot','air_date':'2020-01-01','monitored':True,
     'has_file':True,'file_quality':'2160p WEB-DL','file_fingerprint':'search-fp',
-    'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr_present':False,'hdr':'Dolby Vision'},
+    'media_info':{'quality':'2160p WEB-DL','dolby_vision':True,'hdr10_plus':False,'hdr_present':False,'hdr':'Dolby Vision'},
 }
 search_item={'id':'his-hers','kind':'tv','title':'His and Hers','year':2026,'monitored':True,'monitor_mode':'all','quality_profile_id':'quality-4k-preferred','seasons':[{'season_number':1,'monitored':True,'episodes':[search_current]}]}
 engine._library=lambda:[copy.deepcopy(search_item)]
@@ -165,7 +166,7 @@ engine._auto_runtime=lambda:{'targets':{}}
 engine._save_auto_runtime=lambda value:None
 engine._sync_automatic_failures=lambda value:False
 search_reads={'n':0}
-search_cache={'search-fp':{'quality':'2160p WEB-DL','release_title':'His.and.Hers.S01E01.2160p.WEB-DL.DV.HEVC-CURRENT'}}
+search_cache={'search-fp':{'quality':'2160p WEB-DL','release_title':'His.and.Hers.S01E01.2160p.WEB-DL.DV.HDR.HEVC-PROVENANCE'}}
 def read_search_cache():
     search_reads['n']+=1
     return search_cache
@@ -184,10 +185,11 @@ for required in (
     'python release/windows/validate-v3684-regressions.py',
     'python release/windows/validate-v3685-regressions.py',
     'python release/windows/validate-v3686-regressions.py',
+    'python release/windows/validate-v3687-regressions.py',
 ):
     check(required in workflow,'Canonical release workflow marker missing: '+required)
 for required in ('const THUMBNAIL_HTTP_ADMISSION_LIMIT=5;','state.videoThumbConcurrency=Math.max(1,Math.min(6,connections>=48?6:connections>=24?3:connections>=12?2:1,state.thumbConcurrency));'):
     check(required in app,'Frozen Newsgroup Browser value changed: '+required)
 for required in ('VIDEO_THUMB_SAMPLE_MB = 24','max_segments=12','BROWSE_OVERVIEW_CHUNK_HEADERS = 800','BROWSE_FIRST_PAINT_HEADERS = 800','BROWSE_LARGE_PAGE_THRESHOLD = 1000'):
     check(required in server,'Frozen backend/browser value changed: '+required)
-print('v3.6.86 Automation Cache Snapshot Performance Hotfix regression guard: PASS')
+print('v3.6.86 Automation Cache Snapshot Performance Hotfix carried-forward guard under v3.6.87: PASS')
