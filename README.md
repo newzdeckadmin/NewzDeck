@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.80** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.81** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.80_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.81_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.80 highlights
+## v3.6.81 highlights
 
-v3.6.80 completes the current staged broad UX polish program with a presentation-only final consistency and accessibility pass built on v3.6.79.
+v3.6.81 is a targeted Automation intelligence and Quality Profile release built on the verified v3.6.80 production baseline.
 
-- **Consistent dialogs and hierarchy:** dialog framing, section rhythm, helper text and status/action alignment are more uniform across established surfaces.
-- **Clear keyboard focus:** existing navigation, tabs, actions and dialogs use one predictable high-contrast focus treatment.
-- **Scaling and motion polish:** constrained/high-scaling viewports receive safer dialog insets and nonessential polish respects reduced-motion preferences.
-- **Functionality frozen:** Newsgroup Browser behavior/performance, downloads, Automation, Smart Import, Discover data, Settings persistence, SABnzbd 5.1.2 and Metadata Server v0.3.3 are unchanged.
-- **Defender-clean pipeline preserved:** the exact v3.6.78 LF/Linux yEnc build and accepted helper hash gate remain unchanged.
+- **Independent monitored metadata refresh:** monitored TV shows keep discovering future/new episodes on schedule even when automatic downloading is off.
+- **Correct upgrade intelligence:** explicit WEB-DL beats ambiguous WEB at the same resolution; HDR upgrades SDR; Dolby Vision upgrades HDR; DV + HDR fallback is the preferred dynamic-range state.
+- **One upgrade model:** Interactive Search, Continuous Automation, automatic-grab preflight and Smart Import share the same source/dynamic-range comparison rules.
+- **Structured Quality Profile Builder:** templates, ordered source/resolution tiers, cutoff, HDR/DV, codecs, audio, PROPER/REPACK, size, release groups, reject terms and advanced custom rules.
+- **Frozen performance architecture:** accepted Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc pipeline are unchanged.
 
-See [the full v3.6.80 release notes](release/RELEASE_NOTES_v3.6.80.md).
+See [the full v3.6.81 release notes](release/RELEASE_NOTES_v3.6.81.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.80_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.81_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

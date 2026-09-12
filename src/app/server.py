@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.80"
+APP_VERSION = "3.6.81"
 BACKEND_PROCESS_STARTED_AT = time.monotonic()
 
 def _is_installed_runtime() -> bool:
@@ -11958,6 +11958,11 @@ class AutomationManager:
                 self.last_media_auto_check=time.time()
                 try: MEDIA_AUTOMATION.maybe_reconcile_library()
                 except Exception as exc: DIAGNOSTICS.event('warning','media-automation',f'Library reconciliation failed to start: {exc}')
+                # v3.6.81: monitored-library metadata maintenance is independent of
+                # automatic downloading. Users can keep Calendar/future episodes
+                # current even when Continuous Automation is intentionally disabled.
+                try: MEDIA_AUTOMATION.maybe_refresh_monitored_metadata()
+                except Exception as exc: DIAGNOSTICS.event('warning','media-automation',f'Metadata refresh failed to start: {exc}')
                 try: MEDIA_AUTOMATION.maybe_run_automatic()
                 except Exception as exc: DIAGNOSTICS.event('warning','media-automation',f'Automatic media check failed to start: {exc}')
 

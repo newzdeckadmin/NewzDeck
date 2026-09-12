@@ -4,7 +4,7 @@ This file records third-party software, build tooling, services, data sources, a
 
 ## Go runtime and standard library
 
-NewzDeck v3.5.33 ships Windows executables built with **Go 1.23.2**. Portions of the Go runtime and standard library are statically incorporated into those executables.
+NewzDeck v3.6.81 ships Windows executables built with **Go 1.23.2**. Portions of the Go runtime and standard library are statically incorporated into those executables.
 
 - Project: The Go Programming Language
 - License: BSD-style / BSD-3-Clause
@@ -22,11 +22,11 @@ NewzDeck can download the official **CPython 3.12.10 Windows embeddable x64** pa
 - Source/license: https://docs.python.org/3.12/license.html
 - Runtime download origin: python.org
 
-CPython is not embedded in the NewzDeck v3.5.33 Portable ZIP or Setup payload; it is obtained separately from the upstream publisher on the user's machine.
+CPython is not embedded in the NewzDeck v3.6.81 Portable ZIP or Setup payload; it is obtained separately from the upstream publisher on the user's machine.
 
-## SABnzbd 5.1.1
+## SABnzbd 5.1.2
 
-NewzDeck Download Engine v2 can provision the official **SABnzbd 5.1.1 Windows x64 portable** release and run it locally as a separate backend process behind NewzDeck's UI/API.
+NewzDeck Download Engine v2 can provision the official **SABnzbd 5.1.2 Windows x64 portable** release and run it locally as a separate backend process behind NewzDeck's UI/API.
 
 - Project: SABnzbd
 - Copyright: The SABnzbd-Team and contributors
@@ -35,7 +35,7 @@ NewzDeck Download Engine v2 can provision the official **SABnzbd 5.1.1 Windows x
 - Source: https://github.com/sabnzbd/sabnzbd
 - Upstream license notice preserved at: `licenses/SABNZBD-LICENSE.txt`
 
-NewzDeck v3.5.33 does not embed the SABnzbd portable archive in its GitHub release; it is obtained separately from upstream on the user's machine. SABnzbd is an independent project and is not affiliated with NewzDeck.
+NewzDeck v3.6.81 does not embed the SABnzbd portable archive in its GitHub release; it is obtained separately from upstream on the user's machine. SABnzbd is an independent project and is not affiliated with NewzDeck.
 
 ## RARLAB UnRAR 7.23
 
@@ -46,7 +46,7 @@ For RAR extraction/Direct Unpack, NewzDeck can download the official RARLAB UnRA
 - License: https://www.rarlab.com/license.htm
 - Downloads: https://www.rarlab.com/download.htm
 
-NewzDeck does not relicense UnRAR under GPL. The upstream terms apply independently. NewzDeck v3.5.33 does not embed UnRAR in the GitHub release payload.
+NewzDeck does not relicense UnRAR under GPL. The upstream terms apply independently. NewzDeck v3.6.81 does not embed UnRAR in the GitHub release payload.
 
 ## par2cmdline-turbo 1.5.0
 
@@ -57,11 +57,11 @@ For PAR2 verification and repair, NewzDeck can download the official par2cmdline
 - Source: https://github.com/animetosho/par2cmdline-turbo
 - Releases: https://github.com/animetosho/par2cmdline-turbo/releases/tag/v1.5.0
 
-NewzDeck v3.5.33 does not embed this executable in its GitHub release payload.
+NewzDeck v3.6.81 does not embed this executable in its GitHub release payload.
 
 ## 7-Zip (optional user-supplied tool)
 
-NewzDeck can use a separately installed or user-supplied `7z.exe`, `7zz.exe`, or `7za.exe` for `.7z` archives. NewzDeck v3.5.33 does not bundle 7-Zip.
+NewzDeck can use a separately installed or user-supplied `7z.exe`, `7zz.exe`, or `7za.exe` for `.7z` archives. NewzDeck v3.6.81 does not bundle 7-Zip.
 
 - Project: 7-Zip
 - License information: https://www.7-zip.org/license.txt

@@ -1,10 +1,19 @@
-NewzDeck v3.6.80 update notes
+NewzDeck v3.6.81 update notes
 
 Installed users
-- Run NewzDeck_v3.6.80_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.81_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.80 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.81 Portable ZIP contents, then restart NewzDeck.
 
-v3.6.80 is a presentation-only final consistency/accessibility UX release. Runtime behavior, browsing/download performance, Automation, Smart Import, Discover data, Settings persistence, Metadata Server v0.3.3, SABnzbd 5.1.2 and yEnc behavior remain unchanged.
+What changes
+- Monitored TV metadata refresh no longer depends on Continuous Automation being enabled.
+- Quality upgrade decisions distinguish generic WEB from WEB-DL and understand SDR/HDR/Dolby Vision progression.
+- The Quality Profile editor is now a structured builder with first-class release-trait policies.
+
+What stays frozen
+- Newsgroup browsing performance architecture and accepted tuning constants.
+- SABnzbd 5.1.2 integration, download queue, post-processing and throughput behavior.
+- Metadata Server v0.3.3 and Diagnostic Collector v1.0.31.
+- Defender-accepted NewzDeckYenc.exe source/build/hash identity and canonical LF/Linux build path.

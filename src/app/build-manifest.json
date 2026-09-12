@@ -1,23 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.80",
-  "base_version": "3.6.79",
-  "release": "UX Final Consistency & Accessibility",
-  "adapter_version": "3.6.80",
-  "name": "UX Final Consistency & Accessibility",
+  "version": "3.6.81",
+  "base_version": "3.6.80",
+  "release": "Automation Intelligence & Quality Profiles",
+  "adapter_version": "3.6.81",
+  "name": "Automation Intelligence & Quality Profiles",
   "sab_version": "5.1.2",
   "changes": [
-    "Completes the staged broad UX polish program with a CSS-only consistency and accessibility pass built on v3.6.79.",
-    "Standardizes dialog framing, section rhythm, disabled-state presentation, helper text, keyboard focus, and common status/action alignment across established UI surfaces.",
-    "Adds visual-only responsive dialog insets for constrained/high-scaling Windows viewports and respects reduced-motion preferences for nonessential polish transitions.",
-    "Preserves the v3.6.78 LF/Linux Defender-accepted NewzDeckYenc.exe build pipeline and exact accepted helper SHA-256.",
-    "No Newsgroup Browser performance, SABnzbd, download, Automation, Smart Import, Discover data, Settings persistence, launcher/service/tray, Metadata Server, or decoder behavior changes are included."
+    "Monitored TV metadata now refreshes on schedule even when Continuous Automation/download grabbing is disabled, keeping future episodes and Calendar data current independently of unattended downloads.",
+    "Quality upgrade decisions now distinguish generic WEB from explicit WEB-DL and treat dynamic range as a real upgrade dimension: HDR upgrades SDR, Dolby Vision upgrades HDR, and Dolby Vision with HDR/HDR10/HDR10+ fallback is the preferred terminal dynamic-range state.",
+    "Release parsing preserves independent Dolby Vision, HDR10+, HDR10 and HDR flags so combined DV + HDR fallback releases are represented correctly instead of collapsing to one mutually exclusive label.",
+    "Automatic selection, Interactive Search, Smart Import no-downgrade checks, automatic-grab preflight and cutoff/Wanted decisions share the same source/dynamic-range upgrade model.",
+    "Replaces the primitive free-form New Quality Profile editor with a structured builder: templates, ordered quality ladder, cutoff, HDR/Dolby Vision, codec, audio, PROPER/REPACK, size, preferred groups, reject terms and advanced custom scoring rules.",
+    "Corrects stale third-party notice text to SABnzbd 5.1.2/current NewzDeck wording without changing the pinned SAB runtime.",
+    "Preserves the accepted Newsgroup Browser performance architecture, SABnzbd 5.1.2 integration, download/post-processing pipeline, Metadata Server v0.3.3 and Diagnostic Collector v1.0.31."
   ],
   "regression_guards": [
-    "server.py, sab_engine.py, automation_engine.py and app.js must normalize byte-for-byte to v3.6.79 after replacing only the v3.6.80 identity.",
-    "static/index.html must normalize byte-for-byte to v3.6.79 after replacing only the version/cache identity.",
-    "styles.css must be the exact v3.6.79 canonical LF stylesheet followed by one exact reviewed v3.6.80 Phase 4 CSS suffix.",
-    "The v3.6.78 LF/Linux yEnc source and accepted helper hash gates remain present and unchanged in the canonical workflow/builder.",
-    "All established five-Image/six-Video admission, 24 MB/12-segment sampling, 800/800/1000 headers, resolver timing, Settings reliability, SABnzbd 5.1.2, terminal-history schema 3, Smart Import and Automation protections remain carried forward."
+    "v3.6.81 tests explicit WEB-DL > generic WEB at equal resolution, SDR -> HDR -> Dolby Vision -> Dolby Vision + HDR upgrade progression, and prevents dynamic range from overriding a lower base resolution tier.",
+    "The structured Quality Profile Builder must expose canonical quality tiers plus Allow/Prefer/Require/Avoid trait policies and preserve advanced custom scoring rules.",
+    "The service loop must call monitored metadata refresh independently of the automatic-grab enable switch.",
+    "The v3.6.80 final UX/accessibility stylesheet remains an exact protected prefix; v3.6.81 adds only the reviewed Quality Profile Builder suffix.",
+    "The v3.6.78 LF/Linux yEnc source and accepted helper hash gates remain unchanged, along with frozen browser admission/sampling/header/resolver constants and SABnzbd 5.1.2."
   ]
 }

@@ -23,21 +23,15 @@ workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(en
 def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
-check(normalized_hash(server,'3.6.78','3.6.80')=='91ccda6f90cfccf1c2706805c89635bc23e0cb00442424891c807a55ff274dd4','server.py changed beyond APP_VERSION')
-check(normalized_hash(sab_text,'3.6.78','3.6.80')=='7cf1daa207637f1465b93f0aabfe477f477e7dd0e80caabbf130becdd7cd3745','sab_engine.py changed beyond ADAPTER_VERSION')
-check(normalized_hash(automation,'3.6.78','3.6.80')=='1bf3597b2e8d6e23423de44d3329307b0d77b4910eef1f5662f74d898f996ef8','automation_engine.py changed beyond version identity')
-check(normalized_hash(app,'3.6.78','3.6.80')=='6ae8856ea6c02376a77c29e95f4c65d30fbff6ae1931acfa1428795b816f4e14','app.js logic changed; v3.6.80 must remain CSS-only')
-normalized_index=index.replace('3.6.80-ux-final-consistency-accessibility','3.6.78-defender-lf-build-pipeline').replace('v3.6.80','v3.6.78')
-check(digest_text(normalized_index)=='7df9c2f1247629f5731ce08543bfa93279df2fda38057dd889f8d4e2ed61a090','index.html changed beyond version/cache identity')
 
 marker='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
 phase4='/* v3.6.80 UX Polish Phase 4 - Final Consistency & Accessibility */'
-check(styles.count(marker)==1,'v3.6.80 Phase 3 stylesheet marker count mismatch')
-check(styles.count(phase4)==1,'v3.6.80 Phase 4 stylesheet marker count mismatch')
+check(styles.count(marker)==1,'v3.6.81 Phase 3 stylesheet marker count mismatch')
+check(styles.count(phase4)==1,'v3.6.81 Phase 4 stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
 phase3_body,_phase4_tail=suffix.split(phase4,1)
-check(digest_text(prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','Pre-v3.6.80 stylesheet baseline changed')
-check(digest_text('\n'+marker+phase3_body.rstrip('\n')+'\n')=='0093a6e7cfc7b4a2f120fbd245de23d691baa31551f26b989ebe964f7afc369c','v3.6.80 UX Phase 3 override block changed outside the reviewed payload')
+check(digest_text(prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','Pre-v3.6.81 stylesheet baseline changed')
+check(digest_text('\n'+marker+phase3_body.rstrip('\n')+'\n')=='0093a6e7cfc7b4a2f120fbd245de23d691baa31551f26b989ebe964f7afc369c','v3.6.81 UX Phase 3 override block changed outside the reviewed payload')
 for required in (
     '--ux-state-success:rgba(90,211,157,.72);',
     '.toast.success{border-left-color:var(--ux-state-success)}',
@@ -95,10 +89,10 @@ for node in tree.body:
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3679>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.80','version.txt mismatch')
-check("const UI_VERSION = '3.6.80'" in app and '3.6.80-ux-final-consistency-accessibility' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.80' and manifest.get('base_version')=='3.6.79' and manifest.get('adapter_version')=='3.6.80','build manifest identity mismatch')
-check(manifest.get('release')=='UX Final Consistency & Accessibility','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.80' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.81','version.txt mismatch')
+check("const UI_VERSION = '3.6.81'" in app and '3.6.81-automation-intelligence-quality-profiles' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.81' and manifest.get('base_version')=='3.6.80' and manifest.get('adapter_version')=='3.6.81','build manifest identity mismatch')
+check(manifest.get('release')=='Automation Intelligence & Quality Profiles','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.81' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.80 UX feedback/state-clarity regression guard: PASS')
+print('v3.6.81 UX feedback/state-clarity regression guard: PASS')

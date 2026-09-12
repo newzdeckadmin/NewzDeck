@@ -1,12 +1,14 @@
-NewzDeck v3.6.80 - UX Final Consistency & Accessibility
+NewzDeck v3.6.81 - Automation Intelligence & Quality Profiles
 
-This release completes the current staged UX polish program with a presentation-only consistency/accessibility pass built on v3.6.79.
+This release is a targeted Automation decision-model update built on the verified v3.6.80 production baseline.
 
 Highlights:
-- More consistent dialog framing, section rhythm, helper text, disabled controls and status/action alignment.
-- Clearer keyboard focus across established navigation, tabs, actions and dialogs.
-- Better constrained/high-scaling dialog insets plus reduced-motion support for nonessential polish transitions.
-- Application behavior, routes, data flow, browsing/download performance and media-automation semantics are unchanged.
-- The Defender-clean v3.6.78 LF/Linux yEnc build pipeline and accepted helper hash remain intact.
+- Monitored TV metadata refresh is independent of automatic downloading, so future/new episodes can be discovered even when Continuous Automation is off.
+- Explicit WEB-DL is now treated as better than ambiguous WEB at the same resolution.
+- HDR/Dolby Vision are real upgrade dimensions: HDR upgrades SDR, Dolby Vision upgrades HDR, and Dolby Vision + HDR/HDR10/HDR10+ fallback is the preferred terminal dynamic-range state.
+- Interactive Search, automatic selection, Smart Import and automatic-grab preflight now use the same upgrade model.
+- New Quality Profiles use a structured builder with templates, an ordered quality ladder, cutoff, dynamic-range, codec, audio, PROPER/REPACK, size, release-group, reject-term and advanced custom-score controls.
+- Third-party notices now correctly identify SABnzbd 5.1.2.
+- The accepted Newsgroup Browser performance architecture, SABnzbd 5.1.2 runtime, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc pipeline remain unchanged.
 
-See release/RELEASE_NOTES_v3.6.80.md for details.
+See release/RELEASE_NOTES_v3.6.81.md for details.

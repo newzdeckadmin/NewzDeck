@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.80
+## Current release: v3.6.81
 
-**v3.6.80 is the current stable production release.**
+**v3.6.81 is the current stable production release.**
 
-The `v3.6.80` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.81` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.81 - Automation Intelligence & Quality Profiles.** Makes monitored metadata refresh independent of automatic grabbing, fixes WEB/WEB-DL and HDR/Dolby Vision upgrade semantics, and adds the structured Quality Profile Builder while preserving the frozen browsing/download architecture.
 
 - **v3.6.80 - UX Final Consistency & Accessibility.** Completes the current staged CSS-only UX polish program with consistent dialog framing, keyboard focus, disabled-state clarity, scaling insets and reduced-motion support while preserving all working functionality and the Defender-clean build pipeline.
 

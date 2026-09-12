@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.80';
+const UI_VERSION = '3.6.81';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -2847,80 +2847,88 @@ function renderAutomationHealth(){
 async function retryAutomationImport(collectionId,button){const old=button?.textContent||'';if(button){button.disabled=true;button.textContent='Retrying…'}try{const r=await api('/api/automation/import/retry',{collection_id:collectionId});toast(r.message||'Import retry started.','success');setTimeout(async()=>{await loadAutomation({quiet:true});renderAutomation()},900)}catch(e){toast(e.message,'error')}finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}}
 
 // Automation profile/indexer editor handlers.
-// These were referenced by the UI wiring but missing from the browser bundle,
-// which aborted top-level script execution before initializeApp() could run.
+const QUALITY_CATALOG=[
+  '2160p Remux','2160p BluRay','2160p WEB-DL','2160p WEBRip','2160p HDTV',
+  '1080p Remux','1080p BluRay','1080p WEB-DL','1080p WEBRip','1080p HDTV',
+  '720p BluRay','720p WEB-DL','720p WEBRip','720p HDTV','576p DVD','480p DVD'
+];
+const QUALITY_POLICY_OPTIONS=['allow','prefer','require','avoid'];
+const QUALITY_POLICY_FIELDS={
+  dynamic_range:{hdr:'qualityPolicyHdr',hdr10_plus:'qualityPolicyHdr10Plus',dolby_vision:'qualityPolicyDolbyVision',dv_hdr:'qualityPolicyDvHdr'},
+  video_codec:{hevc:'qualityPolicyHevc',avc:'qualityPolicyAvc',av1:'qualityPolicyAv1'},
+  audio:{atmos:'qualityPolicyAtmos',truehd:'qualityPolicyTruehd',dts_hd:'qualityPolicyDtsHd',dd_plus:'qualityPolicyDdPlus',aac:'qualityPolicyAac'}
+};
+const QUALITY_TEMPLATE_FALLBACKS={
+  'quality-4k-preferred':{qualities:['2160p Remux','2160p BluRay','2160p WEB-DL','2160p WEBRip','1080p Remux','1080p BluRay','1080p WEB-DL','1080p WEBRip','720p WEB-DL','720p HDTV'],cutoff:'2160p WEB-DL',min_size_mb:0,max_size_gb:0,reject_terms:['cam','telesync','password','encrypted'],preferred_groups:[],custom_formats:[],upgrade_dynamic_range:true,prefer_proper_repack:true,trait_policies:{dynamic_range:{hdr:'prefer',hdr10_plus:'prefer',dolby_vision:'prefer',dv_hdr:'prefer'},video_codec:{hevc:'prefer',avc:'allow',av1:'allow'},audio:{atmos:'prefer',truehd:'allow',dts_hd:'allow',dd_plus:'allow',aac:'allow'}}},
+  'quality-1080p':{qualities:['1080p Remux','1080p BluRay','1080p WEB-DL','1080p WEBRip','1080p HDTV','720p WEB-DL','720p HDTV'],cutoff:'1080p WEB-DL',min_size_mb:0,max_size_gb:0,reject_terms:['cam','telesync','password','encrypted'],preferred_groups:[],custom_formats:[],upgrade_dynamic_range:true,prefer_proper_repack:true,trait_policies:{dynamic_range:{hdr:'allow',hdr10_plus:'allow',dolby_vision:'allow',dv_hdr:'allow'},video_codec:{hevc:'prefer',avc:'allow',av1:'allow'},audio:{atmos:'prefer',truehd:'allow',dts_hd:'allow',dd_plus:'allow',aac:'allow'}}}
+};
+let qualityProfileDraftQualities=[];
 function qualityProfileLines(value=''){return String(value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean)}
+function qualityProfileFormatsText(rows=[]){return (Array.isArray(rows)?rows:[]).map(f=>`${String(f?.name||'Preference').trim()} | ${(f?.contains||[]).join(', ')} | ${Number(f?.score||0)}`).join('\n')}
+function parseQualityProfileFormats(value=''){return qualityProfileLines(value).map(line=>{const parts=line.split('|').map(x=>x.trim()),name=parts[0]||'Preference';const contains=String(parts[1]||'').split(',').map(x=>x.trim()).filter(Boolean);const score=Number(parts[2]||0);return {name,contains,score:Number.isFinite(score)?Math.trunc(score):0}}).filter(x=>x.contains.length||x.name)}
+function qualityPolicySelectHtml(value='allow'){return QUALITY_POLICY_OPTIONS.map(x=>`<option value="${x}" ${x===value?'selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}
+function normalizedTraitPolicies(profile={}){
+  const p=profile?.trait_policies||{},id=String(profile?.id||'');
+  if(!Object.keys(p?.dynamic_range||{}).length&&QUALITY_TEMPLATE_FALLBACKS[id])return JSON.parse(JSON.stringify(QUALITY_TEMPLATE_FALLBACKS[id].trait_policies));
+  const out={dynamic_range:{},video_codec:{},audio:{}};
+  Object.entries(QUALITY_POLICY_FIELDS).forEach(([section,fields])=>Object.keys(fields).forEach(k=>out[section][k]=QUALITY_POLICY_OPTIONS.includes(String(p?.[section]?.[k]))?String(p[section][k]):'allow'));
+  return out;
+}
+function setQualityPolicies(profile={}){
+  const policies=normalizedTraitPolicies(profile);
+  Object.entries(QUALITY_POLICY_FIELDS).forEach(([section,fields])=>Object.entries(fields).forEach(([key,id])=>{const el=$(id);if(el){el.innerHTML=qualityPolicySelectHtml(policies?.[section]?.[key]||'allow');el.value=policies?.[section]?.[key]||'allow'}}));
+  $('qualityProfileDynamicUpgrades').checked=profile?.upgrade_dynamic_range!==false;
+  $('qualityProfileProperRepack').checked=profile?.prefer_proper_repack!==false;
+}
+function collectQualityPolicies(){const out={dynamic_range:{},video_codec:{},audio:{}};Object.entries(QUALITY_POLICY_FIELDS).forEach(([section,fields])=>Object.entries(fields).forEach(([key,id])=>out[section][key]=$(id)?.value||'allow'));return out}
 function refreshQualityCutoff(selected=''){
   const select=$('qualityProfileCutoff');if(!select)return;
-  const qualities=qualityProfileLines($('qualityProfileQualities')?.value||'');
   const current=String(selected||select.value||'');
-  select.innerHTML=qualities.map(q=>`<option value="${escapeHtml(q)}">${escapeHtml(q)}</option>`).join('');
-  select.value=qualities.includes(current)?current:(qualities[0]||'');
+  select.innerHTML=qualityProfileDraftQualities.map(q=>`<option value="${escapeHtml(q)}">${escapeHtml(q)}</option>`).join('');
+  select.value=qualityProfileDraftQualities.includes(current)?current:(qualityProfileDraftQualities[0]||'');
 }
-function qualityProfileFormatsText(rows=[]){
-  return (Array.isArray(rows)?rows:[]).map(f=>`${String(f?.name||'Preference').trim()} | ${(f?.contains||[]).join(', ')} | ${Number(f?.score||0)}`).join('\n');
+function renderQualityLadder(selectedCutoff=''){
+  const list=$('qualityProfileQualityList');if(!list)return;
+  list.innerHTML=qualityProfileDraftQualities.length?qualityProfileDraftQualities.map((q,i)=>`<div class="quality-ladder-row"><span class="quality-rank">${i+1}</span><strong>${escapeHtml(q)}</strong><div class="quality-ladder-actions"><button class="ghost-btn compact" type="button" data-quality-up="${i}" ${i===0?'disabled':''} title="Move up">↑</button><button class="ghost-btn compact" type="button" data-quality-down="${i}" ${i===qualityProfileDraftQualities.length-1?'disabled':''} title="Move down">↓</button><button class="ghost-btn compact danger-soft" type="button" data-quality-remove="${i}" title="Remove quality">×</button></div></div>`).join(''):'<div class="quality-ladder-empty">Add at least one acceptable quality.</div>';
+  const add=$('qualityProfileAddQuality');if(add){const available=QUALITY_CATALOG.filter(q=>!qualityProfileDraftQualities.includes(q));add.innerHTML=available.map(q=>`<option value="${escapeHtml(q)}">${escapeHtml(q)}</option>`).join('');$('qualityProfileAddQualityBtn').disabled=!available.length}
+  refreshQualityCutoff(selectedCutoff);
+  list.querySelectorAll('[data-quality-up]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.qualityUp),cut=$('qualityProfileCutoff')?.value||'';[qualityProfileDraftQualities[i-1],qualityProfileDraftQualities[i]]=[qualityProfileDraftQualities[i],qualityProfileDraftQualities[i-1]];renderQualityLadder(cut);updateQualityProfileSummary()});
+  list.querySelectorAll('[data-quality-down]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.qualityDown),cut=$('qualityProfileCutoff')?.value||'';[qualityProfileDraftQualities[i+1],qualityProfileDraftQualities[i]]=[qualityProfileDraftQualities[i],qualityProfileDraftQualities[i+1]];renderQualityLadder(cut);updateQualityProfileSummary()});
+  list.querySelectorAll('[data-quality-remove]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.qualityRemove),cut=$('qualityProfileCutoff')?.value||'';qualityProfileDraftQualities.splice(i,1);renderQualityLadder(cut);updateQualityProfileSummary()});
 }
-function parseQualityProfileFormats(value=''){
-  return qualityProfileLines(value).map(line=>{
-    const parts=line.split('|').map(x=>x.trim()),name=parts[0]||'Preference';
-    const contains=String(parts[1]||'').split(',').map(x=>x.trim()).filter(Boolean);
-    const score=Number(parts[2]||0);
-    return {name,contains,score:Number.isFinite(score)?Math.trunc(score):0};
-  }).filter(x=>x.contains.length||x.name);
+function profileTemplateSource(id){const live=(state.automation?.profiles||[]).find(x=>String(x.id)===String(id));return JSON.parse(JSON.stringify(live||QUALITY_TEMPLATE_FALLBACKS[id]||{}))}
+function applyQualityTemplate(id,{keepName=true}={}){
+  const t=profileTemplateSource(id);if(!t?.qualities?.length)return;
+  qualityProfileDraftQualities=[...t.qualities];
+  $('qualityProfileMinSize').value=Number(t.min_size_mb||0);$('qualityProfileMaxSize').value=Number(t.max_size_gb||0);
+  $('qualityProfileFormats').value=qualityProfileFormatsText(t.custom_formats||[]);$('qualityProfileGroups').value=(t.preferred_groups||[]).join('\n');$('qualityProfileRejectTerms').value=(t.reject_terms||[]).join('\n');setQualityPolicies(t);renderQualityLadder(t.cutoff||'');
+  if(!keepName&&!$('qualityProfileName').value.trim())$('qualityProfileName').value=id==='quality-4k-preferred'?'My 4K Profile':id==='quality-1080p'?'My 1080p Profile':'';
+  updateQualityProfileSummary();
+}
+function updateQualityProfileSummary(){
+  const box=$('qualityProfileSummary');if(!box)return;
+  const cutoff=$('qualityProfileCutoff')?.value||'—',pol=collectQualityPolicies(),preferred=[];
+  Object.entries(pol.dynamic_range).forEach(([k,v])=>{if(v==='prefer'||v==='require')preferred.push(`${v} ${k.replaceAll('_',' ')}`)});Object.entries(pol.video_codec).forEach(([k,v])=>{if(v==='prefer'||v==='require')preferred.push(`${v} ${k.replaceAll('_',' ')}`)});Object.entries(pol.audio).forEach(([k,v])=>{if(v==='prefer'||v==='require')preferred.push(`${v} ${k.replaceAll('_',' ')}`)});
+  box.innerHTML=`<strong>Profile behavior</strong><span>${qualityProfileDraftQualities.length?`Accept ${qualityProfileDraftQualities.length} ranked quality tier${qualityProfileDraftQualities.length===1?'':'s'}; base cutoff ${escapeHtml(cutoff)}.`:'No qualities selected.'} ${$('qualityProfileDynamicUpgrades')?.checked?'HDR/Dolby Vision can continue upgrading after the base cutoff.':'Dynamic-range upgrades stop at the base cutoff.'}</span>${preferred.length?`<small>${escapeHtml(preferred.join(' • '))}</small>`:''}`;
 }
 function openQualityProfile(id=''){
   const p=(state.automation?.profiles||[]).find(x=>String(x.id)===String(id))||null;
-  $('qualityProfileId').value=p?.id||'';
-  $('qualityProfileTitle').textContent=p?'Edit Quality Profile':'New Quality Profile';
-  $('qualityProfileName').value=p?.name||'';
-  $('qualityProfileQualities').value=(p?.qualities||['2160p','1080p','720p','WEB']).join('\n');
-  $('qualityProfileMinSize').value=Number(p?.min_size_mb||0);
-  $('qualityProfileMaxSize').value=Number(p?.max_size_gb||0);
-  $('qualityProfileFormats').value=qualityProfileFormatsText(p?.custom_formats||[]);
-  $('qualityProfileGroups').value=(p?.preferred_groups||[]).join('\n');
-  $('qualityProfileRejectTerms').value=(p?.reject_terms||[]).join('\n');
-  refreshQualityCutoff(p?.cutoff||'');
-  $('qualityProfileDelete').classList.toggle('hidden',!p);
-  $('qualityProfileModal').classList.remove('hidden');
-  setTimeout(()=>$('qualityProfileName')?.focus(),30);
+  $('qualityProfileId').value=p?.id||'';$('qualityProfileTitle').textContent=p?'Edit Quality Profile':'New Quality Profile';$('qualityProfileName').value=p?.name||'';
+  $('qualityProfileTemplate').value='custom';
+  if(p){qualityProfileDraftQualities=[...(p.qualities||[])];$('qualityProfileMinSize').value=Number(p.min_size_mb||0);$('qualityProfileMaxSize').value=Number(p.max_size_gb||0);$('qualityProfileFormats').value=qualityProfileFormatsText(p.custom_formats||[]);$('qualityProfileGroups').value=(p.preferred_groups||[]).join('\n');$('qualityProfileRejectTerms').value=(p.reject_terms||[]).join('\n');setQualityPolicies(p);renderQualityLadder(p.cutoff||'')}
+  else{$('qualityProfileTemplate').value='quality-4k-preferred';applyQualityTemplate('quality-4k-preferred',{keepName:false})}
+  $('qualityProfileDelete').classList.toggle('hidden',!p);$('qualityProfileModal').classList.remove('hidden');updateQualityProfileSummary();setTimeout(()=>$('qualityProfileName')?.focus(),30);
 }
 async function saveQualityProfile(){
   const button=$('qualityProfileSave'),old=button?.textContent||'Save profile';
-  const payload={
-    id:$('qualityProfileId')?.value||'',
-    name:$('qualityProfileName')?.value.trim()||'',
-    qualities:qualityProfileLines($('qualityProfileQualities')?.value||''),
-    cutoff:$('qualityProfileCutoff')?.value||'',
-    min_size_mb:Number($('qualityProfileMinSize')?.value||0),
-    max_size_gb:Number($('qualityProfileMaxSize')?.value||0),
-    custom_formats:parseQualityProfileFormats($('qualityProfileFormats')?.value||''),
-    preferred_groups:qualityProfileLines($('qualityProfileGroups')?.value||''),
-    reject_terms:qualityProfileLines($('qualityProfileRejectTerms')?.value||'')
-  };
-  if(button){button.disabled=true;button.textContent='Saving…'}
-  try{
-    await api('/api/automation/profile/save',payload);
-    await loadAutomation({quiet:true,render:false});
-    $('qualityProfileModal').classList.add('hidden');
-    if(state.activeView==='automation'&&state.automationTab==='profiles')renderAutomation({animate:false});
-    toast('Quality profile saved.','success');
-  }catch(e){toast(e.message,'error')}
-  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+  const payload={id:$('qualityProfileId')?.value||'',name:$('qualityProfileName')?.value.trim()||'',qualities:[...qualityProfileDraftQualities],cutoff:$('qualityProfileCutoff')?.value||'',min_size_mb:Number($('qualityProfileMinSize')?.value||0),max_size_gb:Number($('qualityProfileMaxSize')?.value||0),custom_formats:parseQualityProfileFormats($('qualityProfileFormats')?.value||''),preferred_groups:qualityProfileLines($('qualityProfileGroups')?.value||''),reject_terms:qualityProfileLines($('qualityProfileRejectTerms')?.value||''),trait_policies:collectQualityPolicies(),upgrade_dynamic_range:Boolean($('qualityProfileDynamicUpgrades')?.checked),prefer_proper_repack:Boolean($('qualityProfileProperRepack')?.checked)};
+  if(!payload.qualities.length){toast('Add at least one allowed quality.','error');return}if(button){button.disabled=true;button.textContent='Saving…'}
+  try{await api('/api/automation/profile/save',payload);await loadAutomation({quiet:true,render:false});$('qualityProfileModal').classList.add('hidden');if(state.activeView==='automation'&&state.automationTab==='profiles')renderAutomation({animate:false});toast('Quality profile saved.','success')}catch(e){toast(e.message,'error')}finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
 }
 async function deleteQualityProfile(){
-  const id=$('qualityProfileId')?.value||'';if(!id)return;
-  const name=$('qualityProfileName')?.value.trim()||'this quality profile';
-  if(!confirm(`Delete ${name}? Existing library items keep their current profile assignment until you choose another profile.`))return;
-  const button=$('qualityProfileDelete'),old=button?.textContent||'Delete';
-  if(button){button.disabled=true;button.textContent='Deleting…'}
-  try{
-    await api('/api/automation/profile/delete',{id});
-    await loadAutomation({quiet:true,render:false});
-    $('qualityProfileModal').classList.add('hidden');
-    if(state.activeView==='automation'&&state.automationTab==='profiles')renderAutomation({animate:false});
-    toast('Quality profile deleted.','success');
-  }catch(e){toast(e.message,'error')}
-  finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
+  const id=$('qualityProfileId')?.value||'';if(!id)return;const name=$('qualityProfileName')?.value.trim()||'this quality profile';if(!confirm(`Delete ${name}? Existing library items keep their current profile assignment until you choose another profile.`))return;
+  const button=$('qualityProfileDelete'),old=button?.textContent||'Delete';if(button){button.disabled=true;button.textContent='Deleting…'}
+  try{await api('/api/automation/profile/delete',{id});await loadAutomation({quiet:true,render:false});$('qualityProfileModal').classList.add('hidden');if(state.activeView==='automation'&&state.automationTab==='profiles')renderAutomation({animate:false});toast('Quality profile deleted.','success')}catch(e){toast(e.message,'error')}finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
 }
 function openIndexerModal(id=''){
   const x=(state.automation?.indexers||[]).find(v=>String(v.id)===String(id))||null;
@@ -2992,7 +3000,7 @@ async function deleteIndexer(){
   finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}
 }
 
-function renderAutomationProfiles(){const ps=state.automation?.profiles||[];$('automationTitle').textContent='Quality Profiles';$('automationSubtitle').textContent='Define acceptable qualities, upgrade cutoffs, and preferred release terms.';$('automationAddBtn').classList.add('hidden');$('automationScanBtn').classList.add('hidden');$('automationContent').innerHTML=`<div class="automation-section-head"><div><div class="eyebrow">DECISION ENGINE</div><h2>${ps.length} quality profile${ps.length===1?'':'s'}</h2></div><button class="primary-btn" id="newQualityProfileBtn">＋ New profile</button></div><div class="profile-grid">${ps.map(p=>`<article class="profile-card" data-profile="${escapeHtml(p.id)}"><div><h3>${escapeHtml(p.name)}</h3><p>Cutoff: <b>${escapeHtml(p.cutoff||'—')}</b></p></div><ol>${(p.qualities||[]).slice(0,8).map(q=>`<li class="${q===p.cutoff?'cutoff':''}">${escapeHtml(q)}${q===p.cutoff?' <span>cutoff</span>':''}</li>`).join('')}</ol><div class="profile-formats">${(p.custom_formats||[]).map(f=>`<span>${escapeHtml(f.name)} ${Number(f.score||0)>=0?'+':''}${Number(f.score||0)}</span>`).join('')||'<span>No preferred terms</span>'}${Number(p.min_size_mb||0)?`<span>Min ${Number(p.min_size_mb)} MB</span>`:''}${Number(p.max_size_gb||0)?`<span>Max ${Number(p.max_size_gb)} GB</span>`:''}${(p.preferred_groups||[]).length?`<span>${(p.preferred_groups||[]).length} preferred group${p.preferred_groups.length===1?'':'s'}</span>`:''}${(p.reject_terms||[]).length?`<span>${(p.reject_terms||[]).length} reject term${p.reject_terms.length===1?'':'s'}</span>`:''}</div><button class="secondary-btn" data-edit-profile="${escapeHtml(p.id)}">Edit profile</button></article>`).join('')}</div>`;$('newQualityProfileBtn').onclick=()=>openQualityProfile();document.querySelectorAll('[data-edit-profile]').forEach(b=>b.onclick=()=>openQualityProfile(b.dataset.editProfile))}
+function renderAutomationProfiles(){const ps=state.automation?.profiles||[];$('automationTitle').textContent='Quality Profiles';$('automationSubtitle').textContent='Define acceptable qualities, upgrade cutoffs, and preferred release terms.';$('automationAddBtn').classList.add('hidden');$('automationScanBtn').classList.add('hidden');$('automationContent').innerHTML=`<div class="automation-section-head"><div><div class="eyebrow">DECISION ENGINE</div><h2>${ps.length} quality profile${ps.length===1?'':'s'}</h2></div><button class="primary-btn" id="newQualityProfileBtn">＋ New profile</button></div><div class="profile-grid">${ps.map(p=>`<article class="profile-card" data-profile="${escapeHtml(p.id)}"><div><h3>${escapeHtml(p.name)}</h3><p>Cutoff: <b>${escapeHtml(p.cutoff||'—')}</b></p></div><ol>${(p.qualities||[]).slice(0,8).map(q=>`<li class="${q===p.cutoff?'cutoff':''}">${escapeHtml(q)}${q===p.cutoff?' <span>cutoff</span>':''}</li>`).join('')}</ol><div class="profile-formats">${(()=>{const tp=normalizedTraitPolicies(p),tags=[];Object.entries(tp.dynamic_range||{}).forEach(([k,v])=>{if(v==='prefer'||v==='require')tags.push(`${k.replaceAll('_',' ')} • ${v}`)});Object.entries(tp.video_codec||{}).forEach(([k,v])=>{if(v==='prefer'||v==='require')tags.push(`${k.toUpperCase()} • ${v}`)});Object.entries(tp.audio||{}).forEach(([k,v])=>{if(v==='prefer'||v==='require')tags.push(`${k.replaceAll('_',' ')} • ${v}`)});return tags.slice(0,5).map(x=>`<span>${escapeHtml(x)}</span>`).join('')})()}${(p.custom_formats||[]).map(f=>`<span>${escapeHtml(f.name)} ${Number(f.score||0)>=0?'+':''}${Number(f.score||0)}</span>`).join('')}${Number(p.min_size_mb||0)?`<span>Min ${Number(p.min_size_mb)} MB</span>`:''}${Number(p.max_size_gb||0)?`<span>Max ${Number(p.max_size_gb)} GB</span>`:''}${(p.preferred_groups||[]).length?`<span>${(p.preferred_groups||[]).length} preferred group${p.preferred_groups.length===1?'':'s'}</span>`:''}${(p.reject_terms||[]).length?`<span>${(p.reject_terms||[]).length} reject term${p.reject_terms.length===1?'':'s'}</span>`:''}</div><button class="secondary-btn" data-edit-profile="${escapeHtml(p.id)}">Edit profile</button></article>`).join('')}</div>`;$('newQualityProfileBtn').onclick=()=>openQualityProfile();document.querySelectorAll('[data-edit-profile]').forEach(b=>b.onclick=()=>openQualityProfile(b.dataset.editProfile))}
 function renderAutomationIndexers(){const idx=state.automation?.indexers||[];$('automationTitle').textContent='Indexers';$('automationSubtitle').textContent='Connect Newznab indexers for interactive and automatic TV/movie release searches.';$('automationAddBtn').classList.add('hidden');$('automationScanBtn').classList.add('hidden');$('automationContent').innerHTML=`<div class="automation-section-head"><div><div class="eyebrow">NEWZNAB</div><h2>${idx.length} indexer${idx.length===1?'':'s'}</h2></div><button class="primary-btn" id="newIndexerBtn">＋ Add indexer</button></div>${idx.length?`<div class="indexer-list">${idx.map(x=>`<div class="indexer-row"><span class="indexer-state ${x.enabled?'on':'off'}"></span><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(x.url)} • TV ${escapeHtml(x.categories_tv||'5000')} • Movies ${escapeHtml(x.categories_movies||'2000')}</small></div><span class="indexer-key">${x.api_key_configured?'API key saved':'No API key'}</span><button class="secondary-btn compact" data-edit-indexer="${escapeHtml(x.id)}">Edit</button></div>`).join('')}</div>`:automationEmpty('⌁','No indexers configured','Add a Newznab-compatible indexer to search for TV and movie releases.')}`;$('newIndexerBtn').onclick=()=>openIndexerModal();document.querySelectorAll('[data-edit-indexer]').forEach(b=>b.onclick=()=>openIndexerModal(b.dataset.editIndexer))}
 function rootRows(kind,roots){const label=kind==='tv'?'TV':'Movie';return `<div class="automation-root-list" data-root-kind="${kind}">${roots.length?roots.map((r,i)=>`<div><strong title="${escapeHtml(r)}">${escapeHtml(r)}</strong><button type="button" class="danger-lite" data-remove-root="${kind}" data-root-index="${i}">Remove</button></div>`).join(''):'<p>No root folders configured.</p>'}</div><div class="automation-root-actions"><button type="button" class="secondary-btn" data-add-root="${kind}">＋ Add root folder</button><div class="automation-root-path-row"><input data-root-path="${kind}" placeholder="Or enter a full ${label} folder path…"><button type="button" class="secondary-btn" data-add-root-path="${kind}">Add path</button></div></div><small class="metadata-provider-note">${roots.length} configured root${roots.length===1?'':'s'} • Multiple drives and UNC paths are supported.</small>`}
 function automationStorageSetupCard(){
@@ -3255,7 +3263,7 @@ els.downloadMoveTopBtn.onclick=()=>downloadBatch('move_top');els.downloadMoveBot
 $('refreshDiagnosticsBtn').onclick=()=>loadDiagnostics({userInitiated:true});$('probeProvidersBtn').onclick=probeProviders;$('copyDiagnosticsBtn').onclick=copyDiagnostics;$('clearDiagnosticsBtn').onclick=async()=>{const done=beginButtonActivity($('clearDiagnosticsBtn'),'Clearing…');try{await api('/api/diagnostics/clear',{});await loadDiagnostics()}catch(e){toast(e.message,'error')}finally{done()}};
 els.articlesList.addEventListener('scroll',()=>{if((state.selectedGroup)&&els.selectVisibleBtn)els.selectVisibleBtn.disabled=viewportSelectableArticles().length===0;if(state.selectedGroup){clearTimeout(state.groupStateSaveTimer);state.groupStateSaveTimer=setTimeout(()=>captureCurrentGroupState(),500)}},{passive:true});
 els.nzbImportCloseBtn.onclick=()=>closeNzbPreview(true);els.nzbImportCancelBtn.onclick=()=>closeNzbPreview(true);els.nzbImportQueueBtn.onclick=queueCurrentNzb;els.nzbSelectAllBtn.onclick=()=>{els.nzbImportFiles.querySelectorAll('input[type="checkbox"]').forEach(c=>c.checked=true);updateNzbSelectionSummary()};els.nzbSelectNoneBtn.onclick=()=>{els.nzbImportFiles.querySelectorAll('input[type="checkbox"]').forEach(c=>c.checked=false);updateNzbSelectionSummary()};els.nzbSelectRecommendedBtn.onclick=()=>{const files=state.currentNzbPreview?.files||[];els.nzbImportFiles.querySelectorAll('input[type="checkbox"]').forEach(c=>{const f=files.find(x=>Number(x.index)===Number(c.dataset.index));c.checked=f?.default_selected!==false});updateNzbSelectionSummary()};els.archivePasswordCloseBtn.onclick=closeArchivePassword;els.archivePasswordCancelBtn.onclick=closeArchivePassword;els.archivePasswordSubmitBtn.onclick=submitArchivePassword;els.archivePasswordInput.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();submitArchivePassword()}};
-$('automationSetupBtn').onclick=openAutomationSetup;$('automationIndexersBtn').onclick=openAutomationIndexers;$('automationScanBtn').onclick=()=>scanAutomationLibrary();$('automationAddBtn').onclick=openAutomationAdd;$('automationAddClose').onclick=closeAutomationAdd;$('automationAddKind').onchange=()=>{refreshAutomationAddRootOptions();refreshAutomationAddMonitoringOptions()};$('automationAddMonitor').onchange=()=>{const help=$('automationAddMonitorHelp');if(help)help.textContent=automationMonitoringHelp($('automationAddKind').value,$('automationAddMonitor').value)};$('automationMetadataSearchBtn').onclick=searchAutomationMetadata;$('automationMetadataQuery').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchAutomationMetadata()}};$('automationManualAddBtn').onclick=()=>addAutomationMedia({},$('automationManualAddBtn'));$('automationItemClose').onclick=()=>$('automationItemModal').classList.add('hidden');$('manualImportClose').onclick=closeManualMediaImport;$('manualImportMode').onchange=refreshManualImportMode;$('manualImportSeason').onchange=()=>{refreshManualImportEpisodeOptions();invalidateManualImportPreview()};$('manualImportEpisode').onchange=()=>invalidateManualImportPreview();$('manualImportSource').oninput=()=>invalidateManualImportPreview('Source folder changed. Preview the import again before committing.');$('manualImportBrowse').onclick=browseManualImportSource;$('manualImportInspect').onclick=previewManualMediaImport;$('manualImportCommit').onclick=commitManualMediaImport;$('releaseSearchClose').onclick=()=>$('releaseSearchModal').classList.add('hidden');$('qualityProfileClose').onclick=()=>$('qualityProfileModal').classList.add('hidden');$('qualityProfileQualities').oninput=()=>refreshQualityCutoff($('qualityProfileCutoff').value);$('qualityProfileSave').onclick=saveQualityProfile;$('qualityProfileDelete').onclick=deleteQualityProfile;$('indexerModalClose').onclick=()=>$('indexerModal').classList.add('hidden');$('indexerSave').onclick=saveIndexer;$('indexerTest').onclick=testIndexer;$('indexerDelete').onclick=deleteIndexer;$('integrityReviewClose').onclick=()=>$('integrityReviewModal').classList.add('hidden');['automationAddModal','automationItemModal','manualImportModal','releaseSearchModal','qualityProfileModal','indexerModal','integrityReviewModal'].forEach(id=>$(id)?.addEventListener('click',e=>{if(e.target===$(id)){if(id==='manualImportModal')closeManualMediaImport();else $(id).classList.add('hidden')}}));
+$('automationSetupBtn').onclick=openAutomationSetup;$('automationIndexersBtn').onclick=openAutomationIndexers;$('automationScanBtn').onclick=()=>scanAutomationLibrary();$('automationAddBtn').onclick=openAutomationAdd;$('automationAddClose').onclick=closeAutomationAdd;$('automationAddKind').onchange=()=>{refreshAutomationAddRootOptions();refreshAutomationAddMonitoringOptions()};$('automationAddMonitor').onchange=()=>{const help=$('automationAddMonitorHelp');if(help)help.textContent=automationMonitoringHelp($('automationAddKind').value,$('automationAddMonitor').value)};$('automationMetadataSearchBtn').onclick=searchAutomationMetadata;$('automationMetadataQuery').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchAutomationMetadata()}};$('automationManualAddBtn').onclick=()=>addAutomationMedia({},$('automationManualAddBtn'));$('automationItemClose').onclick=()=>$('automationItemModal').classList.add('hidden');$('manualImportClose').onclick=closeManualMediaImport;$('manualImportMode').onchange=refreshManualImportMode;$('manualImportSeason').onchange=()=>{refreshManualImportEpisodeOptions();invalidateManualImportPreview()};$('manualImportEpisode').onchange=()=>invalidateManualImportPreview();$('manualImportSource').oninput=()=>invalidateManualImportPreview('Source folder changed. Preview the import again before committing.');$('manualImportBrowse').onclick=browseManualImportSource;$('manualImportInspect').onclick=previewManualMediaImport;$('manualImportCommit').onclick=commitManualMediaImport;$('releaseSearchClose').onclick=()=>$('releaseSearchModal').classList.add('hidden');$('qualityProfileClose').onclick=()=>$('qualityProfileModal').classList.add('hidden');$('qualityProfileSave').onclick=saveQualityProfile;$('qualityProfileDelete').onclick=deleteQualityProfile;$('qualityProfileTemplate').onchange=()=>{const v=$('qualityProfileTemplate').value;if(v!=='custom')applyQualityTemplate(v,{keepName:true})};$('qualityProfileAddQualityBtn').onclick=()=>{const q=$('qualityProfileAddQuality')?.value||'';if(q&&!qualityProfileDraftQualities.includes(q)){const cut=$('qualityProfileCutoff')?.value||'';qualityProfileDraftQualities.push(q);renderQualityLadder(cut);updateQualityProfileSummary()}};$('qualityProfileCutoff').onchange=updateQualityProfileSummary;$('qualityProfileDynamicUpgrades').onchange=updateQualityProfileSummary;Object.values(QUALITY_POLICY_FIELDS).flatMap(x=>Object.values(x)).forEach(id=>{if($(id))$(id).onchange=updateQualityProfileSummary});$('indexerModalClose').onclick=()=>$('indexerModal').classList.add('hidden');$('indexerSave').onclick=saveIndexer;$('indexerTest').onclick=testIndexer;$('indexerDelete').onclick=deleteIndexer;$('integrityReviewClose').onclick=()=>$('integrityReviewModal').classList.add('hidden');['automationAddModal','automationItemModal','manualImportModal','releaseSearchModal','qualityProfileModal','indexerModal','integrityReviewModal'].forEach(id=>$(id)?.addEventListener('click',e=>{if(e.target===$(id)){if(id==='manualImportModal')closeManualMediaImport();else $(id).classList.add('hidden')}}));
 document.addEventListener('dragover',e=>{const files=[...(e.dataTransfer?.items||[])];if(files.some(x=>x.kind==='file'&&String(x.type||'').toLowerCase().includes('xml'))||[...(e.dataTransfer?.files||[])].some(f=>f.name?.toLowerCase().endsWith('.nzb'))){e.preventDefault();e.dataTransfer.dropEffect='copy'}});document.addEventListener('drop',e=>{const files=[...(e.dataTransfer?.files||[])].filter(f=>f.name?.toLowerCase().endsWith('.nzb'));if(files.length){e.preventDefault();startNzbImport(files)}});window.addEventListener('beforeunload',()=>captureCurrentGroupState());
 document.addEventListener('keydown',handleKeyboardShortcuts);
 

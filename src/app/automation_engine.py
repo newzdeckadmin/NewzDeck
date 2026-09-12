@@ -499,10 +499,19 @@ def parse_release(title: str) -> dict[str, Any]:
     elif re.search(r'\b(?:x264|h[ ._-]?264|avc)\b', low): codec = 'AVC/x264'
     elif re.search(r'\bav1\b', low): codec = 'AV1'
     else: codec = 'Unknown'
-    if re.search(r'\b(?:dolby[ ._-]?vision|dovi|dv)\b', low): hdr = 'Dolby Vision'
-    elif re.search(r'hdr10\+', low): hdr = 'HDR10+'
-    elif re.search(r'\bhdr10\b', low): hdr = 'HDR10'
-    elif re.search(r'\bhdr\b', low): hdr = 'HDR'
+    # Dynamic-range traits are independent. A release may carry Dolby Vision plus
+    # HDR10/HDR10+ fallback; collapsing those into one mutually-exclusive label
+    # loses information that matters for upgrade decisions.
+    dolby_vision = bool(re.search(r'\b(?:dolby[ ._-]?vision|dovi|dv)\b', low))
+    hdr10_plus = bool(re.search(r'(?<![a-z0-9])hdr10\+(?![a-z0-9])', low))
+    hdr10 = bool(re.search(r'(?<![a-z0-9])hdr10(?![a-z0-9+])', low))
+    hdr_generic = bool(re.search(r'(?<![a-z0-9])hdr(?![a-z0-9])', low))
+    hdr_present = bool(hdr10_plus or hdr10 or hdr_generic)
+    if dolby_vision and hdr_present: hdr = 'Dolby Vision + HDR'
+    elif dolby_vision: hdr = 'Dolby Vision'
+    elif hdr10_plus: hdr = 'HDR10+'
+    elif hdr10: hdr = 'HDR10'
+    elif hdr_generic: hdr = 'HDR'
     else: hdr = 'SDR/Unknown'
     if 'atmos' in low: audio = 'Atmos'
     elif 'truehd' in low: audio = 'TrueHD'
@@ -538,7 +547,9 @@ def parse_release(title: str) -> dict[str, Any]:
     quality = f'{resolution} {source}' if resolution != 'Unknown' or source != 'Unknown' else 'Unknown'
     return {
         'quality': quality, 'resolution':resolution, 'source':source, 'codec':codec,
-        'hdr':hdr, 'audio':audio, 'release_group':grp, 'season':season,
+        'hdr':hdr, 'dolby_vision':dolby_vision, 'hdr10_plus':hdr10_plus,
+        'hdr10':hdr10, 'hdr_present':hdr_present,
+        'audio':audio, 'release_group':grp, 'season':season,
         'episode':episode, 'episode_numbers':sorted(set(episode_numbers)),
         'is_multi_episode':is_multi_episode, 'is_season_pack':is_season_pack,
     }
@@ -562,19 +573,27 @@ def _indexer_search_wall_timeout() -> float:
     """
     return INDEXER_PRIMARY_TIMEOUT + (3 * INDEXER_FALLBACK_TIMEOUT) + INDEXER_SEARCH_MARGIN
 
+DEFAULT_TRAIT_POLICIES = {
+    'dynamic_range': {'hdr':'prefer','hdr10_plus':'prefer','dolby_vision':'prefer','dv_hdr':'prefer'},
+    'video_codec': {'hevc':'prefer','avc':'allow','av1':'allow'},
+    'audio': {'atmos':'prefer','truehd':'allow','dts_hd':'allow','dd_plus':'allow','aac':'allow'},
+}
+
 DEFAULT_PROFILES = [
     {
         'id':'quality-4k-preferred','name':'4K Preferred','qualities':['2160p Remux','2160p BluRay','2160p WEB-DL','2160p WEBRip','1080p Remux','1080p BluRay','1080p WEB-DL','1080p WEBRip','720p WEB-DL','720p HDTV'],
-        'cutoff':'2160p WEB-DL','min_size_mb':0,'max_size_gb':0,'reject_terms':['cam','telesync','password','encrypted'],'preferred_groups':[],'custom_formats':[{'name':'HEVC / x265','contains':['x265','hevc'],'score':25},{'name':'Dolby Vision','contains':['dolby vision','dovi',' dv '],'score':20},{'name':'HDR','contains':['hdr'],'score':10},{'name':'Atmos','contains':['atmos'],'score':10}],
+        'cutoff':'2160p WEB-DL','min_size_mb':0,'max_size_gb':0,'reject_terms':['cam','telesync','password','encrypted'],'preferred_groups':[],
+        'custom_formats':[], 'trait_policies':copy.deepcopy(DEFAULT_TRAIT_POLICIES), 'upgrade_dynamic_range':True, 'prefer_proper_repack':True,
     },
     {
         'id':'quality-1080p','name':'1080p Balanced','qualities':['1080p Remux','1080p BluRay','1080p WEB-DL','1080p WEBRip','1080p HDTV','720p WEB-DL','720p HDTV'],
-        'cutoff':'1080p WEB-DL','min_size_mb':0,'max_size_gb':0,'reject_terms':['cam','telesync','password','encrypted'],'preferred_groups':[],'custom_formats':[{'name':'HEVC / x265','contains':['x265','hevc'],'score':20},{'name':'Atmos','contains':['atmos'],'score':10}],
+        'cutoff':'1080p WEB-DL','min_size_mb':0,'max_size_gb':0,'reject_terms':['cam','telesync','password','encrypted'],'preferred_groups':[],
+        'custom_formats':[], 'trait_policies':{'dynamic_range':{'hdr':'allow','hdr10_plus':'allow','dolby_vision':'allow','dv_hdr':'allow'},'video_codec':{'hevc':'prefer','avc':'allow','av1':'allow'},'audio':{'atmos':'prefer','truehd':'allow','dts_hd':'allow','dd_plus':'allow','aac':'allow'}}, 'upgrade_dynamic_range':True, 'prefer_proper_repack':True,
     },
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.80'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.81'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -1781,10 +1800,15 @@ class MediaAutomationEngine:
         """Authoritative candidate ordering: safety, profile tier, then preferences."""
         rank=self._release_quality_rank(release,profile)
         rank_key=-rank if rank<999 else -9999
+        parsed=release.get('parsed') if isinstance(release.get('parsed'),dict) else parse_release(str(release.get('title') or ''))
+        source_key=self._quality_source_specificity(str(parsed.get('quality') or ''))
+        dynamic_key=-self._dynamic_range_rank(parsed)
         return (
             bool(release.get('automatic_eligible')),
             bool(release.get('accepted')),
             rank_key,
+            source_key,
+            dynamic_key,
             int(release.get('selection_score',release.get('effective_score',release.get('score',-9999))) or -9999),
             int(release.get('size') or 0),
             int(float(release.get('published') or 0)),
@@ -2154,7 +2178,9 @@ class MediaAutomationEngine:
                 if bool(parsed.get('is_multi_episode')) or bool(parsed.get('is_season_pack')): return False
         if upgrade:
             current=str(row.get('current_quality') or 'Unknown')
-            if self._quality_rank(str(parsed.get('quality') or ''),profile)>=self._quality_rank(current,profile): return False
+            current_info=self._current_target_release_info(item,row.get('season'),row.get('episode'),current)
+            better,_why=self._is_quality_upgrade(parsed,current,profile,current_info)
+            if not better: return False
         return True
 
     def _auto_backlog_eligible(self, row:dict[str,Any], item:dict[str,Any], cfg:dict[str,Any]) -> bool:
@@ -4494,9 +4520,14 @@ class MediaAutomationEngine:
                 elif b'ac-3' in data: info['audio_codec']='AC3'
                 elif any(x in data for x in (b'dtsh',b'dtsl',b'dtsc')): info['audio_codec']='DTS'
                 elif b'mp4a' in data: info['audio_codec']='AAC'
-            if any(x in data for x in (b'dvhe',b'dvh1',b'dovi',b'dolby vision')): info['hdr']='Dolby Vision'
-            elif b'hdr10+' in data or b'stmp' in data: info['hdr']='HDR10+'
-            elif any(x in data for x in (b'masteringmetadata',b'maxcll',b'smpte2086',b'bt2020')): info['hdr']='HDR/HDR10'
+            dv=any(x in data for x in (b'dvhe',b'dvh1',b'dovi',b'dolby vision'))
+            plus=b'hdr10+' in data or b'stmp' in data
+            hdr=plus or any(x in data for x in (b'masteringmetadata',b'maxcll',b'smpte2086',b'bt2020'))
+            info['dolby_vision']=bool(dv); info['hdr10_plus']=bool(plus); info['hdr_present']=bool(hdr)
+            if dv and hdr: info['hdr']='Dolby Vision + HDR'
+            elif dv: info['hdr']='Dolby Vision'
+            elif plus: info['hdr']='HDR10+'
+            elif hdr: info['hdr']='HDR/HDR10'
         except OSError:
             pass
         return info
@@ -4630,10 +4661,120 @@ class MediaAutomationEngine:
         _write(self.media_quality_cache_file,cache)
         return fp
 
-    def _quality_cutoff_met(self, quality:str, profile:dict[str,Any]) -> bool:
-        rank=self._quality_rank(quality,profile); cutoff=self._quality_rank(str(profile.get('cutoff') or ''),profile)
-        if rank<999 and cutoff<999: return rank<=cutoff
+    def _effective_trait_policies(self, profile:dict[str,Any]) -> dict[str,dict[str,str]]:
+        raw=profile.get('trait_policies') if isinstance(profile.get('trait_policies'),dict) else {}
+        base={'dynamic_range':{},'video_codec':{},'audio':{}}
+        for section in base:
+            incoming=raw.get(section) if isinstance(raw.get(section),dict) else {}
+            base[section]={str(k):str(v) for k,v in incoming.items() if str(v) in {'allow','prefer','require','avoid'}}
+        # Existing persisted built-in profiles predate structured policies. Preserve
+        # their familiar behavior without requiring a destructive profile migration.
+        pid=str(profile.get('id') or '')
+        if pid=='quality-4k-preferred' and not base['dynamic_range']:
+            base=copy.deepcopy(DEFAULT_TRAIT_POLICIES)
+        elif pid=='quality-1080p' and not any(base.values()):
+            base={'dynamic_range':{'hdr':'allow','hdr10_plus':'allow','dolby_vision':'allow','dv_hdr':'allow'},'video_codec':{'hevc':'prefer','avc':'allow','av1':'allow'},'audio':{'atmos':'prefer','truehd':'allow','dts_hd':'allow','dd_plus':'allow','aac':'allow'}}
+        return base
 
+    @staticmethod
+    def _dynamic_range_rank(info:dict[str,Any]|None) -> int:
+        row=info if isinstance(info,dict) else {}
+        dv=bool(row.get('dolby_vision')) or 'dolby vision' in str(row.get('hdr') or '').casefold()
+        plus=bool(row.get('hdr10_plus')) or 'hdr10+' in str(row.get('hdr') or '').casefold()
+        hdr=bool(row.get('hdr_present')) or plus or bool(row.get('hdr10')) or ('hdr' in str(row.get('hdr') or '').casefold() and 'sdr' not in str(row.get('hdr') or '').casefold())
+        if dv and hdr: return 0
+        if dv: return 1
+        if plus: return 2
+        if hdr: return 3
+        return 4
+
+    @staticmethod
+    def _quality_source_specificity(quality:Any) -> int:
+        text=str(quality or '').casefold()
+        if re.search(r'web[ ._-]?dl',text): return 2
+        if re.search(r'\bweb\b',text) and 'webrip' not in text: return 1
+        return 0
+
+    def _trait_matches(self, info:dict[str,Any]) -> dict[str,bool]:
+        hdr_rank=self._dynamic_range_rank(info)
+        codec=str(info.get('codec') or '').casefold(); audio=str(info.get('audio') or '').casefold()
+        return {
+            'hdr': hdr_rank<=3, 'hdr10_plus': bool(info.get('hdr10_plus')) or 'hdr10+' in str(info.get('hdr') or '').casefold(),
+            'dolby_vision': hdr_rank<=1, 'dv_hdr': hdr_rank<=0,
+            'hevc': 'hevc' in codec or 'x265' in codec or 'h.265' in codec,
+            'avc': 'avc' in codec or 'x264' in codec or 'h.264' in codec, 'av1': 'av1' in codec,
+            'atmos': 'atmos' in audio, 'truehd': 'truehd' in audio, 'dts_hd': 'dts-hd' in audio or 'dts hd' in audio,
+            'dd_plus': audio in {'dd+','eac3','e-ac-3'} or 'dd+' in audio, 'aac': 'aac' in audio,
+        }
+
+    def _apply_structured_trait_policy(self, info:dict[str,Any], profile:dict[str,Any], score:int, components:list, reasons:list, rejects:list) -> int:
+        matches=self._trait_matches(info); policies=self._effective_trait_policies(profile)
+        bonuses={'dv_hdr':30,'dolby_vision':24,'hdr10_plus':18,'hdr':12,'hevc':12,'av1':8,'avc':2,'atmos':12,'truehd':8,'dts_hd':7,'dd_plus':4,'aac':1}
+        for section in ('dynamic_range','video_codec','audio'):
+            rules=policies.get(section) or {}; required=[k for k,v in rules.items() if v=='require']
+            for key,policy in rules.items():
+                hit=bool(matches.get(key))
+                if policy=='avoid' and hit: rejects.append(f"Profile avoids {key.replace('_',' ')}")
+                elif policy=='prefer' and hit:
+                    val=int(bonuses.get(key,6)); score+=val; components.append({'label':f"Preferred {key.replace('_',' ')}",'score':val}); reasons.append(f"Profile prefers {key.replace('_',' ')}")
+            for key in required:
+                if not matches.get(key): rejects.append(f"Profile requires {key.replace('_',' ')}")
+        return score
+
+    def _current_target_release_info(self, item:dict[str,Any]|None, season=None, episode=None, current_quality:str='Unknown') -> dict[str,Any]:
+        info=parse_release(str(current_quality or ''))
+        if not isinstance(item,dict): return info
+        rec=None
+        if item.get('kind')=='movie': rec=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
+        elif season is not None and episode is not None:
+            for s in item.get('seasons') or []:
+                if int(s.get('season_number') or 0)!=int(season or 0): continue
+                rec=next((e for e in s.get('episodes') or [] if int(e.get('episode_number') or 0)==int(episode or 0)),None); break
+        if not isinstance(rec,dict): return info
+        stored=rec.get('release_traits') if isinstance(rec.get('release_traits'),dict) else None
+        if stored: return dict(stored)
+        fp=str(rec.get('file_fingerprint') or '')
+        if fp:
+            cached=self._media_quality_cache().get(fp)
+            if isinstance(cached,dict) and str(cached.get('release_title') or '').strip(): return parse_release(str(cached.get('release_title') or ''))
+        media=rec.get('media_info') if isinstance(rec.get('media_info'),dict) else {}
+        if media:
+            merged=dict(info); merged.update({k:v for k,v in media.items() if v not in {'',None,'Unknown'}})
+            if str(media.get('video_codec') or '') not in {'','Unknown'}: merged['codec']=str(media.get('video_codec'))
+            if str(media.get('audio_codec') or '') not in {'','Unknown'}: merged['audio']=str(media.get('audio_codec'))
+            return merged
+        return info
+
+    def _is_quality_upgrade(self, incoming_info:dict[str,Any], current_quality:str, profile:dict[str,Any], current_info:dict[str,Any]|None=None) -> tuple[bool,str]:
+        incoming_quality=str(incoming_info.get('quality') or '')
+        ir=self._quality_rank(incoming_quality,profile); cr=self._quality_rank(str(current_quality or ''),profile)
+        if ir<999 and cr<999:
+            if ir<cr: return True,'base quality tier improves'
+            if ir>cr: return False,'base quality tier is lower'
+            inc_source=self._quality_source_specificity(incoming_quality); cur_source=self._quality_source_specificity(current_quality)
+            if inc_source>cur_source: return True,'release source improves'
+            if inc_source<cur_source: return False,'release source is lower'
+            if bool(profile.get('upgrade_dynamic_range',True)):
+                incoming_hdr=self._dynamic_range_rank(incoming_info); current_hdr=self._dynamic_range_rank(current_info or parse_release(str(current_quality or '')))
+                if incoming_hdr<current_hdr: return True,'dynamic range improves'
+                if incoming_hdr>current_hdr: return False,'dynamic range is lower'
+            return False,'same quality tier'
+        incoming_res=self._quality_resolution_value(incoming_quality); current_res=self._quality_resolution_value(current_quality)
+        return (bool(incoming_res and current_res and incoming_res>current_res),'resolution improves' if incoming_res>current_res else 'not provably better')
+
+    def _quality_cutoff_met(self, quality:str, profile:dict[str,Any], release_info:dict[str,Any]|None=None) -> bool:
+        rank=self._quality_rank(quality,profile); cutoff=self._quality_rank(str(profile.get('cutoff') or ''),profile)
+        base_met=bool(rank<999 and cutoff<999 and rank<=cutoff)
+        if base_met:
+            if not bool(profile.get('upgrade_dynamic_range',True)): return True
+            info=release_info if isinstance(release_info,dict) else parse_release(str(quality or ''))
+            policies=self._effective_trait_policies(profile).get('dynamic_range') or {}
+            # The best allowed dynamic-range state is the terminal target. By default
+            # DV+HDR fallback is ideal; profile Avoid rules can deliberately cap it.
+            targets=[('dv_hdr',0),('dolby_vision',1),('hdr10_plus',2),('hdr',3)]
+            allowed=[r for key,r in targets if policies.get(key)!='avoid']
+            target=min(allowed) if allowed else 5
+            return self._dynamic_range_rank(info)<=target
 
         def res(q):
             m=re.search(r'(?i)\b(2160|1080|720|576|480)p\b',str(q or ''))
@@ -4661,20 +4802,20 @@ class MediaAutomationEngine:
         m=re.search(r'(?i)\b(2160|1080|720|576|480)p\b',str(quality or ''))
         return int(m.group(1)) if m else 0
 
-    def _quality_strictly_better(self, incoming:Any, existing:Any, profile:dict[str,Any]) -> bool:
+    def _quality_strictly_better(self, incoming:Any, existing:Any, profile:dict[str,Any], *, incoming_info:dict[str,Any]|None=None, existing_info:dict[str,Any]|None=None) -> bool:
         """Return True only when an incoming file is provably better.
 
-        A missing/Unknown source label must never turn an existing file into a
-        downgrade candidate. Exact profile ranks win when both sides are known;
-        otherwise only a strictly higher physical resolution is sufficient proof.
+        v3.6.81 extends the no-downgrade guard beyond base resolution/source so
+        Smart Import agrees with release selection: explicit WEB-DL beats generic
+        WEB at the same resolution, HDR beats SDR, Dolby Vision beats HDR, and
+        Dolby Vision with HDR fallback is the terminal dynamic-range preference.
         """
-        incoming_rank=self._quality_rank(str(incoming or ''),profile)
-        existing_rank=self._quality_rank(str(existing or ''),profile)
-        if incoming_rank<999 and existing_rank<999:
-            return incoming_rank<existing_rank
-        incoming_res=self._quality_resolution_value(incoming)
-        existing_res=self._quality_resolution_value(existing)
-        return bool(incoming_res and existing_res and incoming_res>existing_res)
+        incoming_row=dict(incoming_info or parse_release(str(incoming or '')))
+        if not incoming_row.get('quality'): incoming_row['quality']=str(incoming or '')
+        existing_row=dict(existing_info or parse_release(str(existing or '')))
+        if not existing_row.get('quality'): existing_row['quality']=str(existing or '')
+        better,_reason=self._is_quality_upgrade(incoming_row,str(existing or ''),profile,existing_row)
+        return bool(better)
 
     def _recover_existing_quality(self, path:Path, previous:dict[str,Any]|None=None) -> tuple[str,str,str]:
         """Recover the best trustworthy quality for a physical library file."""
@@ -4752,18 +4893,20 @@ class MediaAutomationEngine:
         group=str(info.get('release_group') or '').casefold(); preferred={str(x or '').strip().casefold() for x in profile.get('preferred_groups') or [] if str(x or '').strip()}
         if group and group in preferred:
             score+=12; components.append({'label':f"Preferred group • {info.get('release_group')}",'score':12}); reasons.append(f"Preferred release group {info.get('release_group')}")
-        if re.search(r'(?i)(?:^|[ ._\-])(proper|repack)(?:[ ._\-]|$)',raw):
+        score=self._apply_structured_trait_policy(info,profile,score,components,reasons,rejects)
+        if bool(profile.get('prefer_proper_repack',True)) and re.search(r'(?i)(?:^|[ ._\-])(proper|repack)(?:[ ._\-]|$)',raw):
             score+=6; components.append({'label':'PROPER / REPACK','score':6}); reasons.append('PROPER/REPACK bonus')
         if str(info.get('source') or '')=='WEB' and rank<999:
             reasons.append('Generic WEB tag is treated as WEB-DL-compatible for this quality profile')
         elif str(info.get('source') or '')=='Unknown':
             score-=8; components.append({'label':'Unknown source','score':-8}); reasons.append('Source could not be identified')
         if episode is not None and current_quality and current_quality!='Unknown' and rank<999:
-            cur=self._quality_rank(current_quality,profile)
-            if cur<999:
-                if rank<cur:
-                    delta=min(18,max(4,(cur-rank)*4)); score+=delta; components.append({'label':f'Upgrade over {current_quality}','score':delta}); reasons.append(f'Improves current quality {current_quality}')
-                else: rejects.append(f"Not an upgrade over current quality {current_quality}")
+            current_info=self._current_target_release_info(item,season,episode,current_quality)
+            better,why=self._is_quality_upgrade(info,current_quality,profile,current_info)
+            if better:
+                delta=18 if why=='dynamic range improves' else 14 if why=='release source improves' else 12
+                score+=delta; components.append({'label':f'Upgrade over {current_quality}','score':delta}); reasons.append(f'Improves current quality: {why}')
+            else: rejects.append(f"Not an upgrade over current quality {current_quality} ({why})")
         accepted=not rejects; decision='ELIGIBLE' if accepted else 'REJECTED'
         return {'score':int(score),'quality_rank':int(rank+1) if rank<999 else 0,'parsed':info,'reasons':reasons,'score_components':components,'rejections':rejects,'accepted':accepted,'decision':decision}
 
@@ -5271,7 +5414,7 @@ class MediaAutomationEngine:
                         sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None)
                         ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
                         if ep is None: continue
-                        ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}); matched+=1
+                        ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile,self._probe_media_traits(f))}); matched+=1
                     for key,old in previous.items():
                         sn,en=key; sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None); ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
                         if ep is None: continue
@@ -5295,7 +5438,7 @@ class MediaAutomationEngine:
                     item['movie_file']=None
                     if candidates:
                         _,neg_size,f,q,source,fp=min(candidates,key=lambda x:x[:2])
-                        item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}; matched+=1
+                        item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile,self._probe_media_traits(f))}; matched+=1
                     current=item.get('movie_file') or {}
                     if previous and not current: changes.append({'type':'file_missing','item_id':str(item.get('id') or ''),'title':title,'path':str(previous.get('path') or '')})
                     elif not previous and current: changes.append({'type':'file_found','item_id':str(item.get('id') or ''),'title':title,'path':str(current.get('path') or ''),'quality':str(current.get('quality') or '')})
@@ -5401,13 +5544,13 @@ class MediaAutomationEngine:
                 sfp=self._media_fingerprint(source); efp=self._media_fingerprint(existing)
                 if sfp and efp and sfp==efp:
                     action='DUPLICATE'; reason='Existing library file has the same fingerprint'
-                elif self._quality_strictly_better(quality,old_quality,profile):
+                elif self._quality_strictly_better(quality,old_quality,profile,incoming_info=parse_release(release_title or source.name),existing_info=self._current_target_release_info(item,None,None,old_quality)):
                     action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
                 else:
                     action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
                     if not bool(context.get('preview')):
                         self._note_target_integrity('downgrades_blocked')
-            entries.append({'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing is not None and existing.exists() else '', 'episode':None,'season':None,'episode_title':''})
+            entries.append({'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing is not None and existing.exists() else '', 'episode':None,'season':None,'episode_title':'','incoming_info':parse_release(release_title or source.name),'existing_info':self._current_target_release_info(item,None,None,old_quality)})
             inspections.append({'source':str(source),'identified':f'{title} ({year})' if year else title,'quality':quality,'action':action,'destination':str(dest),'reason':reason})
             for f in candidates:
                 if f!=source: inspections.append({'source':str(f),'identified':'Additional video','quality':str(parse_release(f.name).get('quality') or ''),'action':'IGNORE','destination':'','reason':'Movie import selected the strongest main feature candidate'})
@@ -5488,7 +5631,7 @@ class MediaAutomationEngine:
                         sfp=self._media_fingerprint(source); efp=self._media_fingerprint(existing)
                         if sfp and efp and sfp==efp:
                             action='DUPLICATE'; reason='Existing episode has the same fingerprint'
-                        elif self._quality_strictly_better(quality,old_quality,profile):
+                        elif self._quality_strictly_better(quality,old_quality,profile,incoming_info=parse_release(release_title or source.name),existing_info=self._current_target_release_info(item,sn,en,old_quality)):
                             action='UPGRADE'; reason=f'{old_quality or "Existing file"} → {quality}'
                         else:
                             action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
@@ -5496,7 +5639,7 @@ class MediaAutomationEngine:
                                 self._note_target_integrity('downgrades_blocked')
                 key=(sn,en)
                 prev=seen.get(key)
-                candidate={'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing.exists() else '', 'episode':en,'season':sn,'episode_title':ep_title,'episode_ref':ep}
+                candidate={'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing.exists() else '', 'episode':en,'season':sn,'episode_title':ep_title,'episode_ref':ep,'incoming_info':parse_release(release_title or source.name),'existing_info':self._current_target_release_info(item,sn,en,old_quality)}
                 if prev is None or (self._quality_rank(quality,profile),-(source.stat().st_size if source.exists() else 0)) < (self._quality_rank(prev['quality'],profile),-(prev['source'].stat().st_size if prev['source'].exists() else 0)):
                     if prev is not None: inspections.append({'source':str(prev['source']),'identified':f'S{sn:02d}E{en:02d}','quality':prev['quality'],'action':'IGNORE','destination':'','reason':'A stronger candidate for the same episode was present'})
                     seen[key]=candidate
@@ -5625,7 +5768,7 @@ class MediaAutomationEngine:
                 entry['old_quality']=existing_quality
                 entry['existing_path']=str(existing)
                 incoming=str(entry.get('quality') or 'Unknown')
-                if self._quality_strictly_better(incoming,existing_quality,profile):
+                if self._quality_strictly_better(incoming,existing_quality,profile,incoming_info=entry.get('incoming_info'),existing_info=entry.get('existing_info')):
                     entry['action']='UPGRADE'
                     entry['reason']=f'{existing_quality or "Existing file"} → {incoming}'
                 else:
@@ -5811,7 +5954,7 @@ class MediaAutomationEngine:
                 ranked.append((self._quality_rank(q,profile),-size,f,q))
             if ranked:
                 _,neg_size,f,q=min(ranked,key=lambda x:x[:2])
-                item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)}
+                item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile,self._probe_media_traits(f))}
             return
         refs={}
         for sr in item.get('seasons') or []:
@@ -5826,7 +5969,7 @@ class MediaAutomationEngine:
             except OSError: size=0
             current=str(ep.get('file_quality') or '')
             if ep.get('has_file') and current and self._quality_rank(current,profile)<=self._quality_rank(q,profile): continue
-            ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile)})
+            ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':size,'file_fingerprint':self._media_fingerprint(f),'quality_source':'existing-library','media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile,self._probe_media_traits(f))})
 
     def reconcile_recovered_completed_import(self, context:dict[str,Any]) -> dict[str,Any]:
         """Prove that a crash-recovered completed SAB job is already in the library.
@@ -6028,15 +6171,16 @@ class MediaAutomationEngine:
                         kept_existing_files.append({'destination':str(existing),'quality':existing_quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':existing.name})
                         self._event('import-existing',f"Kept existing library file {existing.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(existing),final_filename=existing.name,final_folder=str(existing.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=str(context.get('release_title') or ''),quality=existing_quality,season=e.get('season'),episode=e.get('episode'),season_pack=bool(context.get('season_pack')),verified=True,decision=action)
                     continue
+                release_traits=parse_release(str(context.get('release_title') or ''))
                 fp=self._remember_media_quality(dest,quality,str(context.get('release_title') or ''))
-                cutoff=self._quality_cutoff_met(quality,profile)
+                cutoff=self._quality_cutoff_met(quality,profile,release_traits)
                 if item.get('kind')=='tv':
                     ep=e.get('episode_ref')
                     if isinstance(ep,dict):
-                        ep.update({'has_file':True,'file_path':str(dest),'file_quality':quality,'file_size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'cutoff_met':cutoff})
+                        ep.update({'has_file':True,'file_path':str(dest),'file_quality':quality,'file_size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'release_traits':release_traits,'cutoff_met':cutoff})
                         ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
                 else:
-                    item['movie_file']={'path':str(dest),'quality':quality,'size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'cutoff_met':cutoff}
+                    item['movie_file']={'path':str(dest),'quality':quality,'size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'release_traits':release_traits,'cutoff_met':cutoff}
                 media_bytes=int(dest.stat().st_size)
                 imported.append({'destination':str(dest),'quality':quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':dest.name})
                 self._event('upgrade-import' if action=='UPGRADE' else 'import',f"{'Upgraded' if action=='UPGRADE' else 'Imported'} {dest.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(dest),final_filename=dest.name,final_folder=str(dest.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=str(context.get('release_title') or ''),release_size=int(context.get('release_size') or 0),quality=quality,from_quality=str(e.get('old_quality') or ''),to_quality=quality,indexer=str(context.get('indexer') or ''),season=e.get('season'),episode=e.get('episode'),episode_title=str(e.get('episode_title') or ''),season_pack=bool(context.get('season_pack')),verified=True)
@@ -6303,7 +6447,7 @@ class MediaAutomationEngine:
                 if released:
                     if not item.get('movie_file'):
                         row={'item_id':item['id'],'kind':'movie','title':item['title'],'year':item.get('year'),'date':wanted_date,'availability':availability,'label':item['title'],'cutoff':cutoff,'reason_code':'missing','reason_label':'Missing movie file','reason_detail':'The movie is available under your release policy but no library file is present.'}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
-                    elif str(item.get('monitor_mode') or 'movie')!='missing' and not item['movie_file'].get('cutoff_met'):
+                    elif str(item.get('monitor_mode') or 'movie')!='missing' and not self._quality_cutoff_met(str(item['movie_file'].get('quality') or 'Unknown'),profile,item['movie_file'].get('release_traits') or item['movie_file'].get('media_info')):
                         row={'item_id':item['id'],'kind':'movie','title':item['title'],'date':wanted_date,'availability':availability,'current_quality':item['movie_file'].get('quality'),'cutoff':cutoff,'label':item['title'],'reason_code':'upgrade','reason_label':'Quality below cutoff','reason_detail':f"Current {item['movie_file'].get('quality') or 'Unknown'} has not reached {cutoff or 'the profile cutoff'}."}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=True); upgrades.append(row)
             else:
                 for season in item.get('seasons') or []:
@@ -6315,7 +6459,7 @@ class MediaAutomationEngine:
                         row['target_key']=self._auto_target_key(row=row)
                         if not ep.get('has_file'):
                             row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
-                        elif str(item.get('monitor_mode') or 'all')!='missing' and not ep.get('cutoff_met'):
+                        elif str(item.get('monitor_mode') or 'all')!='missing' and not self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,ep.get('release_traits') or ep.get('media_info')):
                             upgrade_row={**row,'current_quality':ep.get('file_quality')}; upgrade_row['automation_policy']=self._wanted_automatic_policy(upgrade_row,item,cfg,upgrade=True); upgrades.append(upgrade_row)
         missing.sort(key=lambda x:(x.get('date') or '',x.get('label') or '')); upgrades.sort(key=lambda x:x.get('label') or '')
         policy_counts={'backlog_paused':0,'upgrades_paused':0}
@@ -6499,7 +6643,12 @@ class MediaAutomationEngine:
             except Exception: max_size_gb=0
             reject_terms=[str(x).strip() for x in data.get('reject_terms') or [] if str(x).strip()][:60]
             preferred_groups=[str(x).strip() for x in data.get('preferred_groups') or [] if str(x).strip()][:60]
-            rec={'id':ident,'name':name,'qualities':qualities,'cutoff':cutoff,'min_size_mb':min_size_mb,'max_size_gb':max_size_gb,'reject_terms':reject_terms,'preferred_groups':preferred_groups,'custom_formats':cfs}
+            incoming_policies=data.get('trait_policies') if isinstance(data.get('trait_policies'),dict) else {}
+            trait_policies={}
+            for section in ('dynamic_range','video_codec','audio'):
+                rows=incoming_policies.get(section) if isinstance(incoming_policies.get(section),dict) else {}
+                trait_policies[section]={str(k):str(v) for k,v in rows.items() if str(v) in {'allow','prefer','require','avoid'}}
+            rec={'id':ident,'name':name,'qualities':qualities,'cutoff':cutoff,'min_size_mb':min_size_mb,'max_size_gb':max_size_gb,'reject_terms':reject_terms,'preferred_groups':preferred_groups,'custom_formats':cfs,'trait_policies':trait_policies,'upgrade_dynamic_range':bool(data.get('upgrade_dynamic_range',True)),'prefer_proper_repack':bool(data.get('prefer_proper_repack',True))}
             old=next((i for i,x in enumerate(profiles) if str(x.get('id'))==ident),None)
             if old is None: profiles.append(rec)
             else: profiles[old]=rec
@@ -6920,7 +7069,9 @@ class MediaAutomationEngine:
         if auto_type=='upgrade':
             if existing is None or not existing.exists():
                 return {'ok':False,'reason':'Automatic upgrade suppressed because the previous library file is no longer present; Wanted will rebuild the target as missing.'}
-            if not self._quality_strictly_better(incoming_quality,existing_quality,profile):
+            incoming_info=parse_release(str(context.get('release_title') or incoming_quality or ''))
+            current_info=self._current_target_release_info(item,context.get('season'),context.get('episode'),existing_quality)
+            if not self._quality_strictly_better(incoming_quality,existing_quality,profile,incoming_info=incoming_info,existing_info=current_info):
                 return {'ok':False,'reason':f'Automatic upgrade suppressed because {incoming_quality} is not strictly better than current {existing_quality}.','existing_quality':existing_quality,'path':str(existing)}
         return {'ok':True}
 
