@@ -1,11 +1,10 @@
-NewzDeck v3.6.74 update notes
+NewzDeck v3.6.75 update notes
 
 Installed users
-- Run NewzDeck_v3.6.74_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
-- The installer handles the running NewzDeck/tray/service upgrade flow; no manual service stop should be required.
-- Existing settings, providers, queue state, Automation data, caches and history remain under the version-independent user data directory and are preserved.
+- Run NewzDeck_v3.6.75_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.74 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.75 Portable ZIP contents, then restart NewzDeck.
 
-v3.6.74 adds passive schema-11 Video request/session correlation and cancellation-overlap diagnostics only. Accepted browsing/download performance behavior remains unchanged.
+v3.6.75 changes only the Windows build representation of NewzDeckYenc.exe plus release identity/guards. The decoder source, browsing behavior, download engine, Automation, Smart Import, Discover, Settings reliability and Metadata Server behavior remain unchanged.

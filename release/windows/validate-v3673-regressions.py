@@ -23,7 +23,7 @@ for marker in (
     'scoreIndex=found>=0?found:-1',
     'if(!resolveThumbnailTaskArticle(task)){state.thumbQueued.delete(task.qkey||task.pkey);continue}',
     'const a=resolveThumbnailTaskArticle(task);if(!a)return;',
-): check(marker in app,'v3.6.74 stable thumbnail identity marker missing: '+marker)
+): check(marker in app,'v3.6.75 stable thumbnail identity marker missing: '+marker)
 check("if(task.role==='set-cover'&&task.sourceArticleKey" not in app,'Old set-cover-only stable-key relocation remains')
 # Schema 10 keeps total queue age and partitions offscreen dwell from actual visible wait without changing the scheduler score formula.
 for marker in (
@@ -34,7 +34,7 @@ for marker in (
     "perfRecord('thumbnail_visible_wait',visibleWaitMs,true",
     'prefetchDwellMs=Math.max(0,(firstVisibleAt||queueStartedAt)-queuedAt)',
     'visibleWaitMs=firstVisibleAt?Math.max(0,queueStartedAt-firstVisibleAt):0',
-): check(marker in app,'v3.6.74 queue visibility telemetry marker missing: '+marker)
+): check(marker in app,'v3.6.75 queue visibility telemetry marker missing: '+marker)
 for stage in ('thumbnail_prefetch_dwell','thumbnail_visible_wait','thumbnail_task_identity'):
     check(f'"{stage}"' in server,'Server does not accept schema-10 client stage: '+stage)
 check('"schema_version": 11' in server and '"contract": "passive-runtime-browsing-performance"' in server,'Browsing telemetry schema 10/contract missing')
@@ -64,9 +64,9 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3673>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 # Release identities and download engine remain coherent.
-check((APP/'version.txt').read_text().strip()=='3.6.74','version.txt mismatch')
-check("const UI_VERSION = '3.6.74'" in app and '3.6.74-video-cancellation-overlap-diagnostics' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.74' and manifest.get('base_version')=='3.6.73' and manifest.get('adapter_version')=='3.6.74','build manifest identity mismatch')
-check(sab.ADAPTER_VERSION=='3.6.74' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.75','version.txt mismatch')
+check("const UI_VERSION = '3.6.75'" in app and '3.6.75-windows-defender-compatibility' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.75' and manifest.get('base_version')=='3.6.74' and manifest.get('adapter_version')=='3.6.75','build manifest identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.75' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.74 regression guard: PASS')
+print('v3.6.75 regression guard: PASS')

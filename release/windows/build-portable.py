@@ -17,6 +17,8 @@ HELPERS = {
     "NewzDeckYenc.exe": "NewzDeckYenc.go",
 }
 
+DEFAULT_GO_LDFLAGS = "-s -w -H windowsgui -buildid="
+YENC_GO_LDFLAGS = "-H windowsgui"
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
 
 def sha(path: pathlib.Path) -> str:
@@ -28,6 +30,12 @@ def sha(path: pathlib.Path) -> str:
 def run(cmd, **kw):
     print('+',' '.join(map(str,cmd)))
     subprocess.run(cmd, check=True, **kw)
+
+def helper_ldflags(exe: str) -> str:
+    # v3.6.75: Defender compatibility is intentionally scoped only to the
+    # unchanged native yEnc helper. Retaining normal Go build metadata avoids
+    # the false-positive signature observed with the stripped historical build.
+    return YENC_GO_LDFLAGS if exe == "NewzDeckYenc.exe" else DEFAULT_GO_LDFLAGS
 
 def copy_app(stage: pathlib.Path):
     # Production payload intentionally excludes development/acceptance launchers
@@ -48,7 +56,8 @@ def build_go(stage: pathlib.Path):
     if 'go1.23.2' not in version:
         raise SystemExit(f'Go 1.23.2 is required for the canonical Windows build; found {version}')
     for exe,src in HELPERS.items():
-        run(['go','build','-trimpath','-ldflags=-s -w -H windowsgui -buildid=','-o',str(stage/exe),str(WIN/src)],env=env,cwd=str(ROOT))
+        ldflags=helper_ldflags(exe)
+        run(['go','build','-trimpath',f'-ldflags={ldflags}','-o',str(stage/exe),str(WIN/src)],env=env,cwd=str(ROOT))
 
 def validate_source(version: str):
     actual=(APP/'version.txt').read_text(encoding='utf-8').strip()
@@ -64,7 +73,20 @@ def write_manifest(stage: pathlib.Path, version: str):
         mappings.append({"binary":exe,"sha256":sha(stage/exe),"source":f"src/windows/{src}","source_sha256":sha(WIN/src)})
     manifest={
         "product":"NewzDeck","version":version,"license":"GPL-3.0-only",
-        "build":{"go":"1.23.2","goos":"windows","goarch":"amd64","cgo_enabled":False,"ldflags":"-s -w -H windowsgui -buildid="},
+        "build":{"go":"1.23.2","goos":"windows","goarch":"amd64","cgo_enabled":False,"ldflags":DEFAULT_GO_LDFLAGS},
+        "binary_build_overrides":{
+            "NewzDeckYenc.exe":{
+                "purpose":"Windows Defender compatibility",
+                "source_behavior_changed":False,
+                "go":"1.23.2",
+                "goos":"windows",
+                "goarch":"amd64",
+                "cgo_enabled":False,
+                "trimpath":True,
+                "ldflags":YENC_GO_LDFLAGS,
+                "difference_from_default":"normal Go build ID and symbol/debug metadata retained; -s, -w, and empty buildid removed"
+            }
+        },
         "newzdeck_owned_binaries":mappings,
         "retired_legacy_binaries":["NewzDeckBootstrap.exe","NewzDeckCore.exe"],
         "application_source":[

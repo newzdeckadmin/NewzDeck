@@ -230,6 +230,7 @@ jobs:
           python release/windows/validate-v3672-regressions.py
           python release/windows/validate-v3673-regressions.py
           python release/windows/validate-v3674-regressions.py
+          python release/windows/validate-v3675-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 
@@ -323,6 +324,20 @@ jobs:
           $trayEntry = @($manifest.newzdeck_owned_binaries) | Where-Object { $_.binary -ceq 'NewzDeckTray.exe' } | Select-Object -First 1
           if (-not $trayEntry -or $trayEntry.source -cne 'src/windows/NewzDeckTray.go') {
             throw 'Tray binary provenance is wrong.'
+          }
+
+          $yencEntry = @($manifest.newzdeck_owned_binaries) | Where-Object { $_.binary -ceq 'NewzDeckYenc.exe' } | Select-Object -First 1
+          if (-not $yencEntry -or $yencEntry.source -cne 'src/windows/NewzDeckYenc.go') {
+            throw 'yEnc helper binary provenance is wrong.'
+          }
+          $yencOverride = $manifest.binary_build_overrides.PSObject.Properties['NewzDeckYenc.exe'].Value
+          if (-not $yencOverride -or [string]$yencOverride.ldflags -cne '-H windowsgui' -or [bool]$yencOverride.source_behavior_changed) {
+            throw 'yEnc Defender-compatibility build override is missing or incorrect.'
+          }
+          $yencBinary = Join-Path $payload 'NewzDeckYenc.exe'
+          $yencSymbols = @(& go tool nm $yencBinary 2>&1)
+          if ($LASTEXITCODE -ne 0 -or $yencSymbols.Count -eq 0) {
+            throw 'NewzDeckYenc.exe is stripped; the Defender-compatible normal Go symbol table was not retained.'
           }
 
           "path=$payload" >> $env:GITHUB_OUTPUT

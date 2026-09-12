@@ -96,16 +96,16 @@ for marker in (
 
 # 4. Preserve the v3.6.60 Discover optimization stack and all established runtime
 # architecture while only migrating current version markers.
-check("const UI_VERSION = '3.6.74'" in app_js, 'UI version marker is not v3.6.74.')
-check('3.6.74-video-cancellation-overlap-diagnostics' in index_html, 'v3.6.74 static cache identity is missing.')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.74</span></div>' in index_html, 'Visible sidebar version is not v3.6.74.')
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.74', 'version.txt is not v3.6.74.')
-check(manifest.get('version') == '3.6.74' and manifest.get('base_version') == '3.6.73', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.74' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.74', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
-check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.74 changed SAB 5.1.2 or terminal-history schema 3.')
-check("version='3.6.74'" in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'Automation default version identity did not migrate to v3.6.74.')
+check("const UI_VERSION = '3.6.75'" in app_js, 'UI version marker is not v3.6.75.')
+check('3.6.75-windows-defender-compatibility' in index_html, 'v3.6.75 static cache identity is missing.')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.75</span></div>' in index_html, 'Visible sidebar version is not v3.6.75.')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.75', 'version.txt is not v3.6.75.')
+check(manifest.get('version') == '3.6.75' and manifest.get('base_version') == '3.6.74', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.75' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.75', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.75 changed SAB 5.1.2 or terminal-history schema 3.')
+check("version='3.6.75'" in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'Automation default version identity did not migrate to v3.6.75.')
 check('_discover_library_index_snapshot' in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'v3.6.60 Discover library index was not preserved.')
 check('_flush_metadata_cache_now' in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'v3.6.60 metadata-cache coalescing was not preserved.')
 
-print('v3.6.74 regression guard: PASS')
+print('v3.6.75 regression guard: PASS')

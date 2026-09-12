@@ -1,21 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.74",
-  "base_version": "3.6.73",
-  "release": "Thumbnail Task Identity & Visibility Telemetry",
-  "adapter_version": "3.6.74",
-  "name": "Thumbnail Task Identity & Visibility Telemetry",
+  "version": "3.6.75",
+  "base_version": "3.6.74",
+  "release": "Windows Defender Compatibility",
+  "adapter_version": "3.6.75",
+  "name": "Windows Defender Compatibility",
   "sab_version": "5.1.2",
   "changes": [
-    "Queued Image and Video thumbnail tasks now verify their stable sourceArticleKey before execution and relocate to the live article index when continuous browsing has rebuilt or shifted the article array.",
-    "Thumbnail tasks whose source article disappeared or no longer contains compatible complete media are discarded locally instead of sending mismatched media/segment data to the thumbnail endpoint.",
-    "Browsing telemetry schema 10 preserves total thumbnail queue age while separately measuring offscreen/prefetch dwell and actual visible wait, and records stable-identity relocations/discards for passive acceptance evidence.",
-    "The thumbnail scheduler scoring formula, Image HTTP admission limit 5, high-connection Video ceiling 6, 24 MB/12-segment Video sample bounds, 800/800/1000 header strategy, All Posts resolver waits, Settings reliability, private SABnzbd 5.1.2, Smart Import, Automation, Discover and Metadata Server behavior are unchanged."
+    "NewzDeckYenc.exe is built from the unchanged public NewzDeckYenc.go source with the standard Go build ID and symbol/debug metadata retained instead of the previous -s -w -buildid= stripping profile.",
+    "The Defender-compatible build override applies only to NewzDeckYenc.exe; the other five NewzDeck-owned Windows binaries retain the established stripped canonical build profile.",
+    "The isolated yEnc compatibility build, a full v3.6.74 Portable package containing only that helper/build-manifest adjustment, and a final exact-production-source yEnc build all passed Windows Defender acceptance testing before this release scope was authorized.",
+    "Newsgroup browsing behavior and telemetry schema 11, thumbnail scheduling/concurrency, provider allocation, Video sampling, All Posts resolver timing, Settings reliability, private SABnzbd 5.1.2, terminal history schema 3, Smart Import, Automation, Discover and Metadata Server v0.3.3 are unchanged."
   ],
   "regression_guards": [
-    "Every queued gallery and Related Media thumbnail task is resolved against sourceArticleKey before Image/Video fetch execution; stale missing or incompatible work is discarded without a thumbnail HTTP request.",
-    "Stable-key relocation updates the live task index used for DOM/error completion without changing scheduler scoring, queue limits, cancellation/session/generation checks, cache keys, retry policy, or provider allocation.",
-    "thumbnail_queue remains total queue age; schema-10 thumbnail_prefetch_dwell and thumbnail_visible_wait partition offscreen dwell from time actually visible before execution, and thumbnail_task_identity reports only passive local decisions.",
-    "Image admission stays 5, high-connection Video ceiling stays 6, Video sample bounds stay 24 MB/12 segments, headers stay 800/800/1000, All Posts wait bounds stay unchanged, settings replacement retries remain Windows 5/32/33 for 3 seconds, SAB stays 5.1.2, and terminal-history schema stays 3."
+    "NewzDeckYenc.go must remain at the exact v3.6.74 Git blob identity unless a future release intentionally changes decoder behavior.",
+    "release/windows/build-portable.py must use -H windowsgui for NewzDeckYenc.exe while retaining -s -w -H windowsgui -buildid= for every other NewzDeck-owned Go helper.",
+    "The canonical release workflow must run the v3.6.75 regression guard and verify that the generated NewzDeckYenc.exe retains a symbol table plus the SOURCE_MANIFEST Defender-compatibility override.",
+    "All established v3.6.74 browsing, Settings, download, Automation, Smart Import, Discover, SABnzbd 5.1.2 and terminal-history protections remain carried forward."
   ]
 }

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.74** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.75** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.74_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.75_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.74 highlights
+## v3.6.75 highlights
 
-v3.6.74 is a diagnostics-only Video thumbnail cancellation-overlap observability release built on v3.6.73.
+v3.6.75 is a narrowly scoped Windows Defender compatibility release built on v3.6.74.
 
-- **Correlated Video lifecycle evidence:** each Video thumbnail request carries a local request ID and browser logical active counts into the backend.
-- **Superseded-work measurement:** schema 11 measures cancellation-detection delay, total cancellation drain, and current-session versus superseded server activity.
-- **Bounded recent request records:** diagnostics can determine whether backend peaks above six are abandoned older work or a true current-session admission problem.
-- **Performance tuning frozen:** scheduler scoring, six-slot Video, five-request Image admission, 24 MB/12-segment Video samples, 800/800/1000 headers, Settings reliability, SAB 5.1.2, Discover, Smart Import and Automation remain unchanged.
+- **Unchanged decoder source:** `NewzDeckYenc.go` is byte-for-byte unchanged from v3.6.74.
+- **Defender-compatible helper build:** only `NewzDeckYenc.exe` now retains the standard Go build ID and symbol/debug metadata instead of the previous stripped `-s -w -buildid=` representation.
+- **Other native helpers unchanged:** the other five NewzDeck-owned Windows executables keep the established stripped canonical build profile.
+- **Acceptance tested:** the isolated helper, a full Portable package using the new yEnc build profile, and a final exact-production-source helper build all passed Windows Defender testing before release authorization.
+- **Runtime behavior frozen:** browsing schema 11, scheduling/concurrency, provider allocation, SAB 5.1.2, Settings reliability, Discover, Smart Import and Automation remain unchanged.
 
-See [the full v3.6.74 release notes](release/RELEASE_NOTES_v3.6.74.md).
+See [the full v3.6.75 release notes](release/RELEASE_NOTES_v3.6.75.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.74_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.75_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
