@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.81** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.82** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.81_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.82_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.81 highlights
+## v3.6.82 highlights
 
-v3.6.81 is a targeted Automation intelligence and Quality Profile release built on the verified v3.6.80 production baseline.
+v3.6.82 is a release-pipeline recovery hotfix that carries the complete reviewed v3.6.81 Automation Intelligence & Quality Profiles application behavior forward unchanged.
 
-- **Independent monitored metadata refresh:** monitored TV shows keep discovering future/new episodes on schedule even when automatic downloading is off.
-- **Correct upgrade intelligence:** explicit WEB-DL beats ambiguous WEB at the same resolution; HDR upgrades SDR; Dolby Vision upgrades HDR; DV + HDR fallback is the preferred dynamic-range state.
-- **One upgrade model:** Interactive Search, Continuous Automation, automatic-grab preflight and Smart Import share the same source/dynamic-range comparison rules.
-- **Structured Quality Profile Builder:** templates, ordered source/resolution tiers, cutoff, HDR/DV, codecs, audio, PROPER/REPACK, size, release groups, reject terms and advanced custom rules.
-- **Frozen performance architecture:** accepted Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc pipeline are unchanged.
+- **v3.6.81 functionality preserved:** independent monitored metadata refresh, WEB-DL/source-aware upgrades, HDR/Dolby Vision upgrade intelligence, Smart Import alignment and the structured Quality Profile Builder are unchanged.
+- **Canonical trigger repaired:** the guarded publisher now emits the exact `Source commit: <sha>` metadata required by the fail-closed production workflow.
+- **Immutable history preserved:** the existing v3.6.81 source tag is not moved and `main` is not force-pushed; v3.6.82 is a normal new source/tag/trigger release.
+- **Frozen architecture preserved:** Newsgroup Browser performance tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and the Defender-clean yEnc pipeline are unchanged.
 
-See [the full v3.6.81 release notes](release/RELEASE_NOTES_v3.6.81.md).
+See [the full v3.6.82 release notes](release/RELEASE_NOTES_v3.6.82.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +65,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.81_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.82_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

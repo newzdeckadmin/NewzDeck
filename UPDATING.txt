@@ -1,11 +1,11 @@
-NewzDeck v3.6.81 update notes
+NewzDeck v3.6.82 update notes
 
 Installed users
-- Run NewzDeck_v3.6.81_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.82_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.81 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.82 Portable ZIP contents, then restart NewzDeck.
 
 What changes
 - Monitored TV metadata refresh no longer depends on Continuous Automation being enabled.
@@ -17,3 +17,5 @@ What stays frozen
 - SABnzbd 5.1.2 integration, download queue, post-processing and throughput behavior.
 - Metadata Server v0.3.3 and Diagnostic Collector v1.0.31.
 - Defender-accepted NewzDeckYenc.exe source/build/hash identity and canonical LF/Linux build path.
+
+Release engineering note: v3.6.82 carries v3.6.81 application behavior forward unchanged and only repairs the canonical release-trigger publication path.

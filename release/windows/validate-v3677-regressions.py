@@ -29,7 +29,7 @@ def normalized_hash(text, old, new):
 marker='/* v3.6.77 UX Polish Phase 2 - Layout & Control Consistency */'
 phase3='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
 check(styles.count(marker)==1,'v3.6.77 Phase 2 stylesheet marker count mismatch')
-check(styles.count(phase3)==1,'v3.6.81 Phase 3 stylesheet marker count mismatch')
+check(styles.count(phase3)==1,'v3.6.82 Phase 3 stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
 phase2_body,_phase3_tail=suffix.split(phase3,1)
 check(digest_text(prefix.rstrip('\n')+'\n')=='08489cb6b9b6581584b98976609f66d57880f165f374b84ee811a5f92b6eaf15','Pre-v3.6.77 stylesheet baseline changed')
@@ -86,10 +86,10 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3677>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
-check((APP/'version.txt').read_text().strip()=='3.6.81','version.txt mismatch')
-check("const UI_VERSION = '3.6.81'" in app and '3.6.81-automation-intelligence-quality-profiles' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.81' and manifest.get('base_version')=='3.6.80' and manifest.get('adapter_version')=='3.6.81','build manifest identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.82','version.txt mismatch')
+check("const UI_VERSION = '3.6.82'" in app and '3.6.82-release-pipeline-recovery' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.82' and manifest.get('base_version')=='3.6.81' and manifest.get('adapter_version')=='3.6.82','build manifest identity mismatch')
 check(manifest.get('release')=='Automation Intelligence & Quality Profiles','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.81' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check(sab.ADAPTER_VERSION=='3.6.82' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.81 UX-only regression guard: PASS')
+print('v3.6.82 UX-only regression guard: PASS')

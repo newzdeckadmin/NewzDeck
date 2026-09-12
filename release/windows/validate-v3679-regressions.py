@@ -26,12 +26,12 @@ def normalized_hash(text, old, new):
 
 marker='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
 phase4='/* v3.6.80 UX Polish Phase 4 - Final Consistency & Accessibility */'
-check(styles.count(marker)==1,'v3.6.81 Phase 3 stylesheet marker count mismatch')
-check(styles.count(phase4)==1,'v3.6.81 Phase 4 stylesheet marker count mismatch')
+check(styles.count(marker)==1,'v3.6.82 Phase 3 stylesheet marker count mismatch')
+check(styles.count(phase4)==1,'v3.6.82 Phase 4 stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
 phase3_body,_phase4_tail=suffix.split(phase4,1)
-check(digest_text(prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','Pre-v3.6.81 stylesheet baseline changed')
-check(digest_text('\n'+marker+phase3_body.rstrip('\n')+'\n')=='0093a6e7cfc7b4a2f120fbd245de23d691baa31551f26b989ebe964f7afc369c','v3.6.81 UX Phase 3 override block changed outside the reviewed payload')
+check(digest_text(prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','Pre-v3.6.82 stylesheet baseline changed')
+check(digest_text('\n'+marker+phase3_body.rstrip('\n')+'\n')=='0093a6e7cfc7b4a2f120fbd245de23d691baa31551f26b989ebe964f7afc369c','v3.6.82 UX Phase 3 override block changed outside the reviewed payload')
 for required in (
     '--ux-state-success:rgba(90,211,157,.72);',
     '.toast.success{border-left-color:var(--ux-state-success)}',
@@ -89,10 +89,10 @@ for node in tree.body:
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3679>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.81','version.txt mismatch')
-check("const UI_VERSION = '3.6.81'" in app and '3.6.81-automation-intelligence-quality-profiles' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.81' and manifest.get('base_version')=='3.6.80' and manifest.get('adapter_version')=='3.6.81','build manifest identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.82','version.txt mismatch')
+check("const UI_VERSION = '3.6.82'" in app and '3.6.82-release-pipeline-recovery' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.82' and manifest.get('base_version')=='3.6.81' and manifest.get('adapter_version')=='3.6.82','build manifest identity mismatch')
 check(manifest.get('release')=='Automation Intelligence & Quality Profiles','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.81' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check(sab.ADAPTER_VERSION=='3.6.82' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.81 UX feedback/state-clarity regression guard: PASS')
+print('v3.6.82 UX feedback/state-clarity regression guard: PASS')

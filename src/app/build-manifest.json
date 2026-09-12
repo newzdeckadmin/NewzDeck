@@ -1,12 +1,13 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.81",
-  "base_version": "3.6.80",
+  "version": "3.6.82",
+  "base_version": "3.6.81",
   "release": "Automation Intelligence & Quality Profiles",
-  "adapter_version": "3.6.81",
+  "adapter_version": "3.6.82",
   "name": "Automation Intelligence & Quality Profiles",
   "sab_version": "5.1.2",
   "changes": [
+    "Release-pipeline recovery hotfix: v3.6.82 carries the complete v3.6.81 Automation Intelligence & Quality Profiles runtime forward unchanged while restoring the canonical Source commit trigger format.",
     "Monitored TV metadata now refreshes on schedule even when Continuous Automation/download grabbing is disabled, keeping future episodes and Calendar data current independently of unattended downloads.",
     "Quality upgrade decisions now distinguish generic WEB from explicit WEB-DL and treat dynamic range as a real upgrade dimension: HDR upgrades SDR, Dolby Vision upgrades HDR, and Dolby Vision with HDR/HDR10/HDR10+ fallback is the preferred terminal dynamic-range state.",
     "Release parsing preserves independent Dolby Vision, HDR10+, HDR10 and HDR flags so combined DV + HDR fallback releases are represented correctly instead of collapsing to one mutually exclusive label.",
@@ -16,6 +17,8 @@
     "Preserves the accepted Newsgroup Browser performance architecture, SABnzbd 5.1.2 integration, download/post-processing pipeline, Metadata Server v0.3.3 and Diagnostic Collector v1.0.31."
   ],
   "regression_guards": [
+    "v3.6.82 proves server, Automation, SAB adapter, browser JavaScript and Quality Profile Builder CSS normalize exactly to the accepted v3.6.81 runtime after removing release identity only.",
+    "The guarded publisher must write the canonical release trigger as Source commit: <40-hex-source-sha>; the workflow parser remains fail-closed.",
     "v3.6.81 tests explicit WEB-DL > generic WEB at equal resolution, SDR -> HDR -> Dolby Vision -> Dolby Vision + HDR upgrade progression, and prevents dynamic range from overriding a lower base resolution tier.",
     "The structured Quality Profile Builder must expose canonical quality tiers plus Allow/Prefer/Require/Avoid trait policies and preserve advanced custom scoring rules.",
     "The service loop must call monitored metadata refresh independently of the automatic-grab enable switch.",

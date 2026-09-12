@@ -15,7 +15,7 @@ styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
 class DummyDownloadManager: pass
-engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3681-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.81')
+engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3681-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.82')
 profile=auto.DEFAULT_PROFILES[0]
 
 def info(title): return auto.parse_release(title)
@@ -51,4 +51,4 @@ check("['2160p','1080p','720p','WEB']" not in app,'Primitive raw quality default
 for required in ('quality-profile-modal-card','quality-ladder-row','quality-policy-grid','quality-profile-summary'):
     check(required in styles,'Quality Profile Builder stylesheet marker missing: '+required)
 check(manifest.get('release')=='Automation Intelligence & Quality Profiles','Release manifest name mismatch')
-print('v3.6.81 Automation Intelligence & Quality Profiles regression guard: PASS')
+print('v3.6.82 Automation Intelligence & Quality Profiles regression guard: PASS')

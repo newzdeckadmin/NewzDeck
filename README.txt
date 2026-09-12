@@ -1,4 +1,4 @@
-NewzDeck v3.6.81 - Automation Intelligence & Quality Profiles
+NewzDeck v3.6.82 - Automation Intelligence & Quality Profiles
 
 This release is a targeted Automation decision-model update built on the verified v3.6.80 production baseline.
 
@@ -11,4 +11,8 @@ Highlights:
 - Third-party notices now correctly identify SABnzbd 5.1.2.
 - The accepted Newsgroup Browser performance architecture, SABnzbd 5.1.2 runtime, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc pipeline remain unchanged.
 
-See release/RELEASE_NOTES_v3.6.81.md for details.
+See release/RELEASE_NOTES_v3.6.82.md for details.
+
+Release engineering note:
+- v3.6.82 supersedes the unpublished v3.6.81 binary release after the v3.6.81 source/tag were accepted but its malformed release-trigger metadata prevented GitHub Actions from publishing assets.
+- Runtime behavior is unchanged from the reviewed v3.6.81 source.
