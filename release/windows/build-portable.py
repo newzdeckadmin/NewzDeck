@@ -19,6 +19,8 @@ HELPERS = {
 
 DEFAULT_GO_LDFLAGS = "-s -w -H windowsgui -buildid="
 YENC_GO_LDFLAGS = "-H windowsgui"
+YENC_ACCEPTED_SOURCE_SHA256 = "ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd"
+YENC_ACCEPTED_BINARY_SHA256 = "4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad"
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
 
 def sha(path: pathlib.Path) -> str:
@@ -26,6 +28,12 @@ def sha(path: pathlib.Path) -> str:
     with path.open('rb') as f:
         for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
     return h.hexdigest()
+
+def sha_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def canonical_git_source_bytes(rel: str) -> bytes:
+    return subprocess.check_output(['git','-C',str(ROOT),'show',f'HEAD:{rel}'])
 
 def run(cmd, **kw):
     print('+',' '.join(map(str,cmd)))
@@ -50,12 +58,22 @@ def copy_app(stage: pathlib.Path):
     shutil.copy2(ROOT/"THIRD_PARTY_NOTICES.md", stage/"THIRD_PARTY_NOTICES.txt")
     shutil.copytree(ROOT/"licenses", stage/"licenses")
 
-def build_go(stage: pathlib.Path):
+def build_go(stage: pathlib.Path, prebuilt_yenc: pathlib.Path | None = None):
     env=os.environ.copy(); env.update(GOOS='windows',GOARCH='amd64',CGO_ENABLED='0')
     version=subprocess.check_output(['go','version'],text=True).strip()
     if 'go1.23.2' not in version:
         raise SystemExit(f'Go 1.23.2 is required for the canonical Windows build; found {version}')
     for exe,src in HELPERS.items():
+        if exe == 'NewzDeckYenc.exe' and prebuilt_yenc is not None:
+            source_bytes=canonical_git_source_bytes(f'src/windows/{src}')
+            if sha_bytes(source_bytes) != YENC_ACCEPTED_SOURCE_SHA256:
+                raise SystemExit('Canonical Git yEnc source SHA-256 changed; refusing prebuilt helper handoff')
+            if not prebuilt_yenc.is_file():
+                raise SystemExit(f'Prebuilt yEnc helper does not exist: {prebuilt_yenc}')
+            if sha(prebuilt_yenc) != YENC_ACCEPTED_BINARY_SHA256:
+                raise SystemExit('Prebuilt yEnc helper SHA-256 does not match the Defender-accepted binary')
+            shutil.copy2(prebuilt_yenc, stage/exe)
+            continue
         ldflags=helper_ldflags(exe)
         run(['go','build','-trimpath',f'-ldflags={ldflags}','-o',str(stage/exe),str(WIN/src)],env=env,cwd=str(ROOT))
 
@@ -67,10 +85,11 @@ def validate_source(version: str):
     if node: run([node,'--check',str(APP/'static'/'app.js')])
     else: print('warning: node not found; JavaScript syntax check skipped locally')
 
-def write_manifest(stage: pathlib.Path, version: str):
+def write_manifest(stage: pathlib.Path, version: str, prebuilt_yenc: pathlib.Path | None = None):
     mappings=[]
     for exe,src in HELPERS.items():
-        mappings.append({"binary":exe,"sha256":sha(stage/exe),"source":f"src/windows/{src}","source_sha256":sha(WIN/src)})
+        source_sha256 = sha_bytes(canonical_git_source_bytes(f'src/windows/{src}')) if exe == 'NewzDeckYenc.exe' else sha(WIN/src)
+        mappings.append({"binary":exe,"sha256":sha(stage/exe),"source":f"src/windows/{src}","source_sha256":source_sha256})
     manifest={
         "product":"NewzDeck","version":version,"license":"GPL-3.0-only",
         "build":{"go":"1.23.2","goos":"windows","goarch":"amd64","cgo_enabled":False,"ldflags":DEFAULT_GO_LDFLAGS},
@@ -84,7 +103,10 @@ def write_manifest(stage: pathlib.Path, version: str):
                 "cgo_enabled":False,
                 "trimpath":True,
                 "ldflags":YENC_GO_LDFLAGS,
-                "difference_from_default":"normal Go build ID and symbol/debug metadata retained; -s, -w, and empty buildid removed"
+                "difference_from_default":"normal Go build ID and symbol/debug metadata retained; -s, -w, and empty buildid removed",
+                "canonical_git_source_sha256":YENC_ACCEPTED_SOURCE_SHA256,
+                "accepted_binary_sha256":YENC_ACCEPTED_BINARY_SHA256,
+                "build_origin":"linux-lf-prebuilt" if prebuilt_yenc else "local-source-build"
             }
         },
         "newzdeck_owned_binaries":mappings,
@@ -113,12 +135,12 @@ def deterministic_zip(stage: pathlib.Path, out: pathlib.Path):
             z.writestr(info,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--version',required=True);ap.add_argument('--output',required=True)
-    ns=ap.parse_args(); version=ns.version
+    ap=argparse.ArgumentParser(); ap.add_argument('--version',required=True);ap.add_argument('--output',required=True);ap.add_argument('--prebuilt-yenc')
+    ns=ap.parse_args(); version=ns.version; prebuilt_yenc=pathlib.Path(ns.prebuilt_yenc).resolve() if ns.prebuilt_yenc else None
     validate_source(version)
     with tempfile.TemporaryDirectory(prefix='newzdeck-build-') as td:
         stage=pathlib.Path(td)/'payload';stage.mkdir()
-        copy_app(stage);build_go(stage);write_manifest(stage,version)
+        copy_app(stage);build_go(stage,prebuilt_yenc);write_manifest(stage,version,prebuilt_yenc)
         out=pathlib.Path(ns.output).resolve();deterministic_zip(stage,out)
         with zipfile.ZipFile(out) as z: bad=z.testzip(); names=set(z.namelist())
         if bad: raise SystemExit(f'ZIP CRC failure: {bad}')

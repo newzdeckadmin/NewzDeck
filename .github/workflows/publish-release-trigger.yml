@@ -19,7 +19,64 @@ env:
   GO_VERSION: '1.23.2'
 
 jobs:
+  yenc-helper:
+    name: Build Defender-accepted yEnc helper from canonical LF source
+    if: github.repository == 'newzdeckadmin/NewzDeck'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 3
+
+      - name: Enforce canonical LF yEnc source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout -- src/windows/NewzDeckYenc.go
+          actual="$(sha256sum src/windows/NewzDeckYenc.go | awk '{print $1}')"
+          expected='ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd'
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Canonical yEnc source SHA-256 mismatch: $actual" >&2
+            exit 1
+          fi
+
+      - name: Set up canonical Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Build and prove Defender-accepted yEnc helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOOS=windows GOARCH=amd64 CGO_ENABLED=0
+          out="$RUNNER_TEMP/newzdeck-yenc/NewzDeckYenc.exe"
+          mkdir -p "$(dirname "$out")"
+          go build -trimpath -ldflags='-H windowsgui' -o "$out" src/windows/NewzDeckYenc.go
+          actual="$(sha256sum "$out" | awk '{print $1}')"
+          expected='4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad'
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Defender-accepted yEnc helper SHA-256 mismatch: $actual" >&2
+            exit 1
+          fi
+
+      - name: Upload proven yEnc helper
+        uses: actions/upload-artifact@v6
+        with:
+          name: newzdeck-yenc-defender-lf
+          path: ${{ runner.temp }}/newzdeck-yenc/NewzDeckYenc.exe
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   release:
+    needs: yenc-helper
     name: Build, validate, and publish Windows release
     if: github.repository == 'newzdeckadmin/NewzDeck'
     runs-on: windows-2022
@@ -233,6 +290,7 @@ jobs:
           python release/windows/validate-v3675-regressions.py
           python release/windows/validate-v3676-regressions.py
           python release/windows/validate-v3677-regressions.py
+          python release/windows/validate-v3678-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 
@@ -269,6 +327,22 @@ jobs:
           if (-not $installer.Contains('Type: filesandordirs; Name: "{app}\__pycache__"')) {
             throw 'Installer does not remove stale application Python bytecode on upgrade.'
           }
+      - name: Download Defender-accepted yEnc helper
+        uses: actions/download-artifact@v6
+        with:
+          name: newzdeck-yenc-defender-lf
+          path: ${{ runner.temp }}/newzdeck-yenc
+
+      - name: Verify Defender-accepted yEnc helper handoff
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $yenc = Join-Path $env:RUNNER_TEMP 'newzdeck-yenc\NewzDeckYenc.exe'
+          if (-not (Test-Path -LiteralPath $yenc -PathType Leaf)) { throw 'Downloaded NewzDeckYenc.exe is missing.' }
+          $actual = (Get-FileHash -LiteralPath $yenc -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad'
+          if ($actual -cne $expected) { throw "Downloaded yEnc helper hash mismatch: $actual" }
+
       - name: Build deterministic Portable ZIP
         id: portable
         shell: pwsh
@@ -277,7 +351,8 @@ jobs:
           $portableOutput = Join-Path $env:RUNNER_TEMP 'newzdeck-portable-build'
           New-Item -ItemType Directory -Path $portableOutput -Force | Out-Null
           $portable = Join-Path $portableOutput ("NewzDeck_v{0}_Portable.zip" -f $env:VERSION)
-          python release/windows/build-portable.py --version $env:VERSION --output $portable
+          $yenc = Join-Path $env:RUNNER_TEMP 'newzdeck-yenc\NewzDeckYenc.exe'
+          python release/windows/build-portable.py --version $env:VERSION --output $portable --prebuilt-yenc $yenc
           if (-not (Test-Path -LiteralPath $portable -PathType Leaf)) {
             throw 'Portable build failed.'
           }
@@ -336,7 +411,17 @@ jobs:
           if (-not $yencOverride -or [string]$yencOverride.ldflags -cne '-H windowsgui' -or [bool]$yencOverride.source_behavior_changed) {
             throw 'yEnc Defender-compatibility build override is missing or incorrect.'
           }
+          if ([string]$yencOverride.build_origin -cne 'linux-lf-prebuilt' -or [string]$yencOverride.canonical_git_source_sha256 -cne 'ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd' -or [string]$yencOverride.accepted_binary_sha256 -cne '4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad') {
+            throw 'yEnc LF/Linux build provenance is missing or incorrect.'
+          }
+          if ([string]$yencEntry.source_sha256 -cne 'ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd') {
+            throw 'yEnc manifest source SHA-256 is not the canonical LF Git source.'
+          }
           $yencBinary = Join-Path $payload 'NewzDeckYenc.exe'
+          $yencHash = (Get-FileHash -LiteralPath $yencBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($yencHash -cne '4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad') {
+            throw "Packaged yEnc helper does not match the Defender-accepted binary: $yencHash"
+          }
           $yencSymbols = @(& go tool nm $yencBinary 2>&1)
           if ($LASTEXITCODE -ne 0 -or $yencSymbols.Count -eq 0) {
             throw 'NewzDeckYenc.exe is stripped; the Defender-compatible normal Go symbol table was not retained.'

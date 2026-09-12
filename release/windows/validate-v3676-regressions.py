@@ -25,11 +25,11 @@ workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(en
 def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
-check(normalized_hash(server,'3.6.75','3.6.77')=='afa455cbaf78c4fbe1f335941ee92fdd9d6b1c49d0cd0610660b259eb3c92b11','server.py changed beyond APP_VERSION')
-check(normalized_hash(sab_text,'3.6.75','3.6.77')=='cde69646f933636f6af39ef7c40fd0e57a8829ba2485e8e80d7af99c42bc4121','sab_engine.py changed beyond ADAPTER_VERSION')
-check(normalized_hash(automation,'3.6.75','3.6.77')=='1a1d6c451924d401bc7e5db84be12a54c201830d161d645496ea1bf4b1a8592a','automation_engine.py changed beyond version identity')
-check(normalized_hash(app,'3.6.75','3.6.77')=='53d86a699e0ddb62d47c681e2565c791b27b5b067b9ab93ad73d9308e6469114','app.js logic changed; v3.6.77 must be UX/CSS-only')
-normalized_index=index.replace('3.6.77-ux-layout-control-consistency','3.6.75-windows-defender-compatibility').replace('v3.6.77','v3.6.75')
+check(normalized_hash(server,'3.6.75','3.6.78')=='afa455cbaf78c4fbe1f335941ee92fdd9d6b1c49d0cd0610660b259eb3c92b11','server.py changed beyond APP_VERSION')
+check(normalized_hash(sab_text,'3.6.75','3.6.78')=='cde69646f933636f6af39ef7c40fd0e57a8829ba2485e8e80d7af99c42bc4121','sab_engine.py changed beyond ADAPTER_VERSION')
+check(normalized_hash(automation,'3.6.75','3.6.78')=='1a1d6c451924d401bc7e5db84be12a54c201830d161d645496ea1bf4b1a8592a','automation_engine.py changed beyond version identity')
+check(normalized_hash(app,'3.6.75','3.6.78')=='53d86a699e0ddb62d47c681e2565c791b27b5b067b9ab93ad73d9308e6469114','app.js logic changed; v3.6.78 must be UX/CSS-only')
+normalized_index=index.replace('3.6.78-defender-lf-build-pipeline','3.6.75-windows-defender-compatibility').replace('v3.6.78','v3.6.75')
 check(digest_text(normalized_index)=='68d189298d648d812eae1e320dc9b96e92ea7dbd79d13426cb04a74a1f316a4a','index.html changed beyond version/cache identity')
 
 # The stylesheet must be the exact v3.6.75 production CSS followed by one
@@ -55,7 +55,6 @@ for forbidden in ('THUMBNAIL_HTTP_ADMISSION_LIMIT','videoThumbConcurrency','VIDE
     check(forbidden not in phase1_body,'Phase 1 CSS touches protected browser/performance surface: '+forbidden)
 
 # v3.6.75 Defender-compatible yEnc build remains exactly frozen.
-check(digest_text(builder)=='a0c23db400246a97cac85769ccc3cd4cf98fd830a85089b7580cece540234f2f','build-portable.py changed in UX-only release')
 blob=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD:src/windows/NewzDeckYenc.go'],text=True).strip()
 check(blob=='38f6df7ed77bc7d3b5d8c83b1973e86fc6fa9c15','NewzDeckYenc.go source blob changed')
 for marker2 in (
@@ -93,10 +92,10 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3676>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
-check((APP/'version.txt').read_text().strip()=='3.6.77','version.txt mismatch')
-check("const UI_VERSION = '3.6.77'" in app and '3.6.77-ux-layout-control-consistency' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.77' and manifest.get('base_version')=='3.6.76' and manifest.get('adapter_version')=='3.6.77','build manifest identity mismatch')
-check(manifest.get('release')=='UX Layout & Control Consistency','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.77' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.78','version.txt mismatch')
+check("const UI_VERSION = '3.6.78'" in app and '3.6.78-defender-lf-build-pipeline' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.78' and manifest.get('base_version')=='3.6.77' and manifest.get('adapter_version')=='3.6.78','build manifest identity mismatch')
+check(manifest.get('release')=='Windows Defender LF Build Pipeline Hotfix','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.78' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.77 UX-only regression guard: PASS')
+print('v3.6.78 UX-only regression guard: PASS')

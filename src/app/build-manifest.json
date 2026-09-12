@@ -1,22 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.77",
-  "base_version": "3.6.76",
-  "release": "UX Layout & Control Consistency",
-  "adapter_version": "3.6.77",
-  "name": "UX Layout & Control Consistency",
+  "version": "3.6.78",
+  "base_version": "3.6.77",
+  "release": "Windows Defender LF Build Pipeline Hotfix",
+  "adapter_version": "3.6.78",
+  "name": "Windows Defender LF Build Pipeline Hotfix",
   "sab_version": "5.1.2",
   "changes": [
-    "Continues the staged UX polish program with a visual-only layout, spacing and control-consistency pass across Settings, Add Media/Automation dialogs, Automation, Discover and Downloads.",
-    "Normalizes common action-button height/alignment, improves form and dialog breathing room, standardizes section/card spacing, and strengthens keyboard focus visibility without changing actions, routes or data contracts.",
-    "Preserves Newsgroup Browser geometry/performance surfaces, Automation poster/card structure, Discover media behavior, Downloads state/progress semantics, Settings persistence and all existing functional wiring.",
-    "No backend, download, Automation, Smart Import, Discover data, provider/NNTP, thumbnail scheduler, browsing concurrency, sampling, resolver timing, SABnzbd 5.1.2, Metadata Server v0.3.3, launcher/service/tray or yEnc behavior is changed."
+    "Keeps the complete v3.6.77 application/runtime/UX payload unchanged apart from release identity.",
+    "Builds NewzDeckYenc.exe in a dedicated pinned Linux GitHub Actions job from the exact canonical LF Git source bytes using Go 1.23.2 and the already accepted -H windowsgui profile.",
+    "Requires the canonical yEnc source SHA-256 ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd and Defender-tested helper SHA-256 4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad before the Windows release job can package Setup/Portable assets.",
+    "No browsing, download, SABnzbd, Automation, Smart Import, Discover, Settings, launcher/service/tray, Metadata Server or yEnc decoder behavior changes are included."
   ],
   "regression_guards": [
-    "v3.6.77 application logic files must normalize byte-for-byte to the exact v3.6.76 production files after replacing only the release identity string.",
-    "index.html must normalize byte-for-byte to v3.6.76 after replacing only the version/cache identity.",
-    "styles.css must equal the exact v3.6.76 production stylesheet followed only by the guarded v3.6.77 UX Polish Phase 2 override block.",
-    "The v3.6.75 Defender-compatible NewzDeckYenc.exe build profile and exact NewzDeckYenc.go source blob remain frozen.",
+    "server.py, sab_engine.py, automation_engine.py and app.js must normalize byte-for-byte to v3.6.77 after replacing only the v3.6.78 identity.",
+    "static/index.html must normalize byte-for-byte to v3.6.77 after replacing only the version/cache identity, and styles.css must remain byte-for-byte v3.6.77.",
+    "NewzDeckYenc.go remains frozen at Git blob 38f6df7ed77bc7d3b5d8c83b1973e86fc6fa9c15 and canonical LF SHA-256 ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd.",
+    "The canonical release must consume the dedicated Linux-built helper and reject any helper whose SHA-256 is not 4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad.",
     "All established schema-11 browsing, five-Image/six-Video admission, 24 MB/12-segment sampling, 800/800/1000 headers, resolver timing, Settings reliability, SABnzbd 5.1.2, terminal-history schema 3, Smart Import and Automation protections remain carried forward."
   ]
 }

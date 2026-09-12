@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NewzDeck v3.6.77 Smart Import duplicate protection and diagnostics refinement guards."""
+"""NewzDeck v3.6.78 Smart Import duplicate protection and diagnostics refinement guards."""
 from __future__ import annotations
 import importlib.util
 import json
@@ -19,7 +19,7 @@ def load(name,path):
 
 sab=load('v3656_sab',SAB)
 auto=load('v3656_auto',AUTO)
-if sab.ADAPTER_VERSION!='3.6.77': raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
+if sab.ADAPTER_VERSION!='3.6.78': raise SystemExit(f'Wrong SAB adapter version: {sab.ADAPTER_VERSION}')
 if sab.TERMINAL_HISTORY_VERSION!=3 or sab.TERMINAL_HISTORY_MAX_ROWS!=5000: raise SystemExit('Durable terminal-history contract changed.')
 if sab.STATISTICS_ACCOUNTED_MAX_ROWS!=20000: raise SystemExit('Statistics-accounting retention changed.')
 
@@ -27,7 +27,7 @@ class DummyDownloadManager:
     def snapshot(self,*args,**kwargs): return {'jobs':[],'collections':[],'counts':{},'telemetry':{}}
 
 def make_auto(root:pathlib.Path):
-    return auto.MediaAutomationEngine(root,lambda value:value,lambda value:value,DummyDownloadManager(),lambda:[],version='3.6.77')
+    return auto.MediaAutomationEngine(root,lambda value:value,lambda value:value,DummyDownloadManager(),lambda:[],version='3.6.78')
 
 # Existing cross-episode duplicate: source for S01E02 is byte-identical to the
 # already-owned S01E01 physical file. This must be detected before commit.
@@ -101,28 +101,28 @@ if probe._raw_sab_active_overlap_active: raise SystemExit('Raw SAB overlap did n
 
 sab_source=SAB.read_text(encoding='utf-8'); auto_source=AUTO.read_text(encoding='utf-8'); server_source=SERVER.read_text(encoding='utf-8'); js=JS.read_text(encoding='utf-8'); index=INDEX.read_text(encoding='utf-8')
 for marker in (
-    'ADAPTER_VERSION = "3.6.77"','_terminal_resolved_warning_keys','_engine_warning_resolved_by_terminal_history',
+    'ADAPTER_VERSION = "3.6.78"','_terminal_resolved_warning_keys','_engine_warning_resolved_by_terminal_history',
     'resolved_engine_warnings','raw_sab_active_overlap_episodes','sab_active_slot_examples','visible_multi_active_corrections',
     '_observe_raw_sab_active_overlap','visible_multi_active_signature=f"visible:{len(visible_ids)}:{keep_id}:"',
 ):
-    if marker not in sab_source: raise SystemExit(f'Missing v3.6.77 SAB marker: {marker}')
+    if marker not in sab_source: raise SystemExit(f'Missing v3.6.78 SAB marker: {marker}')
 if 'multi_active_parts.append("sab:" + ",".join(explicit_active_ids))' in sab_source:
     raise SystemExit('Unbounded raw SAB UUID overlap signature remains.')
 for marker in (
     '_preimport_cross_episode_fingerprint_conflicts','cross_episode_fingerprint_imports_blocked','import-integrity-hold',
     "'integrity_hold':True",'incoming media is byte-identical to a different episode',
 ):
-    if marker not in auto_source: raise SystemExit(f'Missing v3.6.77 Smart Import marker: {marker}')
+    if marker not in auto_source: raise SystemExit(f'Missing v3.6.78 Smart Import marker: {marker}')
 for marker in (
-    'APP_VERSION = "3.6.77"','DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS = 1.5','def _diagnostics_snapshot_uncached()',
+    'APP_VERSION = "3.6.78"','DIAGNOSTICS_SNAPSHOT_CACHE_TTL_SECONDS = 1.5','def _diagnostics_snapshot_uncached()',
     "result['diagnostics_cache']",'diagnostics_snapshot(force=True)','"Raw SAB slot overlap: "','resolved_historical=',
 ):
-    if marker not in server_source: raise SystemExit(f'Missing v3.6.77 diagnostics marker: {marker}')
-if "const UI_VERSION = '3.6.77';" not in js: raise SystemExit('UI version is not 3.6.77.')
-if '3.6.77-ux-layout-control-consistency' not in index: raise SystemExit('Static cache identity is not v3.6.77.')
+    if marker not in server_source: raise SystemExit(f'Missing v3.6.78 diagnostics marker: {marker}')
+if "const UI_VERSION = '3.6.78';" not in js: raise SystemExit('UI version is not 3.6.78.')
+if '3.6.78-defender-lf-build-pipeline' not in index: raise SystemExit('Static cache identity is not v3.6.78.')
 manifest=json.loads(MANIFEST.read_text(encoding='utf-8'))
-if manifest.get('version')!='3.6.77' or manifest.get('adapter_version')!='3.6.77' or manifest.get('base_version')!='3.6.76':
+if manifest.get('version')!='3.6.78' or manifest.get('adapter_version')!='3.6.78' or manifest.get('base_version')!='3.6.77':
     raise SystemExit(f'Build manifest identity is wrong: {manifest.get("version")}/{manifest.get("adapter_version")}/{manifest.get("base_version")}')
 if WORKFLOW.exists() and 'python release/windows/validate-v3656-regressions.py' not in WORKFLOW.read_text(encoding='utf-8'):
-    raise SystemExit('Canonical release workflow does not run the v3.6.77 regression guard.')
-print('v3.6.77 regression guard passed (pre-import cross-episode duplicate hold + recovered SAB warnings + bounded raw-overlap telemetry + coherent diagnostics cache markers).')
+    raise SystemExit('Canonical release workflow does not run the v3.6.78 regression guard.')
+print('v3.6.78 regression guard passed (pre-import cross-episode duplicate hold + recovered SAB warnings + bounded raw-overlap telemetry + coherent diagnostics cache markers).')
