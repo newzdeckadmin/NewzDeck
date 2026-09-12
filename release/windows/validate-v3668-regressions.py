@@ -20,7 +20,7 @@ for marker in (
  "perfRecord('name_resolution_batch'",
  "perfRecord('name_resolution_render_wait'",
  "reason:'name-resolution-batched-result'",
-): check(marker in app,'v3.6.75 resolver accumulator marker missing: '+marker)
+): check(marker in app,'v3.6.76 resolver accumulator marker missing: '+marker)
 check('state.nameResolutionResultRenderFirstAt=Date.now()' in app,'Resolver accumulator no longer anchors a fixed first-result deadline')
 check('else if(manual)state.nameResolutionResultRenderManual=true' in app,'Manual resolver batches do not upgrade the active accumulator policy')
 check('finally{if(group===state.selectedGroup&&providerId===state.providerId)flushNameResolutionResultRender();' in app,'Manual pass no longer flushes pending resolver results at completion')
@@ -40,8 +40,8 @@ for node in tree.body:
  elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3668>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.75','version.txt mismatch')
-check(manifest.get('version')=='3.6.75' and manifest.get('base_version')=='3.6.74' and manifest.get('adapter_version')=='3.6.75','build manifest identity mismatch')
-check(sab.ADAPTER_VERSION=='3.6.75' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.76','version.txt mismatch')
+check(manifest.get('version')=='3.6.76' and manifest.get('base_version')=='3.6.75' and manifest.get('adapter_version')=='3.6.76','build manifest identity mismatch')
+check(sab.ADAPTER_VERSION=='3.6.76' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.75 regression guard: PASS')
+print('v3.6.76 regression guard: PASS')

@@ -10,7 +10,7 @@ WORKFLOW=ROOT/'.github'/'workflows'/'publish-release-trigger.yml'
 
 sab_source=SAB.read_text(encoding='utf-8')
 for marker in (
-    'ADAPTER_VERSION = "3.6.75"',
+    'ADAPTER_VERSION = "3.6.76"',
     'def engine_status_cached(self) -> dict[str, Any]:',
     'engine = self.engine_status_cached()',
     'self._engine_status_background_refreshes += 1',

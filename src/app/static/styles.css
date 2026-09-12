@@ -1930,3 +1930,70 @@ button.is-busy::before{content:"";display:inline-block;width:12px;height:12px;fl
 .automation-item-activity.hidden{display:none}
 .automation-item-activity>div{min-width:0;display:flex;flex-direction:column;gap:2px}.automation-item-activity strong{font-size:11.5px}.automation-item-activity small{color:#7890a6;font-size:10px;line-height:1.4}
 .automation-item-activity-spinner{width:15px;height:15px;flex:0 0 15px;border:2px solid rgba(110,216,237,.34);border-top-color:#67d8e9;border-radius:50%;animation:newzdeck-button-spin .72s linear infinite}
+
+/* v3.6.76 UX Polish Phase 1 - Readability & Visual Rhythm */
+/* Visual-only overrides. No application behavior, data flow, scheduling,
+   download, Automation, Discover, provider, or Newsgroup Browser logic changes. */
+:root{
+  --ux-copy:12px;
+  --ux-copy-strong:12.5px;
+  --ux-caption:11px;
+  --ux-micro:10.25px;
+}
+
+/* App chrome: make labels easier to scan without changing navigation geometry. */
+.brand-sub{font-size:12px;line-height:1.4}
+.provider-pill:before{font-size:9.75px;letter-spacing:.085em}
+#manageProvidersBtn .top-action-label,#settingsBtn .top-action-label,#aboutBtn .top-action-label{font-size:12px;line-height:1}
+.nav-section-label{font-size:9.75px;letter-spacing:.16em}
+.sidebar-bottom,.secure-line{font-size:11.5px;line-height:1.45}
+.version{font-size:11.5px}
+
+/* Full-page hierarchy: secondary copy is deliberately less tiny and less faint. */
+.automation-header p,.discover-header p,.downloads-header p,.diagnostics-header p{font-size:13px!important;line-height:1.58!important;color:#a3b6c5!important}
+.automation-section-head p,.discover-section-head p{font-size:12px;line-height:1.5;color:#90a6b8}
+.automation-tabs button,.discover-tabs button,.download-tab{font-size:12.25px}
+
+/* Discover: preserve poster size/ratio and all card interactions; polish copy only. */
+.discover-card-copy h3{font-size:13.5px!important;line-height:1.32}
+.discover-card-copy p{font-size:11.25px!important;line-height:1.4!important;color:#98acbd!important}
+.discover-card-copy small{font-size:10.75px!important;line-height:1.4!important;color:#849aab!important}
+.discover-filters label{font-size:11px;line-height:1.35}
+.discover-source-strip,.discover-provider-warning{font-size:11.5px;line-height:1.5}
+.discover-detail-head p,.discover-detail-body small{font-size:11.5px;line-height:1.5}
+
+/* Automation: keep the accepted 2:3 posters and fixed card row geometry. */
+.automation-stat span{font-size:10.5px;letter-spacing:.105em}
+.automation-stat small{font-size:11.5px;line-height:1.45;color:#7f94a8}
+.automation-card-body>p{font-size:12px!important;color:#94a8ba!important}
+.automation-card-status{font-size:12px!important;color:#b2c3cf!important}
+.automation-card-footer>span{font-size:11px!important;color:#90a4b4!important}
+.automation-monitor-chip{font-size:11px!important}
+.wanted-row small,.indexer-row small,.history-row small{font-size:11px;line-height:1.45;color:#8499ac}
+.automation-setup-card>p,.profile-card p{font-size:12.25px;line-height:1.55;color:#8ea2b5}
+
+/* Downloads: improve legibility of statistics and supporting package metadata. */
+.download-stat span{font-size:10.5px;line-height:1.3;letter-spacing:.035em}
+.download-stat small,.download-meta,.download-row small{font-size:11.5px;line-height:1.45;color:#90a4b5}
+.download-statistics-head p{font-size:11.5px;line-height:1.5;color:#8399aa}
+.download-statistics-head>span{font-size:10.5px;color:#7890a3}
+.download-history-search{font-size:11.5px}
+.download-error{font-size:11px;line-height:1.45}
+
+/* Settings and dialogs: clearer labels/help text, unchanged fields/actions. */
+.provider-form label,.settings-content label,.automation-modal-card label{font-size:12px;line-height:1.35;color:#a9bac8}
+.settings-section>p{font-size:13px;line-height:1.55;color:#98adbd}
+.settings-check small,.settings-callout span,.provider-purpose-box p{font-size:11.5px;line-height:1.5;color:#8fa4b6}
+.settings-nav button{font-size:13px}
+.modal-head p{font-size:13px;line-height:1.5;color:#a2b5c4}
+.metadata-result span,.metadata-result p{font-size:11.5px;line-height:1.5;color:#92a7b8}
+.automation-modal-card .automation-monitoring-field small,.automation-item-settings label small{font-size:10.75px;line-height:1.5;color:#8096a8}
+
+/* Empty/help states should read as guidance rather than disabled UI. */
+.empty-state p,.automation-empty p,.diag-empty,.metadata-hint{font-size:12.25px;line-height:1.6;color:#98adbd}
+
+@media(max-width:760px){
+  .automation-header p,.discover-header p,.downloads-header p,.diagnostics-header p{font-size:12.5px!important}
+  .discover-card-copy h3{font-size:13px!important}
+  .settings-section>p{font-size:12.5px}
+}

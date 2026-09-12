@@ -1,10 +1,10 @@
-NewzDeck v3.6.75 update notes
+NewzDeck v3.6.76 update notes
 
 Installed users
-- Run NewzDeck_v3.6.75_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.76_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.75 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.76 Portable ZIP contents, then restart NewzDeck.
 
-v3.6.75 changes only the Windows build representation of NewzDeckYenc.exe plus release identity/guards. The decoder source, browsing behavior, download engine, Automation, Smart Import, Discover, Settings reliability and Metadata Server behavior remain unchanged.
+v3.6.76 is a UX-only readability and visual-hierarchy pass. Existing browsing, download, Automation, Smart Import, Settings, Discover data, provider/NNTP, SABnzbd 5.1.2, Metadata Server and Windows runtime behavior remain unchanged.

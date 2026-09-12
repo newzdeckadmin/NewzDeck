@@ -1,11 +1,12 @@
-NewzDeck v3.6.75 - Windows Defender Compatibility
+NewzDeck v3.6.76 - UX Readability & Visual Rhythm
 
-This release is a narrow Windows build/distribution compatibility update built on v3.6.74.
+This release begins the staged UX polish program with a conservative visual-only pass.
 
-- NewzDeckYenc.go decoder source and behavior are unchanged.
-- NewzDeckYenc.exe now retains the normal Go build ID and symbol/debug metadata instead of using the stripped -s/-w/empty-buildid profile.
-- Only the yEnc helper uses this compatibility build override; all other native helpers keep their established build profile.
-- The isolated helper, a full Portable acceptance package, and a final exact-production-source helper build all passed Windows Defender testing before this release was authorized.
-- Browsing schema 11, thumbnail scheduling/concurrency, provider allocation, SABnzbd 5.1.2, Settings reliability, Automation, Smart Import, Discover and Metadata Server behavior are unchanged.
+Highlights:
+- Secondary labels and help text are easier to read across Discover, Automation, Downloads, Settings and dialogs.
+- Visual hierarchy, line-height and supporting-text contrast are more consistent.
+- Existing poster geometry, controls, actions and page behavior are preserved.
+- Newsgroup browsing performance/concurrency, downloads, Automation logic, Smart Import, provider allocation, SABnzbd 5.1.2 and Metadata Server v0.3.3 are unchanged.
+- The Defender-compatible NewzDeckYenc.exe build profile from v3.6.75 is preserved unchanged.
 
-See release/RELEASE_NOTES_v3.6.75.md for details.
+See release/RELEASE_NOTES_v3.6.76.md in the public source repository for details.
