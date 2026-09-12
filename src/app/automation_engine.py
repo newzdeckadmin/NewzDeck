@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.84'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.85'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -4721,22 +4721,28 @@ class MediaAutomationEngine:
                 if not matches.get(key): rejects.append(f"Profile requires {key.replace('_',' ')}")
         return score
 
-    def _current_target_release_info(self, item:dict[str,Any]|None, season=None, episode=None, current_quality:str='Unknown') -> dict[str,Any]:
+    def _record_release_info(self, rec:dict[str,Any]|None, current_quality:str='Unknown') -> dict[str,Any]:
+        """Resolve one canonical trait view for an existing library file.
+
+        Wanted, Library/Calendar cutoff state, Interactive Search and automatic
+        release evaluation must agree about the traits already present in the
+        current file.  Prefer stored release traits when available, then the
+        fingerprint-bound original release title, then conservative media-probe
+        data, and finally the stored base quality.
+
+        The fingerprint cache is intentionally preferred over media_info because
+        best-effort container probing can omit HDR fallback metadata even when the
+        original release title reliably identified it.
+        """
         info=parse_release(str(current_quality or ''))
-        if not isinstance(item,dict): return info
-        rec=None
-        if item.get('kind')=='movie': rec=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
-        elif season is not None and episode is not None:
-            for s in item.get('seasons') or []:
-                if int(s.get('season_number') or 0)!=int(season or 0): continue
-                rec=next((e for e in s.get('episodes') or [] if int(e.get('episode_number') or 0)==int(episode or 0)),None); break
         if not isinstance(rec,dict): return info
         stored=rec.get('release_traits') if isinstance(rec.get('release_traits'),dict) else None
         if stored: return dict(stored)
         fp=str(rec.get('file_fingerprint') or '')
         if fp:
             cached=self._media_quality_cache().get(fp)
-            if isinstance(cached,dict) and str(cached.get('release_title') or '').strip(): return parse_release(str(cached.get('release_title') or ''))
+            if isinstance(cached,dict) and str(cached.get('release_title') or '').strip():
+                return parse_release(str(cached.get('release_title') or ''))
         media=rec.get('media_info') if isinstance(rec.get('media_info'),dict) else {}
         if media:
             merged=dict(info); merged.update({k:v for k,v in media.items() if v not in {'',None,'Unknown'}})
@@ -4744,6 +4750,16 @@ class MediaAutomationEngine:
             if str(media.get('audio_codec') or '') not in {'','Unknown'}: merged['audio']=str(media.get('audio_codec'))
             return merged
         return info
+
+    def _current_target_release_info(self, item:dict[str,Any]|None, season=None, episode=None, current_quality:str='Unknown') -> dict[str,Any]:
+        if not isinstance(item,dict): return parse_release(str(current_quality or ''))
+        rec=None
+        if item.get('kind')=='movie': rec=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
+        elif season is not None and episode is not None:
+            for s in item.get('seasons') or []:
+                if int(s.get('season_number') or 0)!=int(season or 0): continue
+                rec=next((e for e in s.get('episodes') or [] if int(e.get('episode_number') or 0)==int(episode or 0)),None); break
+        return self._record_release_info(rec,current_quality)
 
     @staticmethod
     def _dynamic_range_label(rank:int) -> str:
@@ -6496,12 +6512,12 @@ class MediaAutomationEngine:
             if item.get('kind')=='movie':
                 rec=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
                 if rec:
-                    rec['cutoff_met']=self._quality_cutoff_met(str(rec.get('quality') or 'Unknown'),profile,rec.get('release_traits') or rec.get('media_info'))
+                    rec['cutoff_met']=self._quality_cutoff_met(str(rec.get('quality') or 'Unknown'),profile,self._record_release_info(rec,str(rec.get('quality') or 'Unknown')))
                 continue
             for season in item.get('seasons') or []:
                 for ep in season.get('episodes') or []:
                     if isinstance(ep,dict) and ep.get('has_file'):
-                        ep['cutoff_met']=self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,ep.get('release_traits') or ep.get('media_info'))
+                        ep['cutoff_met']=self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,self._record_release_info(ep,str(ep.get('file_quality') or 'Unknown')))
         return lib
 
     def wanted(self):
@@ -6521,7 +6537,7 @@ class MediaAutomationEngine:
                         row={'item_id':item['id'],'kind':'movie','title':item['title'],'year':item.get('year'),'date':wanted_date,'availability':availability,'label':item['title'],'cutoff':cutoff,'reason_code':'missing','reason_label':'Missing movie file','reason_detail':'The movie is available under your release policy but no library file is present.'}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
                     elif str(item.get('monitor_mode') or 'movie')!='missing':
                         current_quality=str(item['movie_file'].get('quality') or 'Unknown')
-                        upgrade=self._quality_upgrade_status(current_quality,profile,item['movie_file'].get('release_traits') or item['movie_file'].get('media_info'))
+                        upgrade=self._quality_upgrade_status(current_quality,profile,self._record_release_info(item['movie_file'],current_quality))
                         if upgrade.get('wanted'):
                             row={'item_id':item['id'],'kind':'movie','title':item['title'],'date':wanted_date,'availability':availability,'current_quality':current_quality,'cutoff':cutoff,'label':item['title'],**upgrade}; row['target_key']=self._auto_target_key(row=row); row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=True); upgrades.append(row)
             else:
@@ -6536,7 +6552,7 @@ class MediaAutomationEngine:
                             row['automation_policy']=self._wanted_automatic_policy(row,item,cfg,upgrade=False); missing.append(row)
                         elif str(item.get('monitor_mode') or 'all')!='missing':
                             current_quality=str(ep.get('file_quality') or 'Unknown')
-                            upgrade=self._quality_upgrade_status(current_quality,profile,ep.get('release_traits') or ep.get('media_info'))
+                            upgrade=self._quality_upgrade_status(current_quality,profile,self._record_release_info(ep,current_quality))
                             if upgrade.get('wanted'):
                                 upgrade_row={**row,'current_quality':current_quality,**upgrade}; upgrade_row['automation_policy']=self._wanted_automatic_policy(upgrade_row,item,cfg,upgrade=True); upgrades.append(upgrade_row)
         missing.sort(key=lambda x:(x.get('date') or '',x.get('label') or '')); upgrades.sort(key=lambda x:x.get('label') or '')
@@ -6577,7 +6593,7 @@ class MediaAutomationEngine:
                 d,availability=self._movie_wanted_date(item,cfg)
                 if not d or d<start or d>end: continue
                 mf=item.get('movie_file') if isinstance(item.get('movie_file'),dict) else None
-                has_file=bool(mf); cutoff_met=self._quality_cutoff_met(str((mf or {}).get('quality') or 'Unknown'),profile,(mf or {}).get('release_traits') or (mf or {}).get('media_info')) if has_file else False
+                has_file=bool(mf); cutoff_met=self._quality_cutoff_met(str((mf or {}).get('quality') or 'Unknown'),profile,self._record_release_info(mf,str((mf or {}).get('quality') or 'Unknown'))) if has_file else False
                 upgrade=bool(has_file and str(item.get('monitor_mode') or 'movie')!='missing' and not cutoff_met)
                 if upgrade: status='upgrade'; status_label='Upgrade wanted'
                 elif has_file: status='imported'; status_label='Imported'
@@ -6593,7 +6609,7 @@ class MediaAutomationEngine:
                     for ep in season.get('episodes') or []:
                         d=str(ep.get('air_date') or '')[:10]
                         if not ep.get('monitored',True) or not d or d<start or d>end: continue
-                        en=int(ep.get('episode_number') or 0); has_file=bool(ep.get('has_file')); cutoff_met=self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,ep.get('release_traits') or ep.get('media_info')) if has_file else False
+                        en=int(ep.get('episode_number') or 0); has_file=bool(ep.get('has_file')); cutoff_met=self._quality_cutoff_met(str(ep.get('file_quality') or 'Unknown'),profile,self._record_release_info(ep,str(ep.get('file_quality') or 'Unknown'))) if has_file else False
                         upgrade=bool(has_file and str(item.get('monitor_mode') or 'all')!='missing' and not cutoff_met)
                         if upgrade: status='upgrade'; status_label='Upgrade wanted'
                         elif has_file: status='imported'; status_label='Imported'

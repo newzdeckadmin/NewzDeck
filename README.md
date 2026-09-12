@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.84** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.85** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.84_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.85_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.84 highlights
+## v3.6.85 highlights
 
-v3.6.84 is a narrow Wanted/Quality Upgrades correctness release built on the published v3.6.83 baseline.
+v3.6.85 is a narrow Automation trait-coherency release built on the published v3.6.84 baseline.
 
-- **Correct cutoff semantics:** base quality, release-source specificity, and preferred dynamic range are evaluated as separate upgrade dimensions.
-- **Allow means acceptable:** Allow-only HDR/Dolby Vision policies no longer create false mandatory upgrade targets.
-- **Accurate Wanted reasons:** same-tier source and dynamic-range upgrades no longer display contradictions such as `Current 2160p WEB-DL has not reached 2160p WEB-DL`.
-- **4K progression preserved:** profiles that explicitly Prefer/Require dynamic-range upgrades retain SDR → HDR → Dolby Vision → Dolby Vision + HDR fallback progression.
-- **Stale flags repaired live:** Library and Calendar recompute derived cutoff state from the active profile and stored release/media traits.
-- **Frozen behavior preserved:** v3.6.83 update coherency, Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc remain unchanged.
+- **One current-file truth:** Wanted, Library/Calendar cutoff state, Interactive Search and automatic upgrade evaluation now resolve existing file traits through the same canonical helper.
+- **Exact screenshot bug fixed:** Wanted can no longer see Dolby Vision-only while Interactive Search sees the same fingerprinted file as Dolby Vision + HDR fallback and rejects the candidate as `same quality tier`.
+- **True upgrades still work:** a genuinely Dolby Vision-only 2160p WEB-DL file remains Wanted and a matching Dolby Vision + HDR fallback candidate is accepted as a dynamic-range improvement.
+- **Terminal files stop being Wanted:** if the fingerprint-bound original release already proves DV+HDR fallback, weaker media probing cannot keep a false upgrade row alive.
+- **v3.6.84 semantics preserved:** 1080p Balanced Allow policies remain acceptable, explicit Prefer/Require policies still drive 4K dynamic-range progression, and source/base-quality upgrade reasoning is unchanged.
+- **Frozen behavior preserved:** Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc remain unchanged.
 
-See [the full v3.6.84 release notes](release/RELEASE_NOTES_v3.6.84.md).
+See [the full v3.6.85 release notes](release/RELEASE_NOTES_v3.6.85.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.84_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.85_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

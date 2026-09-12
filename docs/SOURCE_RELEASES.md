@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.84
+## Current release: v3.6.85
 
-**v3.6.84 is the current stable production release.**
+**v3.6.85 is the current stable production release.**
 
-The `v3.6.84` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.85` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.85 - Wanted & Interactive Search Trait Coherency Fix.** Unifies current-file trait evidence across Wanted, Library/Calendar, Interactive Search and automatic upgrade evaluation so DV/DV+HDR decisions cannot disagree across surfaces.
 
 - **v3.6.84 - Wanted Upgrade Reasoning & Cutoff Policy Fix.** Separates base cutoff, WEB/WEB-DL source, and preferred dynamic-range upgrade reasoning so Wanted cannot report an identical quality as below itself; Allow-only HDR/DV policies are accepted while explicitly preferred 4K progression is preserved.
 

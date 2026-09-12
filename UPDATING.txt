@@ -1,21 +1,21 @@
-NewzDeck v3.6.84 update notes
+NewzDeck v3.6.85 update notes
 
 Installed users
-- Run NewzDeck_v3.6.84_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.85_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.84 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.85 Portable ZIP contents, then restart NewzDeck.
 
 What changes
-- Wanted/Quality Upgrades now reports the actual reason an existing file is upgradeable instead of claiming an identical quality has not reached itself.
-- Dynamic-range Allow is treated as acceptable, not as a mandatory upgrade target; Prefer/Require continues to drive intended HDR/Dolby Vision progression.
-- Generic WEB at an explicit WEB-DL cutoff remains a source upgrade and is labeled as such.
-- Library and Calendar responses recalculate derived cutoff status from the active profile so stale stored cutoff flags are corrected immediately in the UI.
+- Wanted, Library/Calendar and release evaluation now resolve current-file traits through the same canonical helper and evidence precedence.
+- Fingerprint-bound release metadata can no longer make Interactive Search disagree with Wanted about whether the current file already contains DV+HDR fallback.
+- True Dolby Vision-only files remain upgradeable to Dolby Vision + HDR fallback; already-terminal DV+HDR files no longer remain falsely Wanted.
 
 What stays frozen
+- v3.6.84 cutoff-policy semantics, including Allow-versus-Prefer handling and accurate Wanted reason labels.
 - v3.6.83 installed/runtime/UI version coherency and same-version update protection.
-- v3.6.81 structured Quality Profiles and explicit WEB-DL / HDR / Dolby Vision selection behavior outside this policy-semantics fix.
+- v3.6.81 structured Quality Profiles, WEB-DL preference and intended HDR/Dolby Vision progression.
 - Newsgroup Browser performance architecture and accepted tuning constants.
 - SABnzbd 5.1.2 integration, download queue, post-processing and Smart Import behavior.
 - Metadata Server v0.3.3 and Diagnostic Collector v1.0.31.
