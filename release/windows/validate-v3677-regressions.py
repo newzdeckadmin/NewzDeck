@@ -24,19 +24,22 @@ workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(en
 def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
-check(normalized_hash(server,'3.6.76','3.6.78')=='7376e78b5f8da0868712aad2d1a297e06688d34c6427fe6db5f042955767a443','server.py changed beyond APP_VERSION')
-check(normalized_hash(sab_text,'3.6.76','3.6.78')=='f2c92f1ec593eb633d77570137af90ce0f057aed39b2771e2d7aa30057aa7687','sab_engine.py changed beyond ADAPTER_VERSION')
-check(normalized_hash(automation,'3.6.76','3.6.78')=='b832afbd5c7b339d5092817d5b6a243136922139c95efec00bba2e69e750d94d','automation_engine.py changed beyond version identity')
-check(normalized_hash(app,'3.6.76','3.6.78')=='92cc57995e8b45725d70ed13071142729bc59ea7f2e3721bf5428ed29a26d169','app.js logic changed; v3.6.78 must remain UX/CSS-only')
-normalized_index=index.replace('3.6.78-defender-lf-build-pipeline','3.6.76-ux-readability-visual-rhythm').replace('v3.6.78','v3.6.76')
+check(normalized_hash(server,'3.6.76','3.6.79')=='7376e78b5f8da0868712aad2d1a297e06688d34c6427fe6db5f042955767a443','server.py changed beyond APP_VERSION')
+check(normalized_hash(sab_text,'3.6.76','3.6.79')=='f2c92f1ec593eb633d77570137af90ce0f057aed39b2771e2d7aa30057aa7687','sab_engine.py changed beyond ADAPTER_VERSION')
+check(normalized_hash(automation,'3.6.76','3.6.79')=='b832afbd5c7b339d5092817d5b6a243136922139c95efec00bba2e69e750d94d','automation_engine.py changed beyond version identity')
+check(normalized_hash(app,'3.6.76','3.6.79')=='92cc57995e8b45725d70ed13071142729bc59ea7f2e3721bf5428ed29a26d169','app.js logic changed; v3.6.79 must remain UX/CSS-only')
+normalized_index=index.replace('3.6.79-ux-feedback-state-clarity','3.6.76-ux-readability-visual-rhythm').replace('v3.6.79','v3.6.76')
 check(digest_text(normalized_index)=='5e000db6d33524cbf6348dd493955ba3af387f844f400126e51ca0ae7d112eb9','index.html changed beyond version/cache identity')
 
 # The stylesheet must be exact v3.6.76 plus one reviewed Phase 2 suffix.
 marker='/* v3.6.77 UX Polish Phase 2 - Layout & Control Consistency */'
-check(styles.count(marker)==1,'v3.6.78 UX stylesheet marker count mismatch')
+phase3='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
+check(styles.count(marker)==1,'v3.6.77 Phase 2 stylesheet marker count mismatch')
+check(styles.count(phase3)==1,'v3.6.79 Phase 3 stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
-check(digest_text(prefix.rstrip('\n')+'\n')=='08489cb6b9b6581584b98976609f66d57880f165f374b84ee811a5f92b6eaf15','Pre-v3.6.78 stylesheet baseline changed')
-check(digest_text('\n'+marker+suffix)=='13afd01b65cd9ff7d568e74fcac91a998aa49ae257a51b030c1b439109b8699e','v3.6.78 UX override block changed outside the reviewed payload')
+phase2_body,_phase3_tail=suffix.split(phase3,1)
+check(digest_text(prefix.rstrip('\n')+'\n')=='08489cb6b9b6581584b98976609f66d57880f165f374b84ee811a5f92b6eaf15','Pre-v3.6.77 stylesheet baseline changed')
+check(digest_text('\n'+marker+phase2_body.rstrip('\n')+'\n')=='13afd01b65cd9ff7d568e74fcac91a998aa49ae257a51b030c1b439109b8699e','v3.6.77 UX Phase 2 override block changed outside the reviewed payload')
 for marker2 in (
     '--ux-control-height:40px;',
     '.primary-btn,.secondary-btn,.danger-btn{',
@@ -49,7 +52,7 @@ for forbidden in (
     'THUMBNAIL_HTTP_ADMISSION_LIMIT','videoThumbConcurrency','VIDEO_THUMB_SAMPLE_MB','max_segments',
     'binary-set-row','gallery-virtual-spacer','article-row{','workspace.all-posts-wide','related-set-card',
     '.articles-toolbar','.groups-pane','.preview-pane'
-): check(forbidden not in suffix,'UX-only CSS suffix touches protected Newsgroup Browser/performance surface: '+forbidden)
+): check(forbidden not in phase2_body,'UX Phase 2 CSS touches protected Newsgroup Browser/performance surface: '+forbidden)
 
 # v3.6.75 Defender-compatible yEnc build remains frozen.
 blob=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD:src/windows/NewzDeckYenc.go'],text=True).strip()
@@ -89,10 +92,10 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3677>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
-check((APP/'version.txt').read_text().strip()=='3.6.78','version.txt mismatch')
-check("const UI_VERSION = '3.6.78'" in app and '3.6.78-defender-lf-build-pipeline' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.78' and manifest.get('base_version')=='3.6.77' and manifest.get('adapter_version')=='3.6.78','build manifest identity mismatch')
-check(manifest.get('release')=='Windows Defender LF Build Pipeline Hotfix','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.78' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.79','version.txt mismatch')
+check("const UI_VERSION = '3.6.79'" in app and '3.6.79-ux-feedback-state-clarity' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.79' and manifest.get('base_version')=='3.6.78' and manifest.get('adapter_version')=='3.6.79','build manifest identity mismatch')
+check(manifest.get('release')=='UX Feedback & State Clarity','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.79' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.78 UX-only regression guard: PASS')
+print('v3.6.79 UX-only regression guard: PASS')

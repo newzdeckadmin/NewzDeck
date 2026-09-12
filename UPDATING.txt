@@ -1,10 +1,10 @@
-NewzDeck v3.6.78 update notes
+NewzDeck v3.6.79 update notes
 
 Installed users
-- Run NewzDeck_v3.6.78_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.79_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - You should not need to stop the NewzDeck background service manually; the installer owns the normal upgrade handoff.
 
 Portable users
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.78 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.79 Portable ZIP contents, then restart NewzDeck.
 
-v3.6.78 is a narrow Windows Defender build-pipeline hotfix. It preserves the v3.6.77 application/UX/runtime behavior and changes only how the unchanged NewzDeckYenc.exe source is compiled and handed into the canonical Windows packaging job.
+v3.6.79 is UX Polish Phase 3. Its substantive application change is CSS-only feedback/state polish. Runtime behavior and the v3.6.78 Defender-clean LF/Linux yEnc packaging path remain unchanged.

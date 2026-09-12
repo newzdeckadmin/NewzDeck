@@ -1,12 +1,12 @@
-NewzDeck v3.6.78 - Windows Defender LF Build Pipeline Hotfix
+NewzDeck v3.6.79 - UX Feedback & State Clarity
 
-This release is a packaging/build-pipeline hotfix built on v3.6.77.
+This release resumes the staged UX polish program on the proven v3.6.78 Defender-clean baseline.
 
 Highlights:
-- The full v3.6.77 application, UX, browsing, download and Automation behavior is retained.
-- NewzDeckYenc.exe is now built in a dedicated pinned Linux GitHub Actions job from the exact canonical LF Git source bytes.
-- The release workflow requires the exact Defender-tested helper SHA-256 before Setup/Portable packaging can continue.
-- NewzDeckYenc.go and the decoder protocol/behavior are unchanged.
-- SABnzbd 5.1.2, Metadata Server v0.3.3, Smart Import, Automation, Settings and all frozen Newsgroup Browser performance behavior are unchanged.
+- Clearer success, error and informational toast/state styling.
+- More intentional loading, empty, metadata-error, download-error and Settings/test feedback surfaces.
+- Subtle visual-only hover, focus and busy-state polish for existing controls/cards.
+- No application behavior, Newsgroup Browser performance, downloads, Automation, Smart Import, Discover data or Settings persistence changes.
+- The v3.6.78 canonical LF/Linux Defender-accepted yEnc build pipeline remains unchanged and fully guarded.
 
-See release/RELEASE_NOTES_v3.6.78.md for details.
+See release/RELEASE_NOTES_v3.6.79.md for details.

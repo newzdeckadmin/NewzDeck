@@ -14,7 +14,7 @@ sab_text=(APP/'sab_engine.py').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
-styles=(APP/'static'/'styles.css').read_bytes()
+styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 sab=load('newzdeck_v3678_sab_guard',APP/'sab_engine.py')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
@@ -23,13 +23,17 @@ workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(en
 def normalized_hash(text, old, new):
     check(text.count(new)==1,f'Expected exactly one current identity {new} while normalizing')
     return digest_text(text.replace(new,old))
-check(normalized_hash(server,'3.6.77','3.6.78')=='9db02a0a4d06582be1c32b68c0768454dd017b0b8debffa5f3a201546c03e0b9','server.py changed beyond APP_VERSION')
-check(normalized_hash(sab_text,'3.6.77','3.6.78')=='1e94b1ed8522712fb6c3c7f51b1819eb75c9bb51b8b4f7b7d2578b635309cc1b','sab_engine.py changed beyond ADAPTER_VERSION')
-check(normalized_hash(automation,'3.6.77','3.6.78')=='33f7f7cb6869ca7b0517d812d825f0adbaf56fcde14035a903b45e9783540cba','automation_engine.py changed beyond version identity')
-check(normalized_hash(app,'3.6.77','3.6.78')=='5aec1504180bfc33334b828b93c95cc4f47f77995374df36101dcfa149532b3e','app.js logic changed in build-pipeline-only hotfix')
-normalized_index=index.replace('3.6.78-defender-lf-build-pipeline','3.6.77-ux-layout-control-consistency').replace('v3.6.78','v3.6.77')
+check(normalized_hash(server,'3.6.77','3.6.79')=='9db02a0a4d06582be1c32b68c0768454dd017b0b8debffa5f3a201546c03e0b9','server.py changed beyond APP_VERSION')
+check(normalized_hash(sab_text,'3.6.77','3.6.79')=='1e94b1ed8522712fb6c3c7f51b1819eb75c9bb51b8b4f7b7d2578b635309cc1b','sab_engine.py changed beyond ADAPTER_VERSION')
+check(normalized_hash(automation,'3.6.77','3.6.79')=='33f7f7cb6869ca7b0517d812d825f0adbaf56fcde14035a903b45e9783540cba','automation_engine.py changed beyond version identity')
+check(normalized_hash(app,'3.6.77','3.6.79')=='5aec1504180bfc33334b828b93c95cc4f47f77995374df36101dcfa149532b3e','app.js logic changed in build-pipeline-only hotfix')
+normalized_index=index.replace('3.6.79-ux-feedback-state-clarity','3.6.77-ux-layout-control-consistency').replace('v3.6.79','v3.6.77')
 check(digest_text(normalized_index)=='981137eb1ba005f6a30f128ed19c83c139843206d0521ec6e3d7b8ee57debfab','index.html changed beyond version/cache identity')
-check(digest_bytes(styles)=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','v3.6.77 UX stylesheet changed in build-pipeline hotfix')
+phase3='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
+check(styles.count(phase3)==1,'v3.6.79 Phase 3 stylesheet marker count mismatch')
+styles_prefix,_phase3_tail=styles.split(phase3,1)
+check(digest_text(styles_prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','v3.6.78 UX stylesheet baseline changed')
+
 
 blob=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD:src/windows/NewzDeckYenc.go'],text=True).strip()
 check(blob=='38f6df7ed77bc7d3b5d8c83b1973e86fc6fa9c15','NewzDeckYenc.go Git blob changed')
@@ -42,14 +46,14 @@ for marker in (
     'canonical_git_source_bytes',
     'shutil.copy2(prebuilt_yenc, stage/exe)',
     '"build_origin":"linux-lf-prebuilt" if prebuilt_yenc else "local-source-build"',
-): check(marker in builder,'v3.6.78 builder protection missing: '+marker)
+): check(marker in builder,'v3.6.79 builder protection missing: '+marker)
 for marker in (
     'yenc-helper:', 'runs-on: ubuntu-24.04', 'actions/upload-artifact@v6', 'actions/download-artifact@v6',
     'newzdeck-yenc-defender-lf', 'needs: yenc-helper', '--prebuilt-yenc $yenc',
     'ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd',
     '4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad',
     'python release/windows/validate-v3678-regressions.py',
-): check(marker in workflow,'v3.6.78 canonical workflow protection missing: '+marker)
+): check(marker in workflow,'v3.6.79 canonical workflow protection missing: '+marker)
 
 # Carry forward frozen runtime behavior.
 for marker in (
@@ -74,10 +78,10 @@ for node in tree.body:
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3678>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.78','version.txt mismatch')
-check("const UI_VERSION = '3.6.78'" in app and '3.6.78-defender-lf-build-pipeline' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.78' and manifest.get('base_version')=='3.6.77' and manifest.get('adapter_version')=='3.6.78','build manifest identity mismatch')
-check(manifest.get('release')=='Windows Defender LF Build Pipeline Hotfix','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.78' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.79','version.txt mismatch')
+check("const UI_VERSION = '3.6.79'" in app and '3.6.79-ux-feedback-state-clarity' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.79' and manifest.get('base_version')=='3.6.78' and manifest.get('adapter_version')=='3.6.79','build manifest identity mismatch')
+check(manifest.get('release')=='UX Feedback & State Clarity','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.79' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.78 Defender LF build-pipeline regression guard: PASS')
+print('v3.6.79 Defender LF build-pipeline regression guard: PASS')

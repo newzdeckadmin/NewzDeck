@@ -37,7 +37,7 @@ sab = load_module('newzdeck_v3662_sab_guard', APP / 'sab_engine.py')
 # ranges without duplicate/missing article numbers. Extract the pure merge helper only.
 tree = ast.parse(server_text)
 body = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == '_merge_overview_headers']
-check(len(body) == 1, 'Could not locate the v3.6.78 overview merge helper.')
+check(len(body) == 1, 'Could not locate the v3.6.79 overview merge helper.')
 module = ast.Module(body=body, type_ignores=[]); ast.fix_missing_locations(module)
 ns: dict[str, object] = {}
 exec(compile(module, '<v3662-overview-merge>', 'exec'), ns)
@@ -97,19 +97,19 @@ for marker in (
     "reason:'name-resolution-batched-result'",
 ):
     check(marker in server_text or marker in app_js, f'Missing carried render-reason telemetry marker: {marker}')
-check('updateNameResolutionActivityDomInPlace' in app_js, 'v3.6.78 removed the targeted name-resolution activity updater.')
-check("const UI_VERSION = '3.6.78'" in app_js, 'UI version marker is not v3.6.78.')
-check('"schema_version": 11' in server_text and '"contract": "passive-runtime-browsing-performance"' in server_text, 'Browsing telemetry schema/contract is not v3.6.78.')
+check('updateNameResolutionActivityDomInPlace' in app_js, 'v3.6.79 removed the targeted name-resolution activity updater.')
+check("const UI_VERSION = '3.6.79'" in app_js, 'UI version marker is not v3.6.79.')
+check('"schema_version": 11' in server_text and '"contract": "passive-runtime-browsing-performance"' in server_text, 'Browsing telemetry schema/contract is not v3.6.79.')
 
 # 5. Release/runtime identities remain coherent and unrelated subsystems are preserved.
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.78', 'version.txt is not v3.6.78.')
-check(manifest.get('version') == '3.6.78' and manifest.get('base_version') == '3.6.77', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.78' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.78', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
-check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.78 changed SAB 5.1.2 or terminal-history schema 3.')
-check("version='3.6.78'" in auto_text, 'Automation default version identity did not migrate to v3.6.78.')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.79', 'version.txt is not v3.6.79.')
+check(manifest.get('version') == '3.6.79' and manifest.get('base_version') == '3.6.78', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.79' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.79', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.79 changed SAB 5.1.2 or terminal-history schema 3.')
+check("version='3.6.79'" in auto_text, 'Automation default version identity did not migrate to v3.6.79.')
 check('_discover_library_index_snapshot' in auto_text and '_flush_metadata_cache_now' in auto_text, 'v3.6.60 Discover optimization stack was not preserved.')
-check('3.6.78-defender-lf-build-pipeline' in index_html, 'v3.6.78 static cache identity is missing.')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.78</span></div>' in index_html, 'Visible sidebar version is not v3.6.78.')
+check('3.6.79-ux-feedback-state-clarity' in index_html, 'v3.6.79 static cache identity is missing.')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.79</span></div>' in index_html, 'Visible sidebar version is not v3.6.79.')
 
-print('v3.6.78 regression guard: PASS')
+print('v3.6.79 regression guard: PASS')
