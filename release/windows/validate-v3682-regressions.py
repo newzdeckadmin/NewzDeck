@@ -17,14 +17,14 @@ index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 _THEME_COLOR_FALLBACK=re.compile(r'var\(--nz-[a-z0-9-]+,(#[0-9a-fA-F]{3,8}|rgba?\([^()]*\)|white)\)')
 styles=_THEME_COLOR_FALLBACK.sub(lambda m:m.group(1),styles)
-check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.94 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
+check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.95 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
 # v3.6.82's pipeline recovery remains protected while v3.6.87 carries the
 # v3.6.84/v3.6.85 Automation correctness work forward and fixes cache-read scaling.
-check((APP/'version.txt').read_text().strip()=='3.6.94','current version mismatch')
-check(automation.count("version='3.6.94'")==1,'Automation version identity mismatch')
-check(sab_text.count('ADAPTER_VERSION = "3.6.94"')==1,'SAB adapter version identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.95','current version mismatch')
+check(automation.count("version='3.6.95'")==1,'Automation version identity mismatch')
+check(sab_text.count('ADAPTER_VERSION = "3.6.95"')==1,'SAB adapter version identity mismatch')
 check("Where-Object { $_ -like 'Source commit:*' }" in workflow and "-replace '^Source commit:\\s*',''" in workflow,'canonical Source commit parser regressed')
 check('python release/windows/validate-v3682-regressions.py' in workflow and 'python release/windows/validate-v3683-regressions.py' in workflow and 'python release/windows/validate-v3684-regressions.py' in workflow and 'python release/windows/validate-v3685-regressions.py' in workflow and 'python release/windows/validate-v3686-regressions.py' in workflow and 'python release/windows/validate-v3687-regressions.py' in workflow,'current guard chain incomplete')
 
@@ -37,7 +37,7 @@ check(hashlib.sha256((prefix.rstrip('\n')+'\n').encode()).hexdigest()=='8a8d8f0c
 # Re-prove v3.6.81 functionality that v3.6.82 intentionally carried forward.
 auto=load('newzdeck_v3682_guard_current',APP/'automation_engine.py')
 class DummyDownloadManager: pass
-engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3682-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.94')
+engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3682-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.95')
 profile=auto.DEFAULT_PROFILES[0]
 def info(title): return auto.parse_release(title)
 current=info('Show.S01E01.2160p.WEB.x265-GRP')

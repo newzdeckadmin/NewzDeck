@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.94** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.95** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.94_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.95_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.94 highlights
+## v3.6.95 highlights
 
-v3.6.94 adds a presentation-only theme system while preserving the v3.6.93 production layout, behavior, updater, native helper architecture, and Defender-clean build pipeline.
+v3.6.95 is a presentation-only readability hotfix for the three light palettes introduced in v3.6.94.
 
-- **12 coordinated themes:** Night, Light, Midnight, Ocean, Emerald, Amethyst, Rosewood, Sunset, Arctic, Graphite, Sandstone, and Aurora.
-- **Night remains exact:** Night reconstructs the v3.6.93 stylesheet colors exactly; the existing production appearance is the default.
-- **Immediate Settings preview:** choose a theme in Settings > General and see it immediately; Save keeps it, while Cancel/close restores the prior theme.
-- **No startup flash:** the saved theme is restored before render-blocking styles load.
-- **Contrast release gate:** alternate palettes are checked for readable primary, secondary, muted, accent, and semantic status colors.
-- **Core behavior unchanged:** Automation, Wanted, Smart Import, Discover, Newsgroup Browser, Downloads, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, direct verified Setup updates, folder-only Picker, and the accepted yEnc pipeline are unchanged.
+- **Light surfaces are actually light:** Light, Arctic, and Sandstone now use their coordinated light surfaces for search fields, selectors, toolbars, tabs, cards, panels, and other ordinary overlay-derived controls.
+- **True overlays stay dark:** modal backdrops, media viewer surfaces, poster/image badges, playback controls, and image overlays use a separate dark scrim role with high-contrast foregrounds.
+- **Nine palettes are frozen:** Night, Midnight, Ocean, Emerald, Amethyst, Rosewood, Sunset, Graphite, and Aurora are unchanged from v3.6.94.
+- **No behavior/layout changes:** theme persistence, layout, sizing, spacing, Automation, Downloads, Discover, Newsgroup Browser, updater ownership, Picker/yEnc, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31 are unchanged.
 
-See [the full v3.6.94 release notes](release/RELEASE_NOTES_v3.6.94.md).
+See [the full v3.6.95 release notes](release/RELEASE_NOTES_v3.6.95.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +65,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.94_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.95_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

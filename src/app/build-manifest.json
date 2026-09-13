@@ -1,23 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.94",
-  "base_version": "3.6.93",
-  "release": "Themes & Color Schemes",
-  "adapter_version": "3.6.94",
-  "name": "Themes & Color Schemes",
+  "version": "3.6.95",
+  "base_version": "3.6.94",
+  "release": "Light Theme Readability Hotfix",
+  "adapter_version": "3.6.95",
+  "name": "Light Theme Readability Hotfix",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds twelve user-selectable color themes: Night, Light, Midnight, Ocean, Emerald, Amethyst, Rosewood, Sunset, Arctic, Graphite, Sandstone, and Aurora.",
-    "Keeps Night visually identical to the v3.6.93 production appearance by wrapping the existing stylesheet colors with exact fallbacks rather than redesigning the interface.",
-    "Adds presentation-only local theme persistence, instant Settings preview, pre-paint theme restoration, and light color-scheme handling without changing backend settings or application behavior.",
-    "Preserves the v3.6.93 Defender-clean native helper/build pipeline, updater, installer, Automation/Wanted/Smart Import, Newsgroup Browser, Discover, Downloads, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31."
+    "Fixes Light, Arctic, and Sandstone so translucent application chrome, search fields, selectors, toolbars, tabs, cards, and other overlay-derived controls use coordinated light surfaces instead of dark Night-style overlays.",
+    "Separates true media/modal scrims from ordinary application surfaces so poster overlays, modal backdrops, playback controls, and the fullscreen viewer remain intentionally dark and readable in the three light themes.",
+    "Keeps Night, Midnight, Ocean, Emerald, Amethyst, Rosewood, Sunset, Graphite, and Aurora color palettes unchanged and preserves all v3.6.94 layout, sizing, spacing, behavior, theme persistence, and backend isolation.",
+    "Preserves the Defender-clean Picker/yEnc build pipeline, direct verified Setup updates, Automation/Wanted/Smart Import, Newsgroup Browser, Discover, Downloads, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31."
   ],
   "regression_guards": [
-    "The v3.6.93 stylesheet must reconstruct byte-for-byte from v3.6.94 Night fallback colors, proving the existing Night appearance was not redesigned.",
-    "All twelve theme IDs must be present in the pre-paint bootstrap, Settings selector, application theme registry, and themes.css.",
-    "Light, Arctic, and Sandstone must use light color-scheme; all other themes remain dark.",
-    "Theme selection is stored only in localStorage and may not be added to the backend /api/settings payload.",
-    "Every alternate palette must meet the release contrast floor for primary text, secondary text, muted text, accent contrast, and semantic status colors.",
-    "The Defender-clean folder-only Picker, accepted yEnc helper, direct verified-Setup updater, and v3.6.93 installed-upgrade smoke architecture remain unchanged."
+    "Only Light, Arctic, and Sandstone may change palette semantics; all nine dark theme palette blocks must remain byte-for-byte equivalent to v3.6.94.",
+    "The three light themes must route ordinary overlay-derived UI surfaces through their coordinated light surface palette and maintain readable text/control contrast.",
+    "True modal/media/image scrims must use a separate dark scrim role with explicit high-contrast text instead of reusing ordinary light-surface overlay roles.",
+    "Night fallback reconstruction must still match the exact v3.6.93 stylesheet and all twelve theme identities/persistence behaviors remain unchanged.",
+    "The Defender-clean folder-only Picker, accepted yEnc helper, direct verified-Setup updater, and installed-upgrade smoke architecture remain unchanged."
   ]
 }

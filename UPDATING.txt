@@ -1,12 +1,12 @@
-NewzDeck v3.6.94 update notes
+NewzDeck v3.6.95 update notes
 
 Installed build:
-- Install NewzDeck_v3.6.94_Setup.exe over the existing installation, or use the verified in-app updater from a working v3.6.93 installation.
+- Install NewzDeck_v3.6.95_Setup.exe over the existing installation, or use the verified in-app updater from a working v3.6.93 installation.
 - Existing settings, history, queue state, Automation libraries, provider configuration, and downloads remain unchanged.
 - Night is the default theme and preserves the exact v3.6.93 production color appearance.
 - Theme choice is stored locally as presentation state and can be changed from Settings > General > Theme.
 
 Portable build:
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.94 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.95 Portable ZIP contents, then restart NewzDeck.
 
 Persistent data remains under %LOCALAPPDATA%\NewzDeck and is not removed by a normal update.

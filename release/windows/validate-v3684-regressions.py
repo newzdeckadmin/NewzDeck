@@ -11,16 +11,16 @@ def load(name,path):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'5dd4c5c788c3938696bce02109a81f2780d3ffe6a8d7abbc638e2a42ad9247a5',
-    'automation_engine.py':'3cc4416de258bfeb178c33a320d6b2054d725cd1055b5eb7e2f84dcebae55ff4',
-    'sab_engine.py':'1fdc35a95eaee66329db62b488cae546c085a4394499d31e6789dfb89b97587e',
-    'static/app.js':'e9e6f64523bab10dbf703a7e55585bd492428db1e48ea9e415614d7fc1e219b3',
-    'static/index.html':'ca8c2bb83aaaf15c707cb455b0b5ec0cbc6207b0f390274573eeb5bc03b07e58',
+    'server.py':'ae1f258b58e25f05fad2008e5fb02b388812c53cba2edb3260543107fea8ad1d',
+    'automation_engine.py':'1c8d6a5400e87c8581e69f849aaa6ab93201339aaf9d4126d2090a181ed5aeb4',
+    'sab_engine.py':'35ae4274200fbcfb9baf4e8f08884f518efb56bf247349fde606e3dc36e55209',
+    'static/app.js':'e43926f79258a9159b8db2cd35dea475e5ae5a4d2489762c0188f52a706551f7',
+    'static/index.html':'0545cc4be9374fa95c90aa10a95676146827b707c3ff3fb8d8454eb5db48ec55',
     'static/styles.css':'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
-    'build-manifest.json':'ca372b916ea5c3343a34c5ec3a59da0a9270757d54f839968c4b38b9aac9d845',
-    'version.txt':'e08fa63b65c0de91e88bad41a162947e84cc18bf1939e98dde337ea0c2a76dc8',
+    'build-manifest.json':'d0a54731e665570fb57ed13e18fac80d9382ee59aa41686864bbac143988ad33',
+    'version.txt':'42ec12b7fdaa92e46f5520b70d25ac21f06cf2f4268f25c73270a109ecf05d1b',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.94 carried-forward payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.95 carried-forward payload')
 
 auto=load('newzdeck_v3684_automation_guard',APP/'automation_engine.py')
 server=(APP/'server.py').read_text(encoding='utf-8')
@@ -28,16 +28,16 @@ app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
-check((APP/'version.txt').read_text().strip()=='3.6.94','version.txt mismatch')
-check('APP_VERSION = "3.6.94"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.94';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.94' and manifest.get('base_version')=='3.6.93' and manifest.get('adapter_version')=='3.6.94','build manifest lineage mismatch')
-check(manifest.get('release')=='Themes & Color Schemes','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.95','version.txt mismatch')
+check('APP_VERSION = "3.6.95"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.95';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.95' and manifest.get('base_version')=='3.6.94' and manifest.get('adapter_version')=='3.6.95','build manifest lineage mismatch')
+check(manifest.get('release')=='Light Theme Readability Hotfix','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 class DummyDownloadManager: pass
 root=Path(tempfile.mkdtemp(prefix='newzdeck-v3684-guard-'))
-engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.94')
+engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.95')
 p4=auto.DEFAULT_PROFILES[0]; p1080=auto.DEFAULT_PROFILES[1]
 def info(title): return auto.parse_release(title)
 
@@ -104,8 +104,8 @@ check(bal_ep.get('cutoff_met') is True,'live cutoff decoration did not repair st
 for required in ("x.upgrade_path||`Current:","Quality upgrade wanted","profile-approved upgrade path"):
     check(required in app,'Wanted UI regression marker missing: '+required)
 check("const current=type==='upgrade'?`<span class=\"wanted-current\">Current: ${escapeHtml(x.current_quality" not in app,'old unconditional Wanted current/cutoff renderer remains')
-check('v=3.6.94-themes-color-schemes' in index,'carried current asset cache identity missing')
+check('v=3.6.95-light-theme-readability-hotfix' in index,'carried current asset cache identity missing')
 
 # Frozen areas are intentionally untouched by this release.
 check('image_thumb_http_admission' not in manifest.get('release','').casefold(),'unexpected browser tuning scope')
-print('v3.6.84 Wanted Upgrade Reasoning & Cutoff Policy Fix carried-forward guard under v3.6.94: PASS')
+print('v3.6.84 Wanted Upgrade Reasoning & Cutoff Policy Fix carried-forward guard under v3.6.95: PASS')

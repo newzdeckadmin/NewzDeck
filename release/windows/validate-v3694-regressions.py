@@ -10,18 +10,18 @@ def check(c,m):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'5dd4c5c788c3938696bce02109a81f2780d3ffe6a8d7abbc638e2a42ad9247a5',
-    'automation_engine.py':'3cc4416de258bfeb178c33a320d6b2054d725cd1055b5eb7e2f84dcebae55ff4',
-    'sab_engine.py':'1fdc35a95eaee66329db62b488cae546c085a4394499d31e6789dfb89b97587e',
-    'static/app.js':'e9e6f64523bab10dbf703a7e55585bd492428db1e48ea9e415614d7fc1e219b3',
-    'static/index.html':'ca8c2bb83aaaf15c707cb455b0b5ec0cbc6207b0f390274573eeb5bc03b07e58',
+    'server.py':'ae1f258b58e25f05fad2008e5fb02b388812c53cba2edb3260543107fea8ad1d',
+    'automation_engine.py':'1c8d6a5400e87c8581e69f849aaa6ab93201339aaf9d4126d2090a181ed5aeb4',
+    'sab_engine.py':'35ae4274200fbcfb9baf4e8f08884f518efb56bf247349fde606e3dc36e55209',
+    'static/app.js':'e43926f79258a9159b8db2cd35dea475e5ae5a4d2489762c0188f52a706551f7',
+    'static/index.html':'0545cc4be9374fa95c90aa10a95676146827b707c3ff3fb8d8454eb5db48ec55',
     'static/styles.css':'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
-    'static/themes.css':'799288a3c1abf86637898881d2f88d652977f7d9a1803a69e61b4a6519beae9a',
-    'build-manifest.json':'ca372b916ea5c3343a34c5ec3a59da0a9270757d54f839968c4b38b9aac9d845',
-    'version.txt':'e08fa63b65c0de91e88bad41a162947e84cc18bf1939e98dde337ea0c2a76dc8',
+    'static/themes.css':'2a44223d165b8e1caa8bc5a52842ce76cf396557e6af59b9ecd2aee8bf6a1721',
+    'build-manifest.json':'d0a54731e665570fb57ed13e18fac80d9382ee59aa41686864bbac143988ad33',
+    'version.txt':'42ec12b7fdaa92e46f5520b70d25ac21f06cf2f4268f25c73270a109ecf05d1b',
 }
 for rel,expected in EXPECTED.items():
-    check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.94 Themes & Color Schemes payload')
+    check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.95 Light Theme Readability Hotfix payload')
 
 server=(APP/'server.py').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
@@ -37,13 +37,13 @@ builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 installer=(ROOT/'release'/'windows'/'NewzDeck.iss').read_text(encoding='utf-8')
 
-check((APP/'version.txt').read_text().strip()=='3.6.94','version.txt mismatch')
-check('APP_VERSION = "3.6.94"' in server,'server version mismatch')
-check("version='3.6.94'" in automation,'Automation version mismatch')
-check('ADAPTER_VERSION = "3.6.94"' in sab,'SAB adapter version mismatch')
-check("const UI_VERSION = '3.6.94';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.94' and manifest.get('base_version')=='3.6.93' and manifest.get('adapter_version')=='3.6.94','manifest lineage mismatch')
-check(manifest.get('release')=='Themes & Color Schemes','release name mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.95','version.txt mismatch')
+check('APP_VERSION = "3.6.95"' in server,'server version mismatch')
+check("version='3.6.95'" in automation,'Automation version mismatch')
+check('ADAPTER_VERSION = "3.6.95"' in sab,'SAB adapter version mismatch')
+check("const UI_VERSION = '3.6.95';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.95' and manifest.get('base_version')=='3.6.94' and manifest.get('adapter_version')=='3.6.95','manifest lineage mismatch')
+check(manifest.get('release')=='Light Theme Readability Hotfix','release name mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 # Night must reconstruct the exact v3.6.93 stylesheet byte-for-byte. The only
@@ -83,8 +83,8 @@ for required in (
     "$('settingsTheme').onchange=()=>applyTheme($('settingsTheme').value)",
 ): check(required in app,'theme behavior marker missing: '+required)
 check('id="settingsTheme"' in index,'Settings theme selector missing')
-check('/themes.css?v=3.6.94-themes-color-schemes' in index,'themes.css cache-busted link missing')
-check('/styles.css?v=3.6.94-themes-color-schemes' in index and '/app.js?v=3.6.94-themes-color-schemes' in index,'theme release cache identity mismatch')
+check('/themes.css?v=3.6.95-light-theme-readability-hotfix' in index,'themes.css cache-busted link missing')
+check('/styles.css?v=3.6.95-light-theme-readability-hotfix' in index and '/app.js?v=3.6.95-light-theme-readability-hotfix' in index,'theme release cache identity mismatch')
 head=index.split('</head>',1)[0]
 check(head.index('newzdeckTheme') < head.index('/styles.css?'),'saved theme is not restored before render-blocking CSS')
 # saveSettingsModal backend payload starts after the theme helpers; a theme property must never be posted.
@@ -117,7 +117,7 @@ for theme in THEMES:
 # Defender-sensitive build behavior remains exactly the v3.6.93 design.
 check('{"path":"src/app/static/themes.css","sha256":sha(APP/\'static\'/\'themes.css\')}' in builder,'themes.css missing from SOURCE_MANIFEST application_source')
 check("'static/themes.css'" in workflow,'canonical Portable validation does not require themes.css')
-check('python release/windows/validate-v3694-regressions.py' in workflow,'canonical workflow does not run v3.6.94 guard')
+check('python release/windows/validate-v3694-regressions.py' in workflow,'canonical workflow does not run v3.6.95 guard')
 check(hashlib.sha256(picker.encode()).hexdigest()=='df8b23aea5b8dfc18f43276759f3ef7d69dbd767e35eb191c133f6d8ffd97f46','folder-only Picker source changed')
 check(hashlib.sha256(yenc.encode()).hexdigest()=='ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd','accepted yEnc source changed')
 for required in ('PICKER_GO_LDFLAGS = "-H windowsgui"','YENC_GO_LDFLAGS = "-H windowsgui"','YENC_ACCEPTED_BINARY_SHA256 = "4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad"'):
@@ -130,4 +130,4 @@ for forbidden in ('def _launch_update_handoff(', 'NewzDeckUpdateHandoff-', 'shut
 check("Exec(AppExe, '--close-app-windows'" in installer and "Exec(Helper, '--close-app-windows'" not in installer,'installer update ownership changed')
 check("$pickerLockSource = Join-Path $env:RUNNER_TEMP 'NewzDeckPickerLockSmoke.go'" in workflow,'v3.6.93 inert Picker-lock smoke was lost')
 check("-ArgumentList @('--taskbar-fix')" not in workflow,'retired Picker taskbar-fix smoke returned')
-print('v3.6.94 Themes & Color Schemes regression guard: PASS (12 palettes, Night exact fallback, contrast and Defender baseline preserved).')
+print('v3.6.95 Light Theme Readability Hotfix regression guard: PASS (12 palettes, Night exact fallback, contrast and Defender baseline preserved).')

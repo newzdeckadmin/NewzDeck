@@ -1,4 +1,4 @@
-NewzDeck v3.6.94 - Themes & Color Schemes
+NewzDeck v3.6.95 - Light Theme Readability Hotfix
 
 This release adds twelve coordinated, user-selectable application color themes while
 preserving the v3.6.93 application layout, sizing, spacing, behavior, native helper
