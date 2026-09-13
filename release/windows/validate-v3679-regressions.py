@@ -18,7 +18,7 @@ index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 _THEME_COLOR_FALLBACK=re.compile(r'var\(--nz-[a-z0-9-]+,(#[0-9a-fA-F]{3,8}|rgba?\([^()]*\)|white)\)')
 styles=_THEME_COLOR_FALLBACK.sub(lambda m:m.group(1),styles)
-check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.95 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
+check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.96 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 sab=load('newzdeck_v3679_sab_guard',APP/'sab_engine.py')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
@@ -30,12 +30,12 @@ def normalized_hash(text, old, new):
 
 marker='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
 phase4='/* v3.6.80 UX Polish Phase 4 - Final Consistency & Accessibility */'
-check(styles.count(marker)==1,'v3.6.95 Phase 3 stylesheet marker count mismatch')
-check(styles.count(phase4)==1,'v3.6.95 Phase 4 stylesheet marker count mismatch')
+check(styles.count(marker)==1,'v3.6.96 Phase 3 stylesheet marker count mismatch')
+check(styles.count(phase4)==1,'v3.6.96 Phase 4 stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
 phase3_body,_phase4_tail=suffix.split(phase4,1)
-check(digest_text(prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','Pre-v3.6.95 stylesheet baseline changed')
-check(digest_text('\n'+marker+phase3_body.rstrip('\n')+'\n')=='0093a6e7cfc7b4a2f120fbd245de23d691baa31551f26b989ebe964f7afc369c','v3.6.95 UX Phase 3 override block changed outside the reviewed payload')
+check(digest_text(prefix.rstrip('\n')+'\n')=='62d5bd56651caa48cf9536f3524cad6b8a26c5dbb978a2d2f7fe24244481eb71','Pre-v3.6.96 stylesheet baseline changed')
+check(digest_text('\n'+marker+phase3_body.rstrip('\n')+'\n')=='0093a6e7cfc7b4a2f120fbd245de23d691baa31551f26b989ebe964f7afc369c','v3.6.96 UX Phase 3 override block changed outside the reviewed payload')
 for required in (
     '--ux-state-success:rgba(90,211,157,.72);',
     '.toast.success{border-left-color:var(--ux-state-success)}',
@@ -99,10 +99,10 @@ for node in tree.body:
     elif isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in wanted: body.append(node)
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3679>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
-check((APP/'version.txt').read_text().strip()=='3.6.95','version.txt mismatch')
-check("const UI_VERSION = '3.6.95'" in app and '3.6.95-light-theme-readability-hotfix' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.95' and manifest.get('base_version')=='3.6.94' and manifest.get('adapter_version')=='3.6.95','build manifest identity mismatch')
-check(manifest.get('release')=='Light Theme Readability Hotfix','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.95' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.96','version.txt mismatch')
+check("const UI_VERSION = '3.6.96'" in app and '3.6.96-library-article-aware-sorting' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.96' and manifest.get('base_version')=='3.6.95' and manifest.get('adapter_version')=='3.6.96','build manifest identity mismatch')
+check(manifest.get('release')=='Library Article-Aware Sorting','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.96' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.95 UX feedback/state-clarity regression guard: PASS')
+print('v3.6.96 UX feedback/state-clarity regression guard: PASS')

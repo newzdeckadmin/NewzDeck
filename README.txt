@@ -1,25 +1,14 @@
-NewzDeck v3.6.95 - Light Theme Readability Hotfix
+NewzDeck v3.6.96 - Library Article-Aware Sorting
 
-This release adds twelve coordinated, user-selectable application color themes while
-preserving the v3.6.93 application layout, sizing, spacing, behavior, native helper
-architecture, and Defender-clean build pipeline.
+NewzDeck is a free and open-source Windows Usenet newsreader, downloader, and personal media automation application.
 
-Themes:
-- Night (the exact v3.6.93 production appearance)
-- Light
-- Midnight
-- Ocean
-- Emerald
-- Amethyst
-- Rosewood
-- Sunset
-- Arctic
-- Graphite
-- Sandstone
-- Aurora
+v3.6.96 changes only Automation library alphabetical presentation: TV Shows and Movies ignore a leading A, An, or The when determining sort order while displaying the original title unchanged.
 
-Open Settings > General > Theme to preview a theme immediately. The selection is kept
-only when Settings is saved and is restored before the UI is painted on later launches.
-Theme preference is local presentation state and is not added to backend configuration.
+Examples:
+  A Knight of the Seven Kingdoms -> K
+  The Legend of Vox Machina -> L
+  An American title -> A (American)
 
-See release/RELEASE_NOTES_v3.6.94.md for details.
+All v3.6.95 themes, download behavior, Automation processing, updater ownership, SABnzbd 5.1.2 integration, and Defender-clean native helper architecture are preserved.
+
+License: GNU GPLv3.

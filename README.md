@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.95** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.96** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.95_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.96_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.95 highlights
+## v3.6.96 highlights
 
-v3.6.95 is a presentation-only readability hotfix for the three light palettes introduced in v3.6.94.
+v3.6.96 makes Automation TV and Movie library sorting more natural without renaming any title or media.
 
-- **Light surfaces are actually light:** Light, Arctic, and Sandstone now use their coordinated light surfaces for search fields, selectors, toolbars, tabs, cards, panels, and other ordinary overlay-derived controls.
-- **True overlays stay dark:** modal backdrops, media viewer surfaces, poster/image badges, playback controls, and image overlays use a separate dark scrim role with high-contrast foregrounds.
-- **Nine palettes are frozen:** Night, Midnight, Ocean, Emerald, Amethyst, Rosewood, Sunset, Graphite, and Aurora are unchanged from v3.6.94.
-- **No behavior/layout changes:** theme persistence, layout, sizing, spacing, Automation, Downloads, Discover, Newsgroup Browser, updater ownership, Picker/yEnc, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31 are unchanged.
+- **Ignore leading articles for placement:** A, An, and The are ignored only when they are complete leading words followed by whitespace.
+- **Examples:** A Knight of the Seven Kingdoms sorts under K; The Legend of Vox Machina sorts under L.
+- **Titles stay canonical:** cards, metadata, library folders, and media filenames keep the original title exactly as before.
+- **Deterministic order:** stripped sort key is followed by the complete displayed title, year, and media id as tie-breakers.
+- **Everything else is frozen:** all v3.6.95 themes/readability fixes, Automation processing, Downloads, Newsgroup Browser, updater ownership, Picker/yEnc, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31 are unchanged.
 
-See [the full v3.6.95 release notes](release/RELEASE_NOTES_v3.6.95.md).
+See [the full v3.6.96 release notes](release/RELEASE_NOTES_v3.6.96.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.95_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.96_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

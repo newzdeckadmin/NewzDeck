@@ -1,12 +1,7 @@
-NewzDeck v3.6.95 update notes
+NewzDeck v3.6.96 update notes
 
-Installed build:
-- Install NewzDeck_v3.6.95_Setup.exe over the existing installation, or use the verified in-app updater from a working v3.6.93 installation.
-- Existing settings, history, queue state, Automation libraries, provider configuration, and downloads remain unchanged.
-- Night is the default theme and preserves the exact v3.6.93 production color appearance.
-- Theme choice is stored locally as presentation state and can be changed from Settings > General > Theme.
+This release is a narrow Automation library sorting update built on the proven v3.6.95 production baseline.
 
-Portable build:
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.95 Portable ZIP contents, then restart NewzDeck.
+After updating, TV Shows and Movies remain displayed with their canonical titles, but alphabetic placement ignores a leading A, An, or The. No library folders, media filenames, monitoring state, quality profiles, downloads, or themes are renamed or migrated.
 
-Persistent data remains under %LOCALAPPDATA%\NewzDeck and is not removed by a normal update.
+The normal in-app verified Setup update path is unchanged.

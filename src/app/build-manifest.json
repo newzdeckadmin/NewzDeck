@@ -1,22 +1,21 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.95",
-  "base_version": "3.6.94",
-  "release": "Light Theme Readability Hotfix",
-  "adapter_version": "3.6.95",
-  "name": "Light Theme Readability Hotfix",
+  "version": "3.6.96",
+  "base_version": "3.6.95",
+  "release": "Library Article-Aware Sorting",
+  "adapter_version": "3.6.96",
+  "name": "Library Article-Aware Sorting",
   "sab_version": "5.1.2",
   "changes": [
-    "Fixes Light, Arctic, and Sandstone so translucent application chrome, search fields, selectors, toolbars, tabs, cards, and other overlay-derived controls use coordinated light surfaces instead of dark Night-style overlays.",
-    "Separates true media/modal scrims from ordinary application surfaces so poster overlays, modal backdrops, playback controls, and the fullscreen viewer remain intentionally dark and readable in the three light themes.",
-    "Keeps Night, Midnight, Ocean, Emerald, Amethyst, Rosewood, Sunset, Graphite, and Aurora color palettes unchanged and preserves all v3.6.94 layout, sizing, spacing, behavior, theme persistence, and backend isolation.",
-    "Preserves the Defender-clean Picker/yEnc build pipeline, direct verified Setup updates, Automation/Wanted/Smart Import, Newsgroup Browser, Discover, Downloads, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31."
+    "Sorts Automation TV Shows and Movies by title while ignoring a leading English article A, An, or The for alphabetical placement.",
+    "Keeps the original title text unchanged everywhere; only the temporary library sort key ignores the leading article.",
+    "Uses the full displayed title, then year and media id as deterministic tie-breakers when article-stripped sort keys are equal.",
+    "Preserves all v3.6.95 themes, layout, Automation behavior beyond library presentation order, downloading, updater ownership, and Defender-clean native helper architecture."
   ],
   "regression_guards": [
-    "Only Light, Arctic, and Sandstone may change palette semantics; all nine dark theme palette blocks must remain byte-for-byte equivalent to v3.6.94.",
-    "The three light themes must route ordinary overlay-derived UI surfaces through their coordinated light surface palette and maintain readable text/control contrast.",
-    "True modal/media/image scrims must use a separate dark scrim role with explicit high-contrast text instead of reusing ordinary light-surface overlay roles.",
-    "Night fallback reconstruction must still match the exact v3.6.93 stylesheet and all twelve theme identities/persistence behaviors remain unchanged.",
-    "The Defender-clean folder-only Picker, accepted yEnc helper, direct verified-Setup updater, and installed-upgrade smoke architecture remain unchanged."
+    "A Knight of the Seven Kingdoms sorts under Knight, The Legend of Vox Machina sorts under Legend, and An American title sorts under American.",
+    "Only whole leading A, An, or The words followed by whitespace are ignored; titles such as Theodore and Annihilation are not modified for sorting.",
+    "Visible TV and Movie titles remain unchanged and both Automation library tabs continue to use the shared comparator.",
+    "v3.6.95 styles.css, themes.css, theme persistence/readability, backend Automation logic, and Defender-clean Picker/yEnc/update architecture remain unchanged."
   ]
 }

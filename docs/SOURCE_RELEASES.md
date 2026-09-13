@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.95
+## Current release: v3.6.96
 
-**v3.6.95 is the current stable production release.**
+**v3.6.96 is the current stable production release.**
 
-The `v3.6.95` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.96` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.96 - Library Article-Aware Sorting.** Sorts Automation TV Shows and Movies using the title after a leading A, An, or The while keeping the visible/canonical title unchanged and preserving the v3.6.95 production baseline.
 
 - **v3.6.95 - Light Theme Readability Hotfix.** Corrects Light, Arctic, and Sandstone by separating ordinary light UI surfaces from true dark media/modal scrims while freezing all nine dark palettes and preserving application behavior.
 

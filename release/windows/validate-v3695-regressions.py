@@ -7,17 +7,17 @@ def check(c,m):
     if not c: raise AssertionError(m)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 EXPECTED={
-    'server.py': 'ae1f258b58e25f05fad2008e5fb02b388812c53cba2edb3260543107fea8ad1d',
-    'automation_engine.py': '1c8d6a5400e87c8581e69f849aaa6ab93201339aaf9d4126d2090a181ed5aeb4',
-    'sab_engine.py': '35ae4274200fbcfb9baf4e8f08884f518efb56bf247349fde606e3dc36e55209',
-    'static/app.js': 'e43926f79258a9159b8db2cd35dea475e5ae5a4d2489762c0188f52a706551f7',
-    'static/index.html': '0545cc4be9374fa95c90aa10a95676146827b707c3ff3fb8d8454eb5db48ec55',
+    'server.py': 'cf095fa4af834c60d050e56e90aacbddf3d26b2e7e672e1938766725b97a17db',
+    'automation_engine.py': '5880a9747dbe5ef4be2bc17685119d82155c1f688d3d10b04ee5c9b1c0513e39',
+    'sab_engine.py': '56e5a089f26cfdd3a2b6e40e1838973194220687c191de14f91e1f6953be42c3',
+    'static/app.js': '42f5c835e9435b7ceba0ae4664326813c803718de3c9f2dfe6430a40b87c1845',
+    'static/index.html': '7c1f68a8aa7b7e6441d142592f6f198dbe8331c2e6dd5c60d4952d1d236296ad',
     'static/styles.css': 'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
     'static/themes.css': '2a44223d165b8e1caa8bc5a52842ce76cf396557e6af59b9ecd2aee8bf6a1721',
-    'build-manifest.json': 'd0a54731e665570fb57ed13e18fac80d9382ee59aa41686864bbac143988ad33',
-    'version.txt': '42ec12b7fdaa92e46f5520b70d25ac21f06cf2f4268f25c73270a109ecf05d1b'
+    'build-manifest.json': '623006d630ae88ec859e371561e69e46daeebc55f7c8417847015799e720e1f8',
+    'version.txt': '44a1fcae929eb12521b0218135694ad3d84f616ba88ff4914fa1e8ffb45617ea'
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.95 Light Theme Readability Hotfix payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.96 Library Article-Aware Sorting payload')
 server=(APP/'server.py').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 sab=(APP/'sab_engine.py').read_text(encoding='utf-8')
@@ -31,16 +31,16 @@ yenc=(ROOT/'src'/'windows'/'NewzDeckYenc.go').read_text(encoding='utf-8')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 installer=(ROOT/'release'/'windows'/'NewzDeck.iss').read_text(encoding='utf-8')
-check((APP/'version.txt').read_text().strip()=='3.6.95','version.txt mismatch')
-check('APP_VERSION = "3.6.95"' in server,'server version mismatch')
-check("version='3.6.95'" in automation,'Automation version mismatch')
-check('ADAPTER_VERSION = "3.6.95"' in sab,'SAB adapter version mismatch')
-check("const UI_VERSION = '3.6.95';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.95' and manifest.get('base_version')=='3.6.94' and manifest.get('adapter_version')=='3.6.95','manifest lineage mismatch')
-check(manifest.get('release')=='Light Theme Readability Hotfix','release name mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.96','version.txt mismatch')
+check('APP_VERSION = "3.6.96"' in server,'server version mismatch')
+check("version='3.6.96'" in automation,'Automation version mismatch')
+check('ADAPTER_VERSION = "3.6.96"' in sab,'SAB adapter version mismatch')
+check("const UI_VERSION = '3.6.96';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.96' and manifest.get('base_version')=='3.6.95' and manifest.get('adapter_version')=='3.6.96','manifest lineage mismatch')
+check(manifest.get('release')=='Library Article-Aware Sorting','release name mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
-# v3.6.95 is deliberately presentation-only. The underlying tokenized stylesheet
+# v3.6.95 was deliberately presentation-only. The underlying tokenized stylesheet
 # remains byte-for-byte v3.6.94; only themes.css semantics for the three light
 # palettes plus identity/cache metadata may change.
 check(hashlib.sha256(styles.encode()).hexdigest()=='ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d','styles.css changed in light-theme-only hotfix')
@@ -104,7 +104,7 @@ for theme in LIGHT:
 # Theme registry/persistence behavior and backend isolation remain v3.6.94.
 for required in ("const THEME_STORAGE_KEY = 'newzdeckTheme';","const LIGHT_THEME_IDS = new Set(['light','arctic','sandstone']);",'function applyTheme(value,{persist=false}={})',"localStorage.setItem(THEME_STORAGE_KEY,theme)"):
     check(required in app,'theme behavior changed: '+required)
-check('/themes.css?v=3.6.95-light-theme-readability-hotfix' in index and '/styles.css?v=3.6.95-light-theme-readability-hotfix' in index and '/app.js?v=3.6.95-light-theme-readability-hotfix' in index,'hotfix cache identity mismatch')
+check('/themes.css?v=3.6.96-library-article-aware-sorting' in index and '/styles.css?v=3.6.96-library-article-aware-sorting' in index and '/app.js?v=3.6.96-library-article-aware-sorting' in index,'hotfix cache identity mismatch')
 check('newzdeckTheme' not in server and 'newzdeckTheme' not in automation and 'newzdeckTheme' not in sab,'theme preference leaked into backend')
 
 # Defender-clean/update architecture stays frozen.
@@ -118,5 +118,5 @@ for required in ('def _launch_verified_setup_update(', 'def _schedule_verified_s
 for forbidden in ('def _launch_update_handoff(', 'NewzDeckUpdateHandoff-', 'shutil.copy2(PICKER_HELPER_EXE'):
     check(forbidden not in server,'legacy copied update handoff returned: '+forbidden)
 check("Exec(AppExe, '--close-app-windows'" in installer and "Exec(Helper, '--close-app-windows'" not in installer,'installer update ownership changed')
-check('python release/windows/validate-v3695-regressions.py' in workflow,'canonical workflow does not run v3.6.95 guard')
-print('v3.6.95 Light Theme Readability Hotfix regression guard: PASS (three light palettes corrected; nine dark palettes and Defender baseline frozen).')
+check('python release/windows/validate-v3695-regressions.py' in workflow,'canonical workflow does not run v3.6.96 guard')
+print('v3.6.96 Library Article-Aware Sorting regression guard: PASS (three light palettes corrected; nine dark palettes and Defender baseline frozen).')
