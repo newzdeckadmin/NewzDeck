@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.6.91';
+const UI_VERSION = '3.6.92';
 const $ = (id) => document.getElementById(id);
 const els = {
   providerSelect:$('providerSelect'), providerDot:$('providerDot'), groupsList:$('groupsList'), groupHint:$('groupHint'),
@@ -2540,10 +2540,9 @@ async function checkOnlineUpdates(force=false,{quiet=false}={}){
 }
 function beginManagedUpdateUiExit(resultEl,message){
   if(resultEl){resultEl.className='test-result';resultEl.textContent=message||'Update ready. Closing NewzDeck and handing off to Setup…'}
-  // The native update coordinator closes the actual Edge/Chrome app-mode window.
-  // window.close() is an immediate best-effort path so the UI disappears before
-  // Setup appears; the native WM_CLOSE path remains authoritative if Chromium
-  // declines a script-requested close.
+  // v3.6.92 launches the checksum-verified Setup directly. window.close() is an
+  // immediate best-effort path; Setup invokes the installed NewzDeck launcher
+  // after overlay to close any Chromium app-mode window that remains open.
   setTimeout(()=>{try{window.close()}catch{}},180);
 }
 async function installOnlineUpdate(){

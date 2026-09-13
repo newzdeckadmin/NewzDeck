@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.91** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.92** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.91_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.92_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.91 highlights
+## v3.6.92 highlights
 
-v3.6.91 completes the Windows Defender Picker packaging remediation after the v3.6.90 canonical workflow correctly stopped on obsolete historical whole-builder fingerprint guards.
+v3.6.92 removes the Defender-sensitive copied update-handoff executable and reduces `NewzDeckPicker.exe` to one job: native Windows folder selection.
 
-- **Picker compatibility preserved:** `NewzDeckPicker.exe` keeps the v3.6.90 normal-metadata `-H windowsgui` build; `NewzDeckPicker.go` behavior is unchanged.
-- **Historical guards repaired:** the v3.6.79/v3.6.80 regression checks now validate protected yEnc/Picker helper invariants instead of pinning the entire old v3.6.78 `build-portable.py` blob.
-- **Release gate stays strict:** native Python/Node/Go failures remain fatal, canonical LF checkout remains enforced, and the built Picker must retain a normal Go build ID and symbol table.
-- **Application behavior preserved:** Automation, Wanted, Smart Import, Newsgroup Browser, downloads, and SABnzbd 5.1.2 behavior are unchanged apart from version identity.
-- **Defender-clean yEnc preserved:** the existing pinned LF/Linux `NewzDeckYenc.exe` compatibility path is unchanged.
+- **Direct verified Setup updates:** About & Updates still verifies the published SHA-256, then launches the staged Setup EXE directly instead of copying/renaming Picker into `%LOCALAPPDATA%\NewzDeck\updates`.
+- **Folder-picker-only helper:** Picker no longer contains update coordination, process launching, browser-window control, taskbar compatibility, or elevation behavior.
+- **Setup-owned upgrade path:** Setup never executes Picker during upgrade. After overlay it uses `NewzDeck.exe --close-app-windows`, restores service/tray state, and relaunches normally.
+- **One-time manual upgrade note:** users whose older Picker is already blocked by Defender should manually run the v3.6.92 Setup once; future in-app updates use the new direct-Setup path.
+- **Core behavior preserved:** SABnzbd 5.1.2, Automation, Wanted, Smart Import, Discover, Newsgroup Browser, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, and the accepted yEnc helper remain unchanged.
 
-See [the full v3.6.91 release notes](release/RELEASE_NOTES_v3.6.91.md).
+See [the full v3.6.92 release notes](release/RELEASE_NOTES_v3.6.92.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.91_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.92_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -1,23 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.91",
-  "base_version": "3.6.90",
-  "release": "Defender Picker Release Gate Compatibility Fix",
-  "adapter_version": "3.6.91",
-  "name": "Defender Picker Release Gate Compatibility Fix",
+  "version": "3.6.92",
+  "base_version": "3.6.91",
+  "release": "Defender Handoff Reduction & Picker Simplification",
+  "adapter_version": "3.6.92",
+  "name": "Defender Handoff Reduction & Picker Simplification",
   "sab_version": "5.1.2",
   "changes": [
-    "Completes the Windows Defender Picker packaging hotfix after the first v3.6.90 canonical workflow correctly stopped on obsolete historical whole-builder fingerprint guards.",
-    "Carries forward the v3.6.90 NewzDeckPicker.exe normal-metadata -H windowsgui build unchanged; NewzDeckPicker.go behavior remains byte-for-byte unchanged.",
-    "Updates the v3.6.79 and v3.6.80 historical release guards to validate the accepted yEnc and Picker helper invariants instead of pinning the entire pre-Picker build-portable.py blob.",
-    "Adds a v3.6.91 regression guard proving the obsolete whole-builder blob pins are gone while the yEnc/default routing expression, Picker build override, native failure propagation and LF checkout protections remain enforced.",
-    "Preserves all v3.6.89 application behavior and the v3.6.90 Windows build hardening; this release changes release-gate compatibility plus version identity only."
+    "Removes the copied NewzDeckUpdateHandoff executable from About & Updates; the checksum-verified Setup EXE is now launched directly in the signed-in Windows session.",
+    "Reduces NewzDeckPicker.exe to folder-selection duties only. Update handoff, browser-window control, process launching, and taskbar compatibility modes are removed from Picker source.",
+    "Moves the narrow --close-app-windows maintenance mode to the already-installed NewzDeck launcher, which already owns Chromium app-window discovery for taskbar identity.",
+    "Updates Setup so it never launches NewzDeckPicker.exe during upgrade. After file overlay, Setup asks the new launcher to close any remaining NewzDeck Chromium app window, then restores service/tray state and relaunches normally.",
+    "Preserves SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, Automation/Wanted/Smart Import behavior, Newsgroup Browser behavior, and the Defender-accepted yEnc helper pipeline."
   ],
   "regression_guards": [
-    "NewzDeckPicker.go remains the reviewed c2552887 Git blob and NewzDeckYenc.go remains the reviewed 38f6df7e Git blob.",
-    "build-portable.py must retain PICKER_GO_LDFLAGS = -H windowsgui, the Picker-first helper routing, and the historical yEnc/default routing expression.",
-    "validate-v3679-regressions.py and validate-v3680-regressions.py may no longer pin the obsolete v3.6.78 whole-builder blob hash.",
-    "The canonical workflow still makes native Python/Node/Go failures fatal and validates Picker build ID/symbol retention before release publication.",
-    "All v3.6.82-v3.6.90 application regressions are carried forward with v3.6.91 payload fingerprints."
+    "NewzDeckPicker.go must remain folder-picker-only and may not contain --update-handoff, --close-app-windows, os/exec, ShellExecuteExW, or browser/process enumeration code.",
+    "server.py may not create or execute NewzDeckUpdateHandoff temporary executables; verified online updates must launch the staged Setup directly.",
+    "NewzDeck.iss may not execute NewzDeckPicker.exe during upgrade; post-overlay browser-window close must use NewzDeck.exe --close-app-windows.",
+    "NewzDeckLauncher.go must retain the bounded --close-app-windows mode and the existing taskbar/window ownership logic.",
+    "The Picker retains normal Go build metadata (-H windowsgui) while the pinned Defender-accepted yEnc LF/Linux binary remains unchanged."
   ]
 }

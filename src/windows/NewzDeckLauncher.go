@@ -101,6 +101,7 @@ var procCoUninitialize = ole32.NewProc("CoUninitialize")
 
 const (
 	taskbarProcessQueryLimitedInformation = 0x1000
+	taskbarWMClose                        = 0x0010
 	taskbarWMSetIcon                      = 0x0080
 	taskbarIconSmall                      = 0
 	taskbarIconBig                        = 1
@@ -229,6 +230,50 @@ func taskbarBrowserWindows() map[uintptr]bool {
 	})
 	procEnumWindows.Call(cb, 0)
 	return found
+}
+
+func isNewzDeckBrowserTitle(title string) bool {
+	low := strings.ToLower(strings.TrimSpace(title))
+	return low == "newzdeck" ||
+		strings.HasPrefix(low, "newzdeck -") ||
+		strings.HasPrefix(low, "newzdeck v") ||
+		strings.HasSuffix(low, " - newzdeck") ||
+		strings.HasSuffix(low, " | newzdeck")
+}
+
+func closeNewzDeckBrowserWindows(start time.Time) int {
+	seen := 0
+	closePass := func() int {
+		remaining := 0
+		for hwnd := range taskbarBrowserWindows() {
+			if !isNewzDeckBrowserTitle(taskbarWindowTitle(hwnd)) {
+				continue
+			}
+			remaining++
+			seen++
+			var ignored uintptr
+			procSendMessageTimeoutW.Call(hwnd, taskbarWMClose, 0, 0, taskbarSMTOAbortIfHung, 1000, uintptr(unsafe.Pointer(&ignored)))
+		}
+		return remaining
+	}
+	closePass()
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		remaining := 0
+		for hwnd := range taskbarBrowserWindows() {
+			if isNewzDeckBrowserTitle(taskbarWindowTitle(hwnd)) {
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			logLine(start, "close-app-windows completed; signaled %d NewzDeck browser window(s)", seen)
+			return 0
+		}
+		closePass()
+		time.Sleep(100 * time.Millisecond)
+	}
+	logLine(start, "close-app-windows timed out while NewzDeck browser window remained")
+	return 1
 }
 
 func taskbarApplyWindowIdentity(hwnd uintptr) error {
@@ -811,6 +856,11 @@ func fatal(start time.Time, format string, args ...any) {
 
 func main() {
 	started := time.Now()
+	for _, arg := range os.Args[1:] {
+		if arg == "--close-app-windows" {
+			os.Exit(closeNewzDeckBrowserWindows(started))
+		}
+	}
 	taskbarSetCurrentAUMID(started, "NewzDeck.Desktop")
 	version := localVersion()
 	if version == "" {

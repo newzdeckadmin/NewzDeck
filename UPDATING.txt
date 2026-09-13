@@ -1,10 +1,11 @@
-NewzDeck v3.6.91 update notes
+NewzDeck v3.6.92 update notes
 
 Installed build
-- Run NewzDeck_v3.6.91_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
-- The installer is designed to stop/restart NewzDeck-owned runtime components automatically.
+- If Microsoft Defender blocks the in-app updater on v3.6.91 or an older affected build, download and run NewzDeck_v3.6.92_Setup.exe manually for this one upgrade.
+- v3.6.92 Setup no longer launches NewzDeckPicker.exe during upgrade.
+- After v3.6.92 is installed, About & Updates launches the checksum-verified Setup EXE directly instead of creating a temporary copied handoff executable.
 
 Portable build
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.91 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.92 Portable ZIP contents, then restart NewzDeck.
 
-No settings reset, library rescan, or cache clearing is required for this packaging hotfix.
+No settings reset, library rescan, or cache clearing is required.

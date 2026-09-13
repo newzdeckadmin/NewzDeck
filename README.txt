@@ -1,10 +1,14 @@
-NewzDeck v3.6.91 - Defender Picker Release Gate Compatibility Fix
+NewzDeck v3.6.92 - Defender Handoff Reduction & Picker Simplification
 
-This release completes the Windows Defender Picker packaging remediation after the v3.6.90
-canonical workflow correctly stopped on obsolete historical whole-builder fingerprint guards.
+This release removes the Defender-sensitive copied update-handoff executable and reduces
+NewzDeckPicker.exe to folder-selection duties only. About & Updates now launches the
+checksum-verified Setup EXE directly, and Setup no longer executes Picker during upgrade.
 
-NewzDeckPicker.go application behavior is unchanged. The normal-metadata -H windowsgui Picker
-build, Defender-clean yEnc pipeline, Automation/Wanted/Smart Import behavior, SABnzbd 5.1.2,
-Metadata Server v0.3.3, and Diagnostic Collector v1.0.31 are preserved.
+Users upgrading from v3.6.91 or another build whose old Picker is blocked by Microsoft
+Defender should run NewzDeck_v3.6.92_Setup.exe manually once. Future updates from v3.6.92
+use the direct verified-Setup path.
 
-See release/RELEASE_NOTES_v3.6.91.md for details.
+SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, Automation, Wanted,
+Smart Import, Newsgroup Browser behavior, and the accepted yEnc helper are preserved.
+
+See release/RELEASE_NOTES_v3.6.92.md for details.

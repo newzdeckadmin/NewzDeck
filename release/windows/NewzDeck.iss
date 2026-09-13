@@ -298,32 +298,6 @@ begin
   Sleep(750);
 end;
 
-function CloseExistingAppWindowForUpgrade(): String;
-var
-  Helper: String;
-  ResultCode: Integer;
-begin
-  Result := '';
-  if not UpdateMode then
-    Exit;
-
-  Helper := ExpandConstant('{app}\NewzDeckPicker.exe');
-  if not FileExists(Helper) then
-  begin
-    Log('Existing NewzDeckPicker.exe is unavailable; Setup will retry the browser-window close after file overlay.');
-    Exit;
-  end;
-
-  if not Exec(Helper, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-  begin
-    Log('Setup could not launch the existing NewzDeckPicker.exe before overlay; Setup will retry after file overlay.');
-    Exit;
-  end;
-
-  Log('Pre-overlay NewzDeck browser-window close helper exit=' + IntToStr(ResultCode));
-  Sleep(300);
-end;
-
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
@@ -331,13 +305,6 @@ begin
   ServiceWasInstalled := ServiceInstalled();
   TrayWasRunning := FindWindowByClassName('NewzDeckTrayWindow') <> 0;
   TrayAutostartWasEnabled := RegValueExists(HKCU, TrayRunKey, TrayRunValue);
-
-  { The visible NewzDeck UI belongs to Edge/Chrome, not NewzDeck.exe. Run the
-    currently installed native helper from Setup's signed-in user session before
-    any application/service files are replaced. }
-  Result := CloseExistingAppWindowForUpgrade();
-  if Result <> '' then
-    Exit;
 
   { Close the signed-in-user tray companion and wait for the real process to
     exit before Inno's Restart Manager/file overlay work begins. }
@@ -398,23 +365,26 @@ end;
 
 procedure CloseInstalledAppWindowForUpdate();
 var
-  Helper: String;
+  AppExe: String;
   ResultCode: Integer;
 begin
   if not UpdateMode then
     Exit;
 
-  Helper := ExpandConstant('{app}\NewzDeckPicker.exe');
-  if not FileExists(Helper) then
+  { v3.6.92: Picker is deliberately folder-only. After the new files are overlaid,
+    ask the installed launcher (which already owns Chromium window discovery for
+    taskbar identity) to close any stale NewzDeck app-mode browser window. }
+  AppExe := ExpandConstant('{app}\NewzDeck.exe');
+  if not FileExists(AppExe) then
   begin
-    Log('Updated NewzDeckPicker.exe is unavailable; the browser-hosted app window could not be closed by Setup.');
+    Log('Updated NewzDeck.exe is unavailable; the stale browser-hosted app window could not be closed by Setup.');
     Exit;
   end;
 
-  if not Exec(Helper, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    Log('Setup could not launch NewzDeckPicker.exe to close the browser-hosted app window.')
+  if not Exec(AppExe, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Log('Setup could not launch NewzDeck.exe to close the browser-hosted app window.')
   else
-    Log('NewzDeck browser-window close helper exit=' + IntToStr(ResultCode));
+    Log('NewzDeck browser-window close mode exit=' + IntToStr(ResultCode));
 
   Sleep(300);
 end;

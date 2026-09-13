@@ -42,8 +42,9 @@ def run(cmd, **kw):
 
 def helper_ldflags(exe: str) -> str:
     # Defender compatibility is intentionally scoped to helpers with observed
-    # machine-learning false positives. Picker is routed first while the accepted
-    # v3.6.75 yEnc/default expression is preserved verbatim for historical guards.
+    # machine-learning false positives. v3.6.92 also reduces Picker source to
+    # folder selection only while preserving normal Go metadata and the accepted
+    # v3.6.75 yEnc/default expression.
     if exe == "NewzDeckPicker.exe": return PICKER_GO_LDFLAGS
     return YENC_GO_LDFLAGS if exe == "NewzDeckYenc.exe" else DEFAULT_GO_LDFLAGS
 
@@ -111,8 +112,8 @@ def write_manifest(stage: pathlib.Path, version: str, prebuilt_yenc: pathlib.Pat
                 "build_origin":"linux-lf-prebuilt" if prebuilt_yenc else "local-source-build"
             },
             "NewzDeckPicker.exe":{
-                "purpose":"Windows Defender compatibility",
-                "source_behavior_changed":False,
+                "purpose":"Windows Defender false-positive reduction and folder-picker-only scope",
+                "source_behavior_changed":True,
                 "go":"1.23.2",
                 "goos":"windows",
                 "goarch":"amd64",

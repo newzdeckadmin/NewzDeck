@@ -11,16 +11,16 @@ def load(name,path):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'94f849feb0d8aa35ccec16ab8ad8c041bc07acffe94e8f08fc107fea0ebf77ae',
-    'automation_engine.py':'c52d5f93ba6ad24a1045ebda49a2b1973d9fdd43d6e56e973dd0404ff8b5ede7',
-    'sab_engine.py':'c899f3d39de00ee5c43f22f1cb0cdef3009449274789753ea4a97d37b864e77c',
-    'static/app.js':'8932e47cbbc06e965c2bf02692bab72107179a53a20038d9594dd2a3ee6d781f',
-    'static/index.html':'bf357570e16584b46a9ee42a5e103457f4612afd04f3d1cecf269e2db9276ea8',
+    'server.py':'357858ad4cd91505fcff16078c40a767f6ed94d4d57be23e4d1de7020bf58975',
+    'automation_engine.py':'139b9ecd44f9b53566beb2eee34efdc9cf2167f1fa050ce3c18feb3af893b87f',
+    'sab_engine.py':'8f035c1fb872d17b076a5de47de7c998a402cdba3d0d3c62b33cee9c223c1ab9',
+    'static/app.js':'bef3b27dd8504af32bda95eb4382cfc3c84e15c368c70adf06ff7ae58f5afb8f',
+    'static/index.html':'19c1c1f45473756bea4ebe5a45ed79a42107e5b3f4acd8e152419f86849b5ce4',
     'static/styles.css':'ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2',
-    'build-manifest.json':'51d1981e1cada1d63276409977fddc33379d523ef13199e6fc1e8450421b895a',
-    'version.txt':'21a15ffafda3766bf34259e3defea1a151f7c980e409a8a4a9c70b357d504c36',
+    'build-manifest.json':'cba40b9f4d17e7ff0b4470cb2f67c4d070da44884577011158df4fd81d7613e5',
+    'version.txt':'5f092e5c32d95689840a26f5e7cfc0e62bd09eced00236d0d073d1122bd14486',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.91 payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.92 payload')
 
 auto=load('newzdeck_v3689_automation_guard',APP/'automation_engine.py')
 server=(APP/'server.py').read_text(encoding='utf-8')
@@ -30,13 +30,13 @@ styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
-check((APP/'version.txt').read_text().strip()=='3.6.91','version.txt mismatch')
-check('APP_VERSION = "3.6.91"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.91';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.91' and manifest.get('base_version')=='3.6.90' and manifest.get('adapter_version')=='3.6.91','build manifest lineage mismatch')
-check(manifest.get('release')=='Defender Picker Release Gate Compatibility Fix','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.92','version.txt mismatch')
+check('APP_VERSION = "3.6.92"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.92';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.92' and manifest.get('base_version')=='3.6.91' and manifest.get('adapter_version')=='3.6.92','build manifest lineage mismatch')
+check(manifest.get('release')=='Defender Handoff Reduction & Picker Simplification','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
-check('v=3.6.91-defender-picker-release-gate-compatibility-fix' in index,'v3.6.89 asset cache identity missing')
+check('v=3.6.92-defender-handoff-reduction-picker-simplification' in index,'v3.6.89 asset cache identity missing')
 check(sha(APP/'static'/'styles.css')=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','frozen stylesheet changed')
 
 for required in (
@@ -56,7 +56,7 @@ false_probe={'resolution':'2160p','video_codec':'HEVC/x265','hdr':'Unknown','aud
 def make_engine(label:str):
     root=Path(tempfile.mkdtemp(prefix=f'newzdeck-v3689-{label}-'))
     data=root/'data'; data.mkdir(); tvroot=root/'TV'; tvroot.mkdir()
-    engine=auto.MediaAutomationEngine(data,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.91')
+    engine=auto.MediaAutomationEngine(data,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.92')
     (data/'quality-profiles.json').write_text(json.dumps([p4]),encoding='utf-8')
     (data/'media-automation-config.json').write_text(json.dumps({'tv_roots':[str(tvroot)],'movie_roots':[],'plex_organize_enabled':True,'plex_cleanup_staging':False}),encoding='utf-8')
     engine._probe_media_traits=lambda _path:dict(false_probe)

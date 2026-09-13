@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.91"
+APP_VERSION = "3.6.92"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -1227,73 +1227,47 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
             return {**coherent(cached, cached_result=True), "feed_error": str(exc), "checked_at": float(cached.get("checked_at") or 0)}
         return {**base, "feed_error": str(exc)}
 
-def _launch_update_handoff(staged: Path, *, target_version: str = "") -> None:
-    """Start a short-lived user-session coordinator that owns the whole update handoff.
+def _launch_verified_setup_update(staged: Path, *, target_version: str = "") -> None:
+    """Launch the verified NewzDeck Setup directly in the signed-in Windows session.
 
-    NewzDeck.exe launches the Chromium app window detached, so Inno Restart Manager
-    cannot close the visible UI by targeting NewzDeck.exe. Copy the native Picker
-    helper outside {app}, let it close NewzDeck's app/tray windows, wait for Setup,
-    then restore the service/tray/app after Setup exits. The copied coordinator
-    survives replacement of the installed NewzDeckPicker.exe during the update.
+    v3.6.92 deliberately removes the copied Picker/update-coordinator executable.
+    Setup owns browser-window shutdown, tray/service maintenance, file overlay, runtime
+    restoration, and relaunch. This keeps NewzDeckPicker.exe folder-picker-only and
+    avoids creating a renamed executable in the per-user update staging directory.
     """
     if sys.platform != "win32":
         raise ValueError("In-app installation is currently available on Windows only")
-    if not PICKER_HELPER_EXE.exists():
-        raise ValueError("NewzDeckPicker.exe is missing. Reinstall NewzDeck to repair the update handoff helper.")
-    UPDATE_DIR.mkdir(parents=True, exist_ok=True)
-    for old in UPDATE_DIR.glob("NewzDeckUpdateHandoff-*.exe"):
-        try:
-            if time.time() - old.stat().st_mtime > 3600:
-                old.unlink(missing_ok=True)
-        except OSError:
-            pass
-    handoff = UPDATE_DIR / f"NewzDeckUpdateHandoff-{int(time.time())}-{os.getpid()}.exe"
-    shutil.copy2(PICKER_HELPER_EXE, handoff)
-    service_installed = _service_query_status() != "not_installed"
-    tray_recent = False
-    try:
-        tray_recent = TRAY_HEARTBEAT_FILE.exists() and time.time() - TRAY_HEARTBEAT_FILE.stat().st_mtime <= 15
-    except OSError:
-        tray_recent = False
-    restore_tray = bool(service_installed or tray_recent or _tray_autostart_enabled())
-    args = [
-        "--update-handoff",
-        "--setup", str(staged),
-        "--app-dir", str(APP_DIR),
-        "--user-root", str(USER_ROOT),
-        "--version", str(target_version or APP_VERSION),
-        "--restore-service", "1" if service_installed else "0",
-        "--restore-tray", "1" if restore_tray else "0",
-    ]
+    staged = Path(staged)
+    if not staged.is_file():
+        raise ValueError("The verified NewzDeck Setup installer is missing from the update staging folder")
+    args = ["/update", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS"]
     launched = False
     if SERVICE_MODE:
-        launched = _launch_process_in_active_user_session(str(handoff), subprocess.list2cmdline(args))
+        launched = _launch_process_in_active_user_session(str(staged), subprocess.list2cmdline(args))
     else:
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-        subprocess.Popen([str(handoff)] + args, cwd=str(UPDATE_DIR), creationflags=flags)
+        subprocess.Popen([str(staged)] + args, cwd=str(staged.parent))
         launched = True
     if not launched:
-        try:
-            handoff.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise ValueError("Windows could not launch the NewzDeck update handoff in the signed-in desktop session")
+        raise ValueError("Windows could not launch the verified NewzDeck Setup in the signed-in desktop session")
 
-def _schedule_update_handoff(staged: Path, *, target_version: str, server_obj=None) -> None:
+def _schedule_verified_setup_update(staged: Path, *, target_version: str, server_obj=None) -> None:
     def run():
-        # Return the API response first so the browser can paint the handoff state.
+        # Return the API response first so Chromium can paint the update state.
         time.sleep(0.8)
         try:
-            _launch_update_handoff(staged, target_version=target_version)
+            _launch_verified_setup_update(staged, target_version=target_version)
             if not SERVICE_MODE and server_obj is not None:
+                # Setup now owns the visible-window close; relinquish the desktop
+                # backend shortly after Setup starts so the overlay cannot leave a
+                # stale same-version Python process behind.
                 time.sleep(1.4)
                 try:
                     server_obj.shutdown()
                 except Exception:
                     pass
         except Exception as exc:
-            safe_print("Update handoff failed:", repr(exc))
-    threading.Thread(target=run, name="newzdeck-update-handoff", daemon=True).start()
+            safe_print("Direct Setup update launch failed:", repr(exc))
+    threading.Thread(target=run, name="newzdeck-direct-setup-update", daemon=True).start()
 
 def download_verified_online_update() -> dict[str, Any]:
     status = online_update_status(force=True)
@@ -14260,8 +14234,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             staged = Path(str(result.get("path") or ""))
             if not staged.exists():
                 raise ValueError("The verified update installer could not be staged")
-            _schedule_update_handoff(staged, target_version=str(result.get("version") or APP_VERSION), server_obj=self.server)
-            result = {**result, "handoff": True, "message": f"NewzDeck v{result.get('version')} verified. NewzDeck will close, update, restore its background runtime, and reopen automatically."}
+            _schedule_verified_setup_update(staged, target_version=str(result.get("version") or APP_VERSION), server_obj=self.server)
+            result = {**result, "handoff": True, "message": f"NewzDeck v{result.get('version')} verified. Setup will open directly, close NewzDeck, update it, restore the background runtime, and reopen automatically."}
         return self._json(200, result)
 
     def update_install_api(self):
@@ -14287,8 +14261,8 @@ class AppHandler(SimpleHTTPRequestHandler):
         UPDATE_DIR.mkdir(parents=True, exist_ok=True)
         staged = UPDATE_DIR / f"NewzDeckSetup-{int(time.time())}.exe"
         staged.write_bytes(raw)
-        _schedule_update_handoff(staged, target_version="", server_obj=self.server)
-        return self._json(200, {"ok": True, "handoff": True, "message": "Update verified. NewzDeck will close, update, restore its background runtime, and reopen automatically."})
+        _schedule_verified_setup_update(staged, target_version="", server_obj=self.server)
+        return self._json(200, {"ok": True, "handoff": True, "message": "Update staged. Setup will open directly, close NewzDeck, update it, restore the background runtime, and reopen automatically."})
 
     def settings_api(self, data: dict[str, Any]):
         global DOWNLOAD_DIR

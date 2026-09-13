@@ -227,10 +227,8 @@ jobs:
             "RunElevatedAndWait(Helper, 'stop'",
             'RepairAndStartExistingService',
             "Params := 'install --user-root '",
-            'CloseExistingAppWindowForUpgrade',
-            'Result := CloseExistingAppWindowForUpgrade();',
             'CloseInstalledAppWindowForUpdate',
-            "Exec(Helper, '--close-app-windows'",
+            "Exec(AppExe, '--close-app-windows'",
             'RestoreTrayAfterInstall',
             'RelaunchAppAfterUpdate',
             'else if CurStep = ssDone then'
@@ -251,17 +249,41 @@ jobs:
 
           $picker = Get-Content -LiteralPath 'src/windows/NewzDeckPicker.go' -Raw
           foreach ($required in @(
-            'Setup completed; installer owned runtime restore',
-            'strings.HasSuffix(low, " - newzdeck")',
-            'strings.HasSuffix(low, " | newzdeck")'
+            'func chooseFolder(',
+            'procSHBrowseForFolderW',
+            '--result-file',
+            '--started-file'
           )) {
             if (-not $picker.Contains($required)) {
-              throw "Picker source is missing installer-owned handoff behavior '$required'."
+              throw "Picker source is missing required folder-selection behavior '$required'."
             }
           }
-          if ($picker.Contains('service start fallback exit=')) {
-            throw 'Picker still performs the retired post-Setup service restore.'
+          foreach ($forbidden in @(
+            '--update-handoff',
+            '--close-app-windows',
+            'os/exec',
+            'ShellExecuteExW',
+            'EnumWindows',
+            'taskbarFix',
+            'closeNewzDeckWindows'
+          )) {
+            if ($picker.Contains($forbidden)) {
+              throw "Picker source is not folder-picker-only; forbidden behavior remains '$forbidden'."
+            }
           }
+
+          $launcher = Get-Content -LiteralPath 'src/windows/NewzDeckLauncher.go' -Raw
+          foreach ($required in @(
+            'taskbarWMClose',
+            'func closeNewzDeckBrowserWindows(',
+            'isNewzDeckBrowserTitle(',
+            'if arg == "--close-app-windows"'
+          )) {
+            if (-not $launcher.Contains($required)) {
+              throw "Launcher source is missing the bounded browser-window close mode '$required'."
+            }
+          }
+
 
           $builder = Get-Content -LiteralPath 'release/windows/build-portable.py' -Raw
           if (-not $builder.Contains('"NewzDeckTray.exe": "NewzDeckTray.go"')) {
@@ -315,6 +337,7 @@ jobs:
           python release/windows/validate-v3689-regressions.py
           python release/windows/validate-v3690-regressions.py
           python release/windows/validate-v3691-regressions.py
+          python release/windows/validate-v3692-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 
@@ -324,6 +347,14 @@ jobs:
           go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o (Join-Path $env:RUNNER_TEMP 'tray-source-smoke.exe') src/windows/NewzDeckTray.go
           if ($LASTEXITCODE -ne 0) {
             throw 'Canonical NewzDeckTray.go did not cross-compile.'
+          }
+          go build -trimpath -ldflags='-H windowsgui' -o (Join-Path $env:RUNNER_TEMP 'picker-source-smoke.exe') src/windows/NewzDeckPicker.go
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Simplified NewzDeckPicker.go did not cross-compile.'
+          }
+          go build -trimpath -ldflags='-s -w -H windowsgui -buildid=' -o (Join-Path $env:RUNNER_TEMP 'launcher-source-smoke.exe') src/windows/NewzDeckLauncher.go
+          if ($LASTEXITCODE -ne 0) {
+            throw 'NewzDeckLauncher.go close-window mode did not cross-compile.'
           }
 
       - name: Validate Python source freshness guards
@@ -456,8 +487,8 @@ jobs:
             throw 'Picker binary provenance is wrong.'
           }
           $pickerOverride = $manifest.binary_build_overrides.PSObject.Properties['NewzDeckPicker.exe'].Value
-          if (-not $pickerOverride -or [string]$pickerOverride.ldflags -cne '-H windowsgui' -or [bool]$pickerOverride.source_behavior_changed -or [string]$pickerOverride.build_origin -cne 'windows-source-build') {
-            throw 'Picker Defender-compatibility build override is missing or incorrect.'
+          if (-not $pickerOverride -or [string]$pickerOverride.ldflags -cne '-H windowsgui' -or -not [bool]$pickerOverride.source_behavior_changed -or [string]$pickerOverride.build_origin -cne 'windows-source-build') {
+            throw 'Picker Defender-compatibility/source-scope build override is missing or incorrect.'
           }
           $pickerBinary = Join-Path $payload 'NewzDeckPicker.exe'
           $pickerBuildId = (& go tool buildid $pickerBinary 2>&1).Trim()
