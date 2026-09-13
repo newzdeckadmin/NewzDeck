@@ -133,6 +133,7 @@ def write_manifest(stage: pathlib.Path, version: str, prebuilt_yenc: pathlib.Pat
             {"path":"src/app/static/app.js","sha256":sha(APP/'static'/'app.js')},
             {"path":"src/app/static/index.html","sha256":sha(APP/'static'/'index.html')},
             {"path":"src/app/static/styles.css","sha256":sha(APP/'static'/'styles.css')},
+            {"path":"src/app/static/themes.css","sha256":sha(APP/'static'/'themes.css')},
             {"path":"src/app/static/tmdb-logo.svg","sha256":sha(APP/'static'/'tmdb-logo.svg')},
         ],
     }

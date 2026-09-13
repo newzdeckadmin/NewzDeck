@@ -1,4 +1,6 @@
 from __future__ import annotations
+import hashlib
+import re
 import importlib.util, json, sys, tempfile
 from pathlib import Path
 sys.dont_write_bytecode=True
@@ -12,10 +14,13 @@ server=(APP/'server.py').read_text(encoding='utf-8')
 app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
+_THEME_COLOR_FALLBACK=re.compile(r'var\(--nz-[a-z0-9-]+,(#[0-9a-fA-F]{3,8}|rgba?\([^()]*\)|white)\)')
+styles=_THEME_COLOR_FALLBACK.sub(lambda m:m.group(1),styles)
+check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.94 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
 class DummyDownloadManager: pass
-engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3681-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.93')
+engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3681-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.94')
 profile=auto.DEFAULT_PROFILES[0]
 
 def info(title): return auto.parse_release(title)
@@ -50,5 +55,5 @@ for required in ('QUALITY_CATALOG=[','qualityProfileTemplate','qualityProfileQua
 check("['2160p','1080p','720p','WEB']" not in app,'Primitive raw quality defaults returned')
 for required in ('quality-profile-modal-card','quality-ladder-row','quality-policy-grid','quality-profile-summary'):
     check(required in styles,'Quality Profile Builder stylesheet marker missing: '+required)
-check(manifest.get('release')=='Defender Handoff Release Gate Recovery','Release manifest name mismatch')
-print('v3.6.93 Automation Intelligence & Quality Profiles regression guard: PASS')
+check(manifest.get('release')=='Themes & Color Schemes','Release manifest name mismatch')
+print('v3.6.94 Automation Intelligence & Quality Profiles regression guard: PASS')

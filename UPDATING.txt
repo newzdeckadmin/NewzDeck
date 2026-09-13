@@ -1,11 +1,12 @@
-NewzDeck v3.6.93 update notes
+NewzDeck v3.6.94 update notes
 
 Installed build:
-- If Microsoft Defender blocks the in-app updater on v3.6.91 or another older affected build, download and run NewzDeck_v3.6.93_Setup.exe manually for this one upgrade.
-- v3.6.93 carries the v3.6.92 direct verified-Setup updater and folder-only Picker architecture forward unchanged.
-- The v3.6.92 source/tag remains immutable; v3.6.93 is the release-pipeline recovery roll-forward after the v3.6.92 runtime smoke test used a retired Picker mode.
+- Install NewzDeck_v3.6.94_Setup.exe over the existing installation, or use the verified in-app updater from a working v3.6.93 installation.
+- Existing settings, history, queue state, Automation libraries, provider configuration, and downloads remain unchanged.
+- Night is the default theme and preserves the exact v3.6.93 production color appearance.
+- Theme choice is stored locally as presentation state and can be changed from Settings > General > Theme.
 
 Portable build:
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.93 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.94 Portable ZIP contents, then restart NewzDeck.
 
 Persistent data remains under %LOCALAPPDATA%\NewzDeck and is not removed by a normal update.

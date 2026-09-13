@@ -339,6 +339,7 @@ jobs:
           python release/windows/validate-v3691-regressions.py
           python release/windows/validate-v3692-regressions.py
           python release/windows/validate-v3693-regressions.py
+          python release/windows/validate-v3694-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 
@@ -429,7 +430,7 @@ jobs:
           $requiredFiles = @(
             'version.txt','NewzDeck.exe','NewzDeckService.exe','NewzDeckTray.exe','NewzDeckPicker.exe',
             'NewzDeckThumb.exe','NewzDeckYenc.exe','NewzDeck.ico','server.py','sab_engine.py','automation_engine.py',
-            'static/index.html','static/app.js','static/styles.css','static/tmdb-logo.svg','SOURCE_MANIFEST.json'
+            'static/index.html','static/app.js','static/styles.css','static/themes.css','static/tmdb-logo.svg','SOURCE_MANIFEST.json'
           )
           foreach ($required in $requiredFiles) {
             if (-not (Test-Path -LiteralPath (Join-Path $payload $required) -PathType Leaf)) {

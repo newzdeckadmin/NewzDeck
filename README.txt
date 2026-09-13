@@ -1,15 +1,25 @@
-NewzDeck v3.6.93 - Defender Handoff Release Gate Recovery
+NewzDeck v3.6.94 - Themes & Color Schemes
 
-This release carries the reviewed v3.6.92 application behavior forward unchanged
-while repairing the canonical Windows installed-upgrade smoke test that still tried
-to launch the retired Picker --taskbar-fix mode.
+This release adds twelve coordinated, user-selectable application color themes while
+preserving the v3.6.93 application layout, sizing, spacing, behavior, native helper
+architecture, and Defender-clean build pipeline.
 
-Users upgrading from v3.6.91 or another build whose old Picker is blocked by Microsoft
-Defender should run NewzDeck_v3.6.93_Setup.exe manually once. The v3.6.93 application
-then uses the direct checksum-verified Setup update path introduced by v3.6.92.
+Themes:
+- Night (the exact v3.6.93 production appearance)
+- Light
+- Midnight
+- Ocean
+- Emerald
+- Amethyst
+- Rosewood
+- Sunset
+- Arctic
+- Graphite
+- Sandstone
+- Aurora
 
-NewzDeckPicker.exe remains folder-picker-only. The release workflow now simulates a
-legacy locked Picker with a dedicated inert smoke binary instead of invoking removed
-production behavior.
+Open Settings > General > Theme to preview a theme immediately. The selection is kept
+only when Settings is saved and is restored before the UI is painted on later launches.
+Theme preference is local presentation state and is not added to backend configuration.
 
-See release/RELEASE_NOTES_v3.6.93.md for details.
+See release/RELEASE_NOTES_v3.6.94.md for details.

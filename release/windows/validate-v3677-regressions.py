@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import ast, hashlib, importlib.util, json, subprocess, sys
 from pathlib import Path
 sys.dont_write_bytecode=True
@@ -15,6 +16,9 @@ automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
+_THEME_COLOR_FALLBACK=re.compile(r'var\(--nz-[a-z0-9-]+,(#[0-9a-fA-F]{3,8}|rgba?\([^()]*\)|white)\)')
+styles=_THEME_COLOR_FALLBACK.sub(lambda m:m.group(1),styles)
+check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.94 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 sab=load('newzdeck_v3677_sab_guard',APP/'sab_engine.py')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
@@ -29,7 +33,7 @@ def normalized_hash(text, old, new):
 marker='/* v3.6.77 UX Polish Phase 2 - Layout & Control Consistency */'
 phase3='/* v3.6.79 UX Polish Phase 3 - Feedback & State Clarity */'
 check(styles.count(marker)==1,'v3.6.77 Phase 2 stylesheet marker count mismatch')
-check(styles.count(phase3)==1,'v3.6.93 Phase 3 stylesheet marker count mismatch')
+check(styles.count(phase3)==1,'v3.6.94 Phase 3 stylesheet marker count mismatch')
 prefix,suffix=styles.split(marker,1)
 phase2_body,_phase3_tail=suffix.split(phase3,1)
 check(digest_text(prefix.rstrip('\n')+'\n')=='08489cb6b9b6581584b98976609f66d57880f165f374b84ee811a5f92b6eaf15','Pre-v3.6.77 stylesheet baseline changed')
@@ -86,10 +90,10 @@ for node in tree.body:
 mod=ast.Module(body=body,type_ignores=[]); ast.fix_missing_locations(mod); ns={}; exec(compile(mod,'<v3677>','exec'),ns)
 check(ns['BROWSE_OVERVIEW_CHUNK_HEADERS']==800 and ns['BROWSE_FIRST_PAINT_HEADERS']==800 and ns['BROWSE_LARGE_PAGE_THRESHOLD']==1000,'Header strategy changed')
 
-check((APP/'version.txt').read_text().strip()=='3.6.93','version.txt mismatch')
-check("const UI_VERSION = '3.6.93'" in app and '3.6.93-defender-handoff-release-gate-recovery' in index,'UI/cache identity mismatch')
-check(manifest.get('version')=='3.6.93' and manifest.get('base_version')=='3.6.92' and manifest.get('adapter_version')=='3.6.93','build manifest identity mismatch')
-check(manifest.get('release')=='Defender Handoff Release Gate Recovery','build manifest release name mismatch')
-check(sab.ADAPTER_VERSION=='3.6.93' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
+check((APP/'version.txt').read_text().strip()=='3.6.94','version.txt mismatch')
+check("const UI_VERSION = '3.6.94'" in app and '3.6.94-themes-color-schemes' in index,'UI/cache identity mismatch')
+check(manifest.get('version')=='3.6.94' and manifest.get('base_version')=='3.6.93' and manifest.get('adapter_version')=='3.6.94','build manifest identity mismatch')
+check(manifest.get('release')=='Themes & Color Schemes','build manifest release name mismatch')
+check(sab.ADAPTER_VERSION=='3.6.94' and sab.SAB_VERSION=='5.1.2','SAB identity changed')
 check(getattr(sab,'TERMINAL_HISTORY_SCHEMA_VERSION',3)==3,'terminal-history schema changed')
-print('v3.6.93 UX-only regression guard: PASS')
+print('v3.6.94 UX-only regression guard: PASS')
