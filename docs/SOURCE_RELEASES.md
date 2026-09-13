@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.87
+## Current release: v3.6.88
 
-**v3.6.87 is the current stable production release.**
+**v3.6.88 is the current stable production release.**
 
-The `v3.6.87` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.88` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -21,6 +21,8 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
 
 ## Recent production releases
+
+- **v3.6.88 - Smart Import Wanted Reconciliation Fix.** Keeps fresh Smart Import release traits authoritative when the lightweight media probe misses DV/HDR signatures, while retaining corrective handling for legacy unconfirmed records and v3.6.86 snapshot performance.
 
 - **v3.6.87 - Dynamic Range Evidence Authority Fix.** Makes successful media-probe DV/HDR state authoritative over release-name claims while preserving release provenance for source identity and v3.6.86 snapshot performance.
 

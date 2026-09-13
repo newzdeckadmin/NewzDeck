@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.87'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.88'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -4777,26 +4777,70 @@ class MediaAutomationEngine:
             if str(media.get('audio_codec') or '') not in {'','Unknown'}: merged['audio']=str(media.get('audio_codec'))
             info=merged
 
-        # _probe_media_traits() only writes these boolean keys after it successfully
-        # reads the file. Their simultaneous presence therefore distinguishes a real
-        # probe result from an inaccessible/failed probe whose fields remain Unknown.
-        # False is meaningful here: it proves the probe did *not* find the trait and
-        # must be allowed to correct a stale/optimistic release title.
+        # v3.6.88: The built-in media probe is deliberately lightweight. Positive
+        # signatures are useful evidence, but the absence of a signature in the
+        # bounded head/tail sample is *not* proof that Dolby Vision/HDR is absent.
+        # v3.6.87 treated three False booleans as authoritative negative evidence;
+        # that could immediately erase the traits of a freshly imported DV+HDR
+        # release and leave the old Wanted row visible forever.
         probe_dynamic_range=all(k in media for k in ('dolby_vision','hdr10_plus','hdr_present'))
         if probe_dynamic_range:
             dv=bool(media.get('dolby_vision'))
             plus=bool(media.get('hdr10_plus'))
             hdr_present=bool(media.get('hdr_present')) or plus
-            info['dolby_vision']=dv
-            info['hdr10_plus']=plus
-            info['hdr_present']=hdr_present
-            # Do not let a provenance-only HDR10 flag leak back into rank decisions.
-            info['hdr10']=bool(media.get('hdr10')) if 'hdr10' in media else False
-            if dv and hdr_present: info['hdr']='Dolby Vision + HDR'
-            elif dv: info['hdr']='Dolby Vision'
-            elif plus: info['hdr']='HDR10+'
-            elif hdr_present: info['hdr']='HDR/HDR10'
-            else: info['hdr']='SDR/Unknown'
+            probe_positive=bool(dv or plus or hdr_present)
+            provenance_rank=self._dynamic_range_rank(info)
+            probe_info={'dolby_vision':dv,'hdr10_plus':plus,'hdr_present':hdr_present,'hdr10':False,
+                        'hdr':'Dolby Vision + HDR' if dv and hdr_present else ('Dolby Vision' if dv else ('HDR10+' if plus else ('HDR/HDR10' if hdr_present else 'SDR/Unknown')))}
+            probe_rank=self._dynamic_range_rank(probe_info)
+            trusted_import=bool(rec.get('dynamic_range_import_trusted'))
+
+            if not stored and not str(rec.get('file_fingerprint') or ''):
+                # Old/manual records have no release provenance to preserve. The
+                # probe view is therefore the best available intrinsic evidence.
+                info.update(probe_info)
+                info['_dynamic_range_evidence']='media-probe'
+                info['_dynamic_range_unconfirmed']=False
+            elif probe_positive and not trusted_import and probe_rank != provenance_rank:
+                # For legacy/untrusted records, a positive probe is the strongest
+                # available intrinsic evidence and may correct either an understated
+                # or overstated release-name claim. This preserves v3.6.87's ability
+                # to repair an old DV+HDR overclaim when the file positively probes
+                # as DV-only, without letting a *negative* bounded probe erase a
+                # freshly imported release's explicit traits.
+                info.update(probe_info)
+                info['_dynamic_range_evidence']='media-probe-positive'
+                info['_dynamic_range_unconfirmed']=False
+            elif probe_positive and trusted_import and probe_rank < provenance_rank:
+                # A positive probe may still promote a trusted imported release if
+                # the file proves a stronger trait than the post name advertised.
+                # A partial positive sample is not proof that an advertised fallback
+                # layer is absent, so it must not downgrade fresh import provenance.
+                info.update(probe_info)
+                info['_dynamic_range_evidence']='media-probe-positive'
+                info['_dynamic_range_unconfirmed']=False
+            elif probe_positive and probe_rank == provenance_rank:
+                info['_dynamic_range_evidence']='media-probe-confirmed'
+                info['_dynamic_range_unconfirmed']=False
+            elif trusted_import:
+                # The completed release was selected by the quality engine and then
+                # transactionally imported by NewzDeck. Preserve its explicit
+                # release traits when the lightweight probe merely fails to find a
+                # signature; otherwise a correct DV+HDR import can never satisfy
+                # Wanted on some MKV layouts.
+                info['_dynamic_range_evidence']='import-release'
+                info['_dynamic_range_unconfirmed']=False
+            elif provenance_rank < 4:
+                # Legacy/imported provenance claims a dynamic-range trait but the
+                # lightweight probe did not positively confirm it. Keep the claim
+                # for Wanted ranking, but mark it uncertain so Interactive Search
+                # may accept one same-rank preferred replacement instead of falsely
+                # rejecting the user's real SDR -> DV correction as "same tier".
+                info['_dynamic_range_evidence']='release-provenance-unconfirmed'
+                info['_dynamic_range_unconfirmed']=True
+            else:
+                info['_dynamic_range_evidence']='release-provenance'
+                info['_dynamic_range_unconfirmed']=False
         return info
 
     def _current_target_release_info(self, item:dict[str,Any]|None, season=None, episode=None, current_quality:str='Unknown', quality_cache:dict[str,Any]|None=None) -> dict[str,Any]:
@@ -4883,8 +4927,16 @@ class MediaAutomationEngine:
             if inc_source<cur_source: return False,'release source is lower'
             target=self._dynamic_range_upgrade_target(profile)
             if target is not None:
-                incoming_hdr=self._dynamic_range_rank(incoming_info); current_hdr=self._dynamic_range_rank(current_info or parse_release(str(current_quality or '')))
+                current_row=current_info or parse_release(str(current_quality or ''))
+                incoming_hdr=self._dynamic_range_rank(incoming_info); current_hdr=self._dynamic_range_rank(current_row)
                 if current_hdr>target and incoming_hdr<current_hdr: return True,'dynamic range improves'
+                # v3.6.88: pre-v3.6.88 records can carry optimistic release-title
+                # DV/HDR provenance that the lightweight probe cannot positively
+                # confirm. Permit a same-rank preferred replacement once while the
+                # current file is still below the profile target. A successful new
+                # import is stamped dynamic_range_import_trusted, preventing loops.
+                if current_hdr>target and incoming_hdr==current_hdr and bool(current_row.get('_dynamic_range_unconfirmed')):
+                    return True,'dynamic range replacement verifies an unconfirmed current trait'
                 if incoming_hdr>current_hdr: return False,'dynamic range is lower'
             return False,'same quality tier'
         incoming_res=self._quality_resolution_value(incoming_quality); current_res=self._quality_resolution_value(current_quality)
@@ -6285,14 +6337,24 @@ class MediaAutomationEngine:
                     continue
                 release_traits=parse_release(str(context.get('release_title') or ''))
                 fp=self._remember_media_quality(dest,quality,str(context.get('release_title') or ''))
-                cutoff=self._quality_cutoff_met(quality,profile,release_traits)
+                media_info=self._probe_media_traits(dest)
+                # v3.6.88 stamps successful Smart Import release traits separately
+                # from the lightweight probe. This makes the just-imported release
+                # the authoritative post-import state for Wanted while still letting
+                # legacy unconfirmed records accept a corrective same-rank upgrade.
+                record_common={'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':media_info,
+                               'release_traits':release_traits,'dynamic_range_import_trusted':True,
+                               'dynamic_range_imported_at':_now()}
                 if item.get('kind')=='tv':
                     ep=e.get('episode_ref')
                     if isinstance(ep,dict):
-                        ep.update({'has_file':True,'file_path':str(dest),'file_quality':quality,'file_size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'release_traits':release_traits,'cutoff_met':cutoff})
+                        ep.update({'has_file':True,'file_path':str(dest),'file_quality':quality,'file_size':dest.stat().st_size,**record_common})
+                        ep['cutoff_met']=self._quality_cutoff_met(quality,profile,self._record_release_info(ep,quality))
                         ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
                 else:
-                    item['movie_file']={'path':str(dest),'quality':quality,'size':dest.stat().st_size,'file_fingerprint':fp,'quality_source':'newzdeck-import','media_info':self._probe_media_traits(dest),'release_traits':release_traits,'cutoff_met':cutoff}
+                    record={'path':str(dest),'quality':quality,'size':dest.stat().st_size,**record_common}
+                    record['cutoff_met']=self._quality_cutoff_met(quality,profile,self._record_release_info(record,quality))
+                    item['movie_file']=record
                 media_bytes=int(dest.stat().st_size)
                 imported.append({'destination':str(dest),'quality':quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':dest.name})
                 self._event('upgrade-import' if action=='UPGRADE' else 'import',f"{'Upgraded' if action=='UPGRADE' else 'Imported'} {dest.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(dest),final_filename=dest.name,final_folder=str(dest.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=str(context.get('release_title') or ''),release_size=int(context.get('release_size') or 0),quality=quality,from_quality=str(e.get('old_quality') or ''),to_quality=quality,indexer=str(context.get('indexer') or ''),season=e.get('season'),episode=e.get('episode'),episode_title=str(e.get('episode_title') or ''),season_pack=bool(context.get('season_pack')),verified=True)

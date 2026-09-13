@@ -11,16 +11,16 @@ def load(name,path):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'3d45cec7ab9d836a7ff2cadc5ed8f8caab75e911aece19acd729e79d2c6bf7e5',
-    'automation_engine.py':'eba353ca751ec259262918444f7d96e0a04262ffc9c8ca934e438e9ba702478e',
-    'sab_engine.py':'262406b082712c73ffcce8b30d0de15247d9e5a93b6fb82c7132ad7db22e3680',
-    'static/app.js':'2d41baf1935dc99015d4c401c2bdd610b4486477ee3429abca808af4eb5dfb54',
-    'static/index.html':'53259051490170fa79acf0b11454d1b96f5049e79ea7a6a690f1319f05559183',
+    'server.py':'ac9e7bd7358db1730f65734273d7522e8d355072f94c1f496f55bd49bc1f5fa6',
+    'automation_engine.py':'99c3be38f1391cb69ed080e25590adfa0686a2f825e08855a2ace418cedc4482',
+    'sab_engine.py':'730251293a10456b507755f0c5b2fc5ed7058991dcd8c8c219e69165eece6645',
+    'static/app.js':'14b20eeb8ff607aa54ab5f33bacd225def4908fd179f0178439cf310a42a3b1c',
+    'static/index.html':'c64cc5580d5367216e6415402bc5b5e59fa503c81be3fb9b68c0d515e3030301',
     'static/styles.css':'ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2',
-    'build-manifest.json':'2d06e148b86ee2da4cf98f0e3f0caa099efb5e8294ab66e01b31df4cb07cb519',
-    'version.txt':'428801e7d19029d5cacd7d5f906a4c329d88b4b3efa3eaeee183b9cf5aec3d40',
+    'build-manifest.json':'92e12f63a1d2229802c3b16933d137e58c7ce7d681f8de1e6eec0ed2580f4fcc',
+    'version.txt':'8b61b18dd869a8daa094d28bd3e92a380c14d8d457f299d3f00486300a2bc287',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.87 carried-forward payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.88 carried-forward payload')
 
 auto=load('newzdeck_v3684_automation_guard',APP/'automation_engine.py')
 server=(APP/'server.py').read_text(encoding='utf-8')
@@ -28,16 +28,16 @@ app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
-check((APP/'version.txt').read_text().strip()=='3.6.87','version.txt mismatch')
-check('APP_VERSION = "3.6.87"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.87';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.87' and manifest.get('base_version')=='3.6.86' and manifest.get('adapter_version')=='3.6.87','build manifest lineage mismatch')
-check(manifest.get('release')=='Dynamic Range Evidence Authority Fix','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.88','version.txt mismatch')
+check('APP_VERSION = "3.6.88"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.88';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.88' and manifest.get('base_version')=='3.6.87' and manifest.get('adapter_version')=='3.6.88','build manifest lineage mismatch')
+check(manifest.get('release')=='Smart Import Wanted Reconciliation Fix','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 class DummyDownloadManager: pass
 root=Path(tempfile.mkdtemp(prefix='newzdeck-v3684-guard-'))
-engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.87')
+engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.88')
 p4=auto.DEFAULT_PROFILES[0]; p1080=auto.DEFAULT_PROFILES[1]
 def info(title): return auto.parse_release(title)
 
@@ -104,8 +104,8 @@ check(bal_ep.get('cutoff_met') is True,'live cutoff decoration did not repair st
 for required in ("x.upgrade_path||`Current:","Quality upgrade wanted","profile-approved upgrade path"):
     check(required in app,'Wanted UI regression marker missing: '+required)
 check("const current=type==='upgrade'?`<span class=\"wanted-current\">Current: ${escapeHtml(x.current_quality" not in app,'old unconditional Wanted current/cutoff renderer remains')
-check('v=3.6.87-dynamic-range-evidence-authority-fix' in index,'carried current asset cache identity missing')
+check('v=3.6.88-smart-import-wanted-reconciliation-fix' in index,'carried current asset cache identity missing')
 
 # Frozen areas are intentionally untouched by this release.
 check('image_thumb_http_admission' not in manifest.get('release','').casefold(),'unexpected browser tuning scope')
-print('v3.6.84 Wanted Upgrade Reasoning & Cutoff Policy Fix carried-forward guard under v3.6.87: PASS')
+print('v3.6.84 Wanted Upgrade Reasoning & Cutoff Policy Fix carried-forward guard under v3.6.88: PASS')

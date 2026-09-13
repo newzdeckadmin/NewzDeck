@@ -1,18 +1,10 @@
-NewzDeck v3.6.87 update notes
+NewzDeck v3.6.88 update notes
 
-Installed build:
-- Run NewzDeck_v3.6.87_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
-- No manual service stop is required; the installer/launcher handoff remains unchanged.
+Installed build
+- Run NewzDeck_v3.6.88_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- The installer is designed to stop/restart NewzDeck-owned runtime components automatically.
 
-Portable build:
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.87 Portable ZIP contents, then restart NewzDeck.
+Portable build
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.88 Portable ZIP contents, then restart NewzDeck.
 
-Preserved user state:
-- Providers, indexers, Automation library, quality profiles, download history, caches and local settings remain version-independent user data.
-
-What this hotfix changes:
-- Actual file-probe Dolby Vision/HDR evidence is authoritative over release-name claims when deciding dynamic-range upgrades.
-- Release provenance still remains authoritative for source/release-group facts that cannot be proven from the container.
-- v3.6.86 cache-snapshot performance behavior remains intact.
-
-No Metadata Server or Diagnostic Collector update is required for this release.
+No settings reset, library rescan, or cache clearing is required for this hotfix.

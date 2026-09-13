@@ -1,24 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.87",
-  "base_version": "3.6.86",
-  "release": "Dynamic Range Evidence Authority Fix",
-  "adapter_version": "3.6.87",
-  "name": "Dynamic Range Evidence Authority Fix",
+  "version": "3.6.88",
+  "base_version": "3.6.87",
+  "release": "Smart Import Wanted Reconciliation Fix",
+  "adapter_version": "3.6.88",
+  "name": "Smart Import Wanted Reconciliation Fix",
   "sab_version": "5.1.2",
   "changes": [
-    "Fixes same-tier 2160p upgrade rejection when release-name provenance says Dolby Vision/HDR but the imported media probe proves the current file does not actually contain those dynamic-range traits.",
-    "Separates release provenance from intrinsic media evidence: WEB-DL/WEBRip and release-group identity remain provenance-driven, while a successful current-file media probe is authoritative for Dolby Vision, HDR10+, and HDR presence.",
-    "Allows a real Dolby Vision-only candidate to upgrade an SDR 2160p WEB-DL current file, and allows Dolby Vision + HDR fallback to upgrade a true Dolby Vision-only current file.",
-    "Keeps a current file that actually probes as Dolby Vision + HDR fallback terminal even if its original release name omitted those traits.",
-    "Preserves the v3.6.86 one-snapshot-per-operation Automation and Interactive Search performance fix without reintroducing repeated media-quality-cache reads.",
-    "Preserves v3.6.84 1080p Balanced Allow semantics, source refinement behavior, Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, and guarded publication topology."
+    "Fixes Wanted remaining on the pre-import dynamic-range state after a successful Smart Import upgrade that already satisfies the active profile target.",
+    "Makes dynamic-range evidence confidence-aware: positive lightweight media-probe signatures can confirm, promote, or correct traits, while an all-negative bounded probe no longer erases explicit release traits.",
+    "Stamps successful Smart Import release traits as the authoritative post-import Automation state so a newly imported Dolby Vision + HDR fallback release immediately satisfies 4K Preferred.",
+    "Keeps pre-v3.6.88 optimistic DV/HDR provenance correctable by allowing one same-rank preferred replacement while that legacy current trait remains unconfirmed and below target.",
+    "Prevents corrective replacement loops because v3.6.88 imports become trusted post-import records; same-rank DV replacements are rejected after a DV import while DV -> DV+HDR remains eligible.",
+    "Preserves v3.6.86 cache-snapshot performance, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and frozen Newsgroup Browser behavior."
   ],
   "regression_guards": [
-    "Current-file media probe can correct stale/optimistic release-title DV/HDR claims without discarding provenance-only source/release-group metadata.",
-    "SDR current 2160p WEB-DL accepts Dolby Vision-only and Dolby Vision + HDR fallback same-tier candidates as dynamic range improves.",
-    "True Dolby Vision-only current media still accepts Dolby Vision + HDR fallback, while actual DV+HDR remains terminal.",
-    "v3.6.86 Automation summary and Interactive Search cache-snapshot performance behavior remains guarded.",
-    "Frozen Newsgroup Browser, yEnc, download, SAB, Metadata Server, and Diagnostic Collector boundaries remain guarded."
+    "Fresh Smart Import of DV+HDR remains DV+HDR for Wanted even when the lightweight media probe returns no positive dynamic-range signature.",
+    "Fresh DV-only import remains Wanted only for the higher DV+HDR target and rejects another same-rank DV replacement.",
+    "Legacy unconfirmed DV provenance can still accept one corrective same-rank DV candidate, preserving the v3.6.87 user-reported fix without download loops.",
+    "Wanted persistence is validated after serializing and reloading the library record from disk.",
+    "v3.6.86 one-cache-read summary/search behavior and frozen unrelated subsystems remain guarded."
   ]
 }
