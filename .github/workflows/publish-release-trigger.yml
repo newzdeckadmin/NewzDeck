@@ -338,6 +338,7 @@ jobs:
           python release/windows/validate-v3690-regressions.py
           python release/windows/validate-v3691-regressions.py
           python release/windows/validate-v3692-regressions.py
+          python release/windows/validate-v3693-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 
@@ -711,15 +712,27 @@ jobs:
             throw 'Tray-lock smoke helper did not become ready.'
           }
 
-          # Reproduce the real v3.6.8 Update Center regression: the legacy
-          # picker taskbar-fix mode intentionally stays alive while NewzDeck is
-          # open and therefore locks NewzDeckPicker.exe against replacement.
+          # Preserve the legacy locked-Picker replacement coverage without invoking
+          # production behavior that v3.6.92 intentionally removed. Replace the clean-
+          # install Picker with a purpose-built inert process under the same filename,
+          # then prove Setup terminates and replaces that locked executable.
           $pickerExe = Join-Path $installDir 'NewzDeckPicker.exe'
-          $pickerProcess = Start-Process -FilePath $pickerExe -ArgumentList @('--taskbar-fix') -PassThru
+          $pickerLockSource = Join-Path $env:RUNNER_TEMP 'NewzDeckPickerLockSmoke.go'
+          $pickerLockSourceLines = @(
+            'package main',
+            'import "time"',
+            'func main() { time.Sleep(120 * time.Second) }'
+          )
+          Set-Content -LiteralPath $pickerLockSource -Value $pickerLockSourceLines -Encoding utf8
+          go build -trimpath -ldflags='-H windowsgui' -o $pickerExe $pickerLockSource
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not build legacy Picker-lock smoke stand-in.'
+          }
+          $pickerProcess = Start-Process -FilePath $pickerExe -PassThru
           Start-Sleep -Milliseconds 750
           try { $pickerProcess.Refresh() } catch {}
           if ($pickerProcess.HasExited) {
-            throw 'Picker-lock smoke process exited before the upgrade began.'
+            throw 'Legacy Picker-lock smoke process exited before the upgrade began.'
           }
 
           # v3.6.12 installer-owned restore must start the real service after

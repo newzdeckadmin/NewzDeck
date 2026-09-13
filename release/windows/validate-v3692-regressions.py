@@ -7,16 +7,16 @@ def check(c,m):
     if not c: raise AssertionError(m)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 EXPECTED={
-    'server.py':'357858ad4cd91505fcff16078c40a767f6ed94d4d57be23e4d1de7020bf58975',
-    'automation_engine.py':'139b9ecd44f9b53566beb2eee34efdc9cf2167f1fa050ce3c18feb3af893b87f',
-    'sab_engine.py':'8f035c1fb872d17b076a5de47de7c998a402cdba3d0d3c62b33cee9c223c1ab9',
-    'static/app.js':'bef3b27dd8504af32bda95eb4382cfc3c84e15c368c70adf06ff7ae58f5afb8f',
-    'static/index.html':'19c1c1f45473756bea4ebe5a45ed79a42107e5b3f4acd8e152419f86849b5ce4',
+    'server.py':'a46efec4b470f63da91cfc8ed667f146587edd66fd9f263402f69f51b464f64a',
+    'automation_engine.py':'9fb8dbbb1c495c09b65e6da64b91ab72d38c91af3a73d6ccf9981e2645deb2c4',
+    'sab_engine.py':'577a018e1a620f1d340988f63d55c4a9d5d31f1b4e2d1ca0c26886ca64f2fb98',
+    'static/app.js':'6e7467f6e54eea250fd21126f0933820a49ed9ff57cafb7525bc60d49495a1ee',
+    'static/index.html':'06732e3f953f493d482b5ea6b5c1744720f04f0b281e2d2885bc6cf827ae736e',
     'static/styles.css':'ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2',
-    'build-manifest.json':'cba40b9f4d17e7ff0b4470cb2f67c4d070da44884577011158df4fd81d7613e5',
-    'version.txt':'5f092e5c32d95689840a26f5e7cfc0e62bd09eced00236d0d073d1122bd14486',
+    'build-manifest.json':'40e476c4bdb31f7621083e8b1457df1037a59bcb70993e6f8028abfa5a1896a8',
+    'version.txt':'0e94a299e79ae0d20450ed602043edf27ed2dcd6e65d42e415c4e0c5bf5f2081',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.92 payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.93 payload')
 server=(APP/'server.py').read_text(encoding='utf-8')
 app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
@@ -27,12 +27,12 @@ installer=(ROOT/'release'/'windows'/'NewzDeck.iss').read_text(encoding='utf-8')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
-check((APP/'version.txt').read_text().strip()=='3.6.92','version.txt mismatch')
-check('APP_VERSION = "3.6.92"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.92';" in app,'UI version mismatch')
-check('v=3.6.92-defender-handoff-reduction-picker-simplification' in index,'asset cache identity mismatch')
-check(manifest.get('version')=='3.6.92' and manifest.get('base_version')=='3.6.91' and manifest.get('adapter_version')=='3.6.92','manifest lineage mismatch')
-check(manifest.get('release')=='Defender Handoff Reduction & Picker Simplification','release name mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.93','version.txt mismatch')
+check('APP_VERSION = "3.6.93"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.93';" in app,'UI version mismatch')
+check('v=3.6.93-defender-handoff-release-gate-recovery' in index,'asset cache identity mismatch')
+check(manifest.get('version')=='3.6.93' and manifest.get('base_version')=='3.6.92' and manifest.get('adapter_version')=='3.6.93','manifest lineage mismatch')
+check(manifest.get('release')=='Defender Handoff Release Gate Recovery','release name mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 # The in-app updater must launch the verified Setup directly. No copied executable handoff may return.
@@ -64,5 +64,5 @@ for required in ('PICKER_GO_LDFLAGS = "-H windowsgui"','if exe == "NewzDeckPicke
     check(required in builder,'builder protection missing: '+required)
 
 for required in ('python release/windows/validate-v3692-regressions.py','Picker source is not folder-picker-only','Launcher source is missing the bounded browser-window close mode',"[bool]$pickerOverride.source_behavior_changed"):
-    check(required in workflow,'workflow v3.6.92 release gate missing: '+required)
-print('v3.6.92 Defender Handoff Reduction & Picker Simplification regression guard: PASS')
+    check(required in workflow,'workflow v3.6.93 release gate missing: '+required)
+print('v3.6.93 Defender Handoff Release Gate Recovery regression guard: PASS')

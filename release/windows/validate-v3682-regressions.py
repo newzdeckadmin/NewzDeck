@@ -18,9 +18,9 @@ workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(en
 
 # v3.6.82's pipeline recovery remains protected while v3.6.87 carries the
 # v3.6.84/v3.6.85 Automation correctness work forward and fixes cache-read scaling.
-check((APP/'version.txt').read_text().strip()=='3.6.92','current version mismatch')
-check(automation.count("version='3.6.92'")==1,'Automation version identity mismatch')
-check(sab_text.count('ADAPTER_VERSION = "3.6.92"')==1,'SAB adapter version identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.93','current version mismatch')
+check(automation.count("version='3.6.93'")==1,'Automation version identity mismatch')
+check(sab_text.count('ADAPTER_VERSION = "3.6.93"')==1,'SAB adapter version identity mismatch')
 check("Where-Object { $_ -like 'Source commit:*' }" in workflow and "-replace '^Source commit:\\s*',''" in workflow,'canonical Source commit parser regressed')
 check('python release/windows/validate-v3682-regressions.py' in workflow and 'python release/windows/validate-v3683-regressions.py' in workflow and 'python release/windows/validate-v3684-regressions.py' in workflow and 'python release/windows/validate-v3685-regressions.py' in workflow and 'python release/windows/validate-v3686-regressions.py' in workflow and 'python release/windows/validate-v3687-regressions.py' in workflow,'current guard chain incomplete')
 
@@ -33,7 +33,7 @@ check(hashlib.sha256((prefix.rstrip('\n')+'\n').encode()).hexdigest()=='8a8d8f0c
 # Re-prove v3.6.81 functionality that v3.6.82 intentionally carried forward.
 auto=load('newzdeck_v3682_guard_current',APP/'automation_engine.py')
 class DummyDownloadManager: pass
-engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3682-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.92')
+engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3682-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.93')
 profile=auto.DEFAULT_PROFILES[0]
 def info(title): return auto.parse_release(title)
 current=info('Show.S01E01.2160p.WEB.x265-GRP')

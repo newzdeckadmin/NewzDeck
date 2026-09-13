@@ -2,11 +2,11 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.6.92
+## Current release: v3.6.93
 
-**v3.6.92 is the current stable production release.**
+**v3.6.93 is the current stable production release.**
 
-The `v3.6.92` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.6.93` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 All six NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
@@ -22,7 +22,9 @@ The Python backend, Automation engine, SAB adapter, and browser interface are al
 
 ## Recent production releases
 
-- **v3.6.92 - Defender Handoff Reduction & Picker Simplification.** Removes the copied temporary update coordinator, makes Picker folder-only, launches verified Setup directly, and moves the bounded browser-window close to NewzDeck.exe / Setup.
+- **v3.6.93 - Defender Handoff Release Gate Recovery.** Carries v3.6.92 application behavior forward unchanged and repairs the stale installed-upgrade smoke test with a purpose-built legacy Picker-lock stand-in so the canonical release can publish without restoring retired Picker behavior.
+
+- **v3.6.92 - Defender Handoff Reduction & Picker Simplification (source/tag only).** The reviewed source and immutable tag were published, but the canonical release run stopped before assets because its legacy smoke test still invoked the removed Picker `--taskbar-fix` mode. The application changes removed the copied temporary update coordinator, made Picker folder-only, launched verified Setup directly, and moved bounded browser-window close to NewzDeck.exe / Setup.
 
 - **v3.6.91 - Defender Picker Release Gate Compatibility Fix.** Completes the Picker Defender packaging remediation by replacing obsolete whole-builder fingerprint pins in historical guards with reviewed helper-invariant checks while preserving the v3.6.90 Picker build and strict release gate.
 

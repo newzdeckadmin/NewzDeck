@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.92** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.93** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.92_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.93_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.92 highlights
+## v3.6.93 highlights
 
-v3.6.92 removes the Defender-sensitive copied update-handoff executable and reduces `NewzDeckPicker.exe` to one job: native Windows folder selection.
+v3.6.93 is the release-pipeline recovery roll-forward for the reviewed v3.6.92 Defender handoff architecture. The v3.6.92 source/tag remains immutable; its canonical run stopped at a stale installed-upgrade smoke test before release assets were published.
 
-- **Direct verified Setup updates:** About & Updates still verifies the published SHA-256, then launches the staged Setup EXE directly instead of copying/renaming Picker into `%LOCALAPPDATA%\NewzDeck\updates`.
-- **Folder-picker-only helper:** Picker no longer contains update coordination, process launching, browser-window control, taskbar compatibility, or elevation behavior.
-- **Setup-owned upgrade path:** Setup never executes Picker during upgrade. After overlay it uses `NewzDeck.exe --close-app-windows`, restores service/tray state, and relaunches normally.
-- **One-time manual upgrade note:** users whose older Picker is already blocked by Defender should manually run the v3.6.92 Setup once; future in-app updates use the new direct-Setup path.
-- **Core behavior preserved:** SABnzbd 5.1.2, Automation, Wanted, Smart Import, Discover, Newsgroup Browser, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, and the accepted yEnc helper remain unchanged.
+- **Release gate repaired:** CI no longer tries to launch the intentionally removed `NewzDeckPicker.exe --taskbar-fix` mode.
+- **Real lock coverage preserved:** the installed-upgrade smoke test now uses a purpose-built inert legacy Picker-lock stand-in and still proves Setup terminates/replaces an in-use `NewzDeckPicker.exe`.
+- **Folder-picker-only helper preserved:** Picker remains limited to native Windows folder selection and retains normal Go metadata.
+- **Direct verified Setup updates preserved:** About & Updates continues to launch the checksum-verified Setup directly, with no copied `NewzDeckUpdateHandoff-*.exe` coordinator.
+- **Core behavior unchanged:** Automation, Wanted, Smart Import, Discover, Newsgroup Browser, downloads, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, and the accepted yEnc pipeline are unchanged from v3.6.92.
 
-See [the full v3.6.92 release notes](release/RELEASE_NOTES_v3.6.92.md).
+See [the full v3.6.93 release notes](release/RELEASE_NOTES_v3.6.93.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.92_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.93_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

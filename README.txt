@@ -1,14 +1,15 @@
-NewzDeck v3.6.92 - Defender Handoff Reduction & Picker Simplification
+NewzDeck v3.6.93 - Defender Handoff Release Gate Recovery
 
-This release removes the Defender-sensitive copied update-handoff executable and reduces
-NewzDeckPicker.exe to folder-selection duties only. About & Updates now launches the
-checksum-verified Setup EXE directly, and Setup no longer executes Picker during upgrade.
+This release carries the reviewed v3.6.92 application behavior forward unchanged
+while repairing the canonical Windows installed-upgrade smoke test that still tried
+to launch the retired Picker --taskbar-fix mode.
 
 Users upgrading from v3.6.91 or another build whose old Picker is blocked by Microsoft
-Defender should run NewzDeck_v3.6.92_Setup.exe manually once. Future updates from v3.6.92
-use the direct verified-Setup path.
+Defender should run NewzDeck_v3.6.93_Setup.exe manually once. The v3.6.93 application
+then uses the direct checksum-verified Setup update path introduced by v3.6.92.
 
-SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, Automation, Wanted,
-Smart Import, Newsgroup Browser behavior, and the accepted yEnc helper are preserved.
+NewzDeckPicker.exe remains folder-picker-only. The release workflow now simulates a
+legacy locked Picker with a dedicated inert smoke binary instead of invoking removed
+production behavior.
 
-See release/RELEASE_NOTES_v3.6.92.md for details.
+See release/RELEASE_NOTES_v3.6.93.md for details.

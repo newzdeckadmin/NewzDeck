@@ -7,25 +7,25 @@ def check(c,m):
     if not c: raise AssertionError(m)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 EXPECTED={
-    'server.py':'357858ad4cd91505fcff16078c40a767f6ed94d4d57be23e4d1de7020bf58975',
-    'automation_engine.py':'139b9ecd44f9b53566beb2eee34efdc9cf2167f1fa050ce3c18feb3af893b87f',
-    'sab_engine.py':'8f035c1fb872d17b076a5de47de7c998a402cdba3d0d3c62b33cee9c223c1ab9',
-    'static/app.js':'bef3b27dd8504af32bda95eb4382cfc3c84e15c368c70adf06ff7ae58f5afb8f',
-    'static/index.html':'19c1c1f45473756bea4ebe5a45ed79a42107e5b3f4acd8e152419f86849b5ce4',
+    'server.py':'a46efec4b470f63da91cfc8ed667f146587edd66fd9f263402f69f51b464f64a',
+    'automation_engine.py':'9fb8dbbb1c495c09b65e6da64b91ab72d38c91af3a73d6ccf9981e2645deb2c4',
+    'sab_engine.py':'577a018e1a620f1d340988f63d55c4a9d5d31f1b4e2d1ca0c26886ca64f2fb98',
+    'static/app.js':'6e7467f6e54eea250fd21126f0933820a49ed9ff57cafb7525bc60d49495a1ee',
+    'static/index.html':'06732e3f953f493d482b5ea6b5c1744720f04f0b281e2d2885bc6cf827ae736e',
     'static/styles.css':'ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2',
-    'build-manifest.json':'cba40b9f4d17e7ff0b4470cb2f67c4d070da44884577011158df4fd81d7613e5',
-    'version.txt':'5f092e5c32d95689840a26f5e7cfc0e62bd09eced00236d0d073d1122bd14486',
+    'build-manifest.json':'40e476c4bdb31f7621083e8b1457df1037a59bcb70993e6f8028abfa5a1896a8',
+    'version.txt':'0e94a299e79ae0d20450ed602043edf27ed2dcd6e65d42e415c4e0c5bf5f2081',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.92 carried-forward payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.93 carried-forward payload')
 server=(APP/'server.py').read_text(encoding='utf-8')
 app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
-check((APP/'version.txt').read_text().strip()=='3.6.92','version.txt mismatch')
-check(manifest.get('version')=='3.6.92' and manifest.get('base_version')=='3.6.91' and manifest.get('adapter_version')=='3.6.92','build manifest lineage mismatch')
-check(manifest.get('release')=='Defender Handoff Reduction & Picker Simplification','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.93','version.txt mismatch')
+check(manifest.get('version')=='3.6.93' and manifest.get('base_version')=='3.6.92' and manifest.get('adapter_version')=='3.6.93','build manifest lineage mismatch')
+check(manifest.get('release')=='Defender Handoff Release Gate Recovery','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 # Preserve the accepted v3.6.82 stylesheet exactly, then own only the reviewed v3.6.83 suffix.
@@ -59,13 +59,13 @@ for node in tree.body:
     if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in {'_version_tuple','_update_available_for','_update_cache_matches_install'}:
         selected.append(node)
 mod=ast.Module(body=selected,type_ignores=[]); ast.fix_missing_locations(mod)
-ns={'re':re,'Any':object,'APP_VERSION':'3.6.92','installed_version':lambda:'3.6.92'}
+ns={'re':re,'Any':object,'APP_VERSION':'3.6.93','installed_version':lambda:'3.6.93'}
 exec(compile(mod,'<v3683-version-helpers>','exec'),ns)
-check(ns['_update_available_for']('3.6.92','3.6.92') is False,'same-version release was incorrectly treated as an update')
-check(ns['_update_available_for']('3.6.93','3.6.92') is True,'newer release was not treated as an update')
-check(ns['_update_available_for']('3.6.91','3.6.92') is False,'older release was incorrectly treated as an update')
-check(ns['_update_cache_matches_install']({'current_version':'3.6.91'},'3.6.92') is False,'old-version update cache accepted')
-check(ns['_update_cache_matches_install']({'installed_version':'3.6.92'},'3.6.92') is True,'current-version update cache rejected')
+check(ns['_update_available_for']('3.6.93','3.6.93') is False,'same-version release was incorrectly treated as an update')
+check(ns['_update_available_for']('3.6.94','3.6.93') is True,'newer release was not treated as an update')
+check(ns['_update_available_for']('3.6.92','3.6.93') is False,'older release was incorrectly treated as an update')
+check(ns['_update_cache_matches_install']({'current_version':'3.6.92'},'3.6.93') is False,'old-version update cache accepted')
+check(ns['_update_cache_matches_install']({'installed_version':'3.6.93'},'3.6.93') is True,'current-version update cache rejected')
 
 # v3.6.81 functional behavior remains present and release pipeline remains canonical.
 for required in ('MEDIA_AUTOMATION.maybe_refresh_monitored_metadata()','MEDIA_AUTOMATION.maybe_run_automatic()'):
@@ -73,4 +73,4 @@ for required in ('MEDIA_AUTOMATION.maybe_refresh_monitored_metadata()','MEDIA_AU
 check(server.find('MEDIA_AUTOMATION.maybe_refresh_monitored_metadata()') < server.find('MEDIA_AUTOMATION.maybe_run_automatic()'),'metadata refresh no longer precedes automatic grab')
 for required in ("Where-Object { $_ -like 'Source commit:*' }","-replace '^Source commit:\\s*',''",'python release/windows/validate-v3683-regressions.py','python release/windows/validate-v3684-regressions.py','python release/windows/validate-v3685-regressions.py','python release/windows/validate-v3686-regressions.py'):
     check(required in workflow,'Canonical release workflow marker missing: '+required)
-print('v3.6.83 Quality Profile UI & Update Version Coherency carried-forward guard under v3.6.92: PASS')
+print('v3.6.83 Quality Profile UI & Update Version Coherency carried-forward guard under v3.6.93: PASS')
