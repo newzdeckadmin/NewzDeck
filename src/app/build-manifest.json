@@ -1,24 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.89",
-  "base_version": "3.6.88",
-  "release": "Duplicate Fingerprint Reconciliation Fix",
-  "adapter_version": "3.6.89",
-  "name": "Duplicate Fingerprint Reconciliation Fix",
+  "version": "3.6.90",
+  "base_version": "3.6.89",
+  "release": "Windows Defender Picker Compatibility & Release Gate Hardening",
+  "adapter_version": "3.6.90",
+  "name": "Windows Defender Picker Compatibility & Release Gate Hardening",
   "sab_version": "5.1.2",
   "changes": [
-    "Fixes the remaining Smart Import repeat-download loop when a downloaded Automation release is byte-identical to the existing library file and is classified as DUPLICATE.",
-    "Carries explicit fingerprint-verification evidence from import planning through staging cleanup so duplicate provenance can be reconciled after the redundant staging file is removed.",
-    "When an Automation DUPLICATE is fingerprint-proven, stamps the selected release traits and dynamic-range trust onto the existing library record, binds the release title to the existing fingerprint cache record, and recalculates cutoff from the canonical record used by Wanted.",
-    "Preserves trusted release traits and dynamic-range state when KEEP_EXISTING retains an equal or better library file instead of rebuilding that record from the lightweight media probe alone.",
-    "Prevents the same byte-identical DV or DV+HDR payload from remaining an unconfirmed legacy target and being selected repeatedly after a successful duplicate reconciliation.",
-    "Preserves v3.6.88 confidence-aware dynamic-range handling, v3.6.86 cache-snapshot performance, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and frozen Newsgroup Browser behavior."
+    "Rebuilds NewzDeckPicker.exe with normal Go build metadata instead of the stripped -s -w -buildid= profile after Microsoft Defender flagged the v3.6.89 Portable ZIP as Trojan:Win32/Wacatac.B!ml specifically through NewzDeckPicker.exe.",
+    "Keeps NewzDeckPicker.go source behavior unchanged while using the same -H windowsgui metadata-retaining strategy that previously resolved the NewzDeckYenc.exe Defender false-positive condition.",
+    "Adds explicit Picker build provenance to SOURCE_MANIFEST.json and release-time checks requiring a normal Go build ID and symbol table for NewzDeckPicker.exe.",
+    "Forces the canonical Windows release checkout back to LF/no-autocrlf before hash-based regression guards run so reviewed payload hashes are evaluated against canonical Git bytes rather than CRLF-converted working-tree files.",
+    "Makes native Python, Node and Go validation failures fatal in the GitHub Actions release gate instead of allowing a PowerShell step to continue after a nonzero native-command exit code.",
+    "Preserves all v3.6.89 Automation, Wanted, Smart Import, Newsgroup Browser and SABnzbd 5.1.2 behavior; this release changes Windows build/release hardening plus version identity only."
   ],
   "regression_guards": [
-    "A fingerprint-identical DV+HDR download reconciles the existing episode as trusted DV+HDR and removes the satisfied target from Wanted after a disk reload.",
-    "A fingerprint-identical DV-only corrective replacement remains Wanted for DV+HDR, but the same DV-only release is no longer eligible as another same-rank corrective replacement.",
-    "KEEP_EXISTING preserves prior trusted DV/HDR provenance rather than erasing it with an inconclusive lightweight probe.",
-    "The duplicate fingerprint proof survives the pre-reconciliation staging cleanup boundary.",
-    "v3.6.88 confidence-aware evidence, v3.6.86 snapshot performance and frozen unrelated subsystems remain guarded."
+    "NewzDeckPicker.go remains byte-for-byte the published v3.6.89 source while build-portable.py gives only Picker the normal-metadata -H windowsgui build profile.",
+    "Portable payload validation requires NewzDeckPicker.exe to expose a non-empty Go build ID and symbol table and records its build override in SOURCE_MANIFEST.json.",
+    "The release workflow enforces canonical LF checkout before payload-hash guards and enables PSNativeCommandUseErrorActionPreference so any guard failure stops publication.",
+    "All v3.6.82-v3.6.89 application regression guards are carried forward with v3.6.90 payload fingerprints.",
+    "Defender-clean NewzDeckYenc.exe provenance and frozen application/browser behavior remain unchanged."
   ]
 }

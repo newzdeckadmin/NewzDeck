@@ -19,6 +19,7 @@ HELPERS = {
 
 DEFAULT_GO_LDFLAGS = "-s -w -H windowsgui -buildid="
 YENC_GO_LDFLAGS = "-H windowsgui"
+PICKER_GO_LDFLAGS = "-H windowsgui"
 YENC_ACCEPTED_SOURCE_SHA256 = "ba11eea2f880a934ff24f73be1cb12f0341456d5972c71f9c860efe9b3673edd"
 YENC_ACCEPTED_BINARY_SHA256 = "4bb07f7b6d38ff99313f74cb4b45555e134af7106e32d55b106a79d603204fad"
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -40,9 +41,10 @@ def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
 def helper_ldflags(exe: str) -> str:
-    # v3.6.75: Defender compatibility is intentionally scoped only to the
-    # unchanged native yEnc helper. Retaining normal Go build metadata avoids
-    # the false-positive signature observed with the stripped historical build.
+    # Defender compatibility is intentionally scoped to helpers with observed
+    # machine-learning false positives. Picker is routed first while the accepted
+    # v3.6.75 yEnc/default expression is preserved verbatim for historical guards.
+    if exe == "NewzDeckPicker.exe": return PICKER_GO_LDFLAGS
     return YENC_GO_LDFLAGS if exe == "NewzDeckYenc.exe" else DEFAULT_GO_LDFLAGS
 
 def copy_app(stage: pathlib.Path):
@@ -88,7 +90,7 @@ def validate_source(version: str):
 def write_manifest(stage: pathlib.Path, version: str, prebuilt_yenc: pathlib.Path | None = None):
     mappings=[]
     for exe,src in HELPERS.items():
-        source_sha256 = sha_bytes(canonical_git_source_bytes(f'src/windows/{src}')) if exe == 'NewzDeckYenc.exe' else sha(WIN/src)
+        source_sha256 = sha_bytes(canonical_git_source_bytes(f'src/windows/{src}')) if exe in {'NewzDeckYenc.exe','NewzDeckPicker.exe'} else sha(WIN/src)
         mappings.append({"binary":exe,"sha256":sha(stage/exe),"source":f"src/windows/{src}","source_sha256":source_sha256})
     manifest={
         "product":"NewzDeck","version":version,"license":"GPL-3.0-only",
@@ -107,6 +109,18 @@ def write_manifest(stage: pathlib.Path, version: str, prebuilt_yenc: pathlib.Pat
                 "canonical_git_source_sha256":YENC_ACCEPTED_SOURCE_SHA256,
                 "accepted_binary_sha256":YENC_ACCEPTED_BINARY_SHA256,
                 "build_origin":"linux-lf-prebuilt" if prebuilt_yenc else "local-source-build"
+            },
+            "NewzDeckPicker.exe":{
+                "purpose":"Windows Defender compatibility",
+                "source_behavior_changed":False,
+                "go":"1.23.2",
+                "goos":"windows",
+                "goarch":"amd64",
+                "cgo_enabled":False,
+                "trimpath":True,
+                "ldflags":PICKER_GO_LDFLAGS,
+                "difference_from_default":"normal Go build ID and symbol/debug metadata retained; -s, -w, and empty buildid removed",
+                "build_origin":"windows-source-build"
             }
         },
         "newzdeck_owned_binaries":mappings,

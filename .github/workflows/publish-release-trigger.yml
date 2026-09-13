@@ -88,6 +88,15 @@ jobs:
         with:
           fetch-depth: 3
 
+      - name: Enforce canonical LF source checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $true }
+          git config core.autocrlf false
+          git config core.eol lf
+          git checkout --force HEAD -- .
+
       - name: Resolve and validate release trigger
         id: version
         shell: pwsh
@@ -149,6 +158,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path variable:PSNativeCommandUseErrorActionPreference)) { throw 'PowerShell native-command failure propagation is unavailable.' }
+          $PSNativeCommandUseErrorActionPreference = $true
 
           $sourceVersion = (Get-Content -LiteralPath 'src/app/version.txt' -Raw).Trim()
           if ($sourceVersion -cne $env:VERSION) {
@@ -302,6 +313,7 @@ jobs:
           python release/windows/validate-v3687-regressions.py
           python release/windows/validate-v3688-regressions.py
           python release/windows/validate-v3689-regressions.py
+          python release/windows/validate-v3690-regressions.py
           python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py release/windows/build-portable.py
           node --check src/app/static/app.js
 
@@ -436,6 +448,24 @@ jobs:
           $yencSymbols = @(& go tool nm $yencBinary 2>&1)
           if ($LASTEXITCODE -ne 0 -or $yencSymbols.Count -eq 0) {
             throw 'NewzDeckYenc.exe is stripped; the Defender-compatible normal Go symbol table was not retained.'
+          }
+
+          $pickerEntry = @($manifest.newzdeck_owned_binaries) | Where-Object { $_.binary -ceq 'NewzDeckPicker.exe' } | Select-Object -First 1
+          if (-not $pickerEntry -or $pickerEntry.source -cne 'src/windows/NewzDeckPicker.go') {
+            throw 'Picker binary provenance is wrong.'
+          }
+          $pickerOverride = $manifest.binary_build_overrides.PSObject.Properties['NewzDeckPicker.exe'].Value
+          if (-not $pickerOverride -or [string]$pickerOverride.ldflags -cne '-H windowsgui' -or [bool]$pickerOverride.source_behavior_changed -or [string]$pickerOverride.build_origin -cne 'windows-source-build') {
+            throw 'Picker Defender-compatibility build override is missing or incorrect.'
+          }
+          $pickerBinary = Join-Path $payload 'NewzDeckPicker.exe'
+          $pickerBuildId = (& go tool buildid $pickerBinary 2>&1).Trim()
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($pickerBuildId)) {
+            throw 'NewzDeckPicker.exe has no normal Go build ID; the stripped false-positive-prone profile returned.'
+          }
+          $pickerSymbols = @(& go tool nm $pickerBinary 2>&1)
+          if ($LASTEXITCODE -ne 0 -or $pickerSymbols.Count -eq 0) {
+            throw 'NewzDeckPicker.exe is stripped; the Defender-compatible normal Go symbol table was not retained.'
           }
 
           "path=$payload" >> $env:GITHUB_OUTPUT

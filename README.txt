@@ -1,4 +1,4 @@
-NewzDeck v3.6.89 - Duplicate Fingerprint Reconciliation Fix
+NewzDeck v3.6.90 - Windows Defender Picker Compatibility & Release Gate Hardening
 
 This release fixes the remaining Automation repeat-download loop when Smart Import
 proves that the downloaded release is byte-identical to the existing library file.
@@ -14,4 +14,4 @@ Preserved:
 - Diagnostic Collector v1.0.31
 - Frozen Newsgroup Browser architecture and tuning
 
-See release/RELEASE_NOTES_v3.6.89.md for details.
+See release/RELEASE_NOTES_v3.6.90.md for details.

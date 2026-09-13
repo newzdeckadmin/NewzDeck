@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.89** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.90** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.89_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.90_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.89 highlights
+## v3.6.90 highlights
 
-v3.6.89 is a targeted Smart Import duplicate-fingerprint reconciliation hotfix built on the published v3.6.88 baseline.
+v3.6.90 is a Windows Defender compatibility and release-gate hardening hotfix built on the functionally stable v3.6.89 application baseline.
 
-- **Fingerprint proof becomes authoritative:** when a completed Automation release is byte-identical to the existing library file, NewzDeck transfers that selected release's provenance/trust to the existing record instead of discarding it.
-- **Wanted stops re-downloading the same payload:** a fingerprint-proven DV+HDR duplicate satisfies 4K Preferred and leaves Wanted; a fingerprint-proven DV-only file remains eligible only for the real DV+HDR step, not another DV-only correction.
-- **KEEP_EXISTING preserves trusted state:** retaining an equal/better file no longer erases its prior trusted DV/HDR release traits through an inconclusive bounded probe.
-- **v3.6.88 behavior preserved:** confidence-aware dynamic-range evidence and normal IMPORT/UPGRADE reconciliation remain intact.
-- **Performance preserved:** the v3.6.86 one-quality-cache-snapshot-per-operation behavior remains intact.
-- **Frozen behavior preserved:** Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc remain unchanged.
+- **Picker build compatibility:** `NewzDeckPicker.exe` keeps the same public Go source but now retains normal Go build metadata (`-H windowsgui`) instead of the stripped `-s -w -buildid=` profile that was flagged by Microsoft Defender's Wacatac machine-learning detection.
+- **Portable provenance strengthened:** `SOURCE_MANIFEST.json` records the Picker-specific Defender-compatibility build override, and release validation requires Picker to retain a normal Go build ID and symbol table.
+- **Canonical LF validation:** the Windows release checkout is forced back to LF/no-autocrlf before byte-level regression guards run, preventing CRLF checkout conversion from invalidating reviewed source hashes.
+- **Native failures are fatal:** PowerShell's native-command error propagation is enabled for the main validation gate so a failing Python/Node/Go guard stops publication immediately.
+- **v3.6.89 behavior preserved:** Automation, Wanted, Smart Import, Newsgroup Browser and SABnzbd 5.1.2 application behavior are unchanged apart from version identity.
+- **Defender-clean yEnc preserved:** the existing pinned LF/Linux `NewzDeckYenc.exe` compatibility path is unchanged.
 
-See [the full v3.6.89 release notes](release/RELEASE_NOTES_v3.6.89.md).
+See [the full v3.6.90 release notes](release/RELEASE_NOTES_v3.6.90.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.89_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.90_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
