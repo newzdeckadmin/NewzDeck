@@ -9,9 +9,9 @@ def blob(rel): return subprocess.check_output(['git','-C',str(ROOT),'rev-parse',
 server=(APP/'server.py').read_text(encoding='utf-8'); automation=(APP/'automation_engine.py').read_text(encoding='utf-8'); sab=(APP/'sab_engine.py').read_text(encoding='utf-8')
 app=(STATIC/'app.js').read_text(encoding='utf-8'); index=(STATIC/'index.html').read_text(encoding='utf-8'); manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
-check((APP/'version.txt').read_text().strip()=='3.6.99','current version mismatch')
-check('APP_VERSION = "3.6.99"' in server and "version='3.6.99'" in automation and 'ADAPTER_VERSION = "3.6.99"' in sab and "const UI_VERSION = '3.6.99';" in app,'release identity mismatch')
-check(manifest.get('version')=='3.6.99' and manifest.get('base_version')=='3.6.96' and manifest.get('adapter_version')=='3.6.99','manifest lineage mismatch')
+check((APP/'version.txt').read_text().strip()=='3.7.0','current version mismatch')
+check('APP_VERSION = "3.7.0"' in server and "version='3.7.0'" in automation and 'ADAPTER_VERSION = "3.7.0"' in sab and "const UI_VERSION = '3.7.0';" in app,'release identity mismatch')
+check(manifest.get('version')=='3.7.0' and manifest.get('base_version')=='3.6.99' and manifest.get('adapter_version')=='3.7.0','manifest lineage mismatch')
 
 # v3.6.96 article-aware Automation ordering remains active while the original
 # visible title is preserved.
@@ -43,4 +43,4 @@ for rel,expected in {
 check('python release/windows/validate-v3696-regressions.py' in workflow,'canonical workflow no longer runs v3.6.96 guard')
 check("$pickerLockSource = Join-Path $env:RUNNER_TEMP 'NewzDeckPickerLockSmoke.go'" in workflow,'inert Picker-lock upgrade smoke changed')
 check("-ArgumentList @('--taskbar-fix')" not in workflow,'retired Picker taskbar-fix smoke returned')
-print('v3.6.96 Library Article-Aware Sorting carried-forward guard under v3.6.99: PASS')
+print('v3.6.96 Library Article-Aware Sorting carried-forward guard under v3.7.0: PASS')

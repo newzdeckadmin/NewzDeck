@@ -10,20 +10,20 @@ server=(APP/'server.py').read_text(encoding='utf-8'); automation=(APP/'automatio
 app=(STATIC/'app.js').read_text(encoding='utf-8'); index=(STATIC/'index.html').read_text(encoding='utf-8'); themes=(STATIC/'themes.css').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8')); workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 EXPECTED={
- 'server.py':'115b49c5c656e5d9366746d6adba166a0fc8d3770d6b33847aff48c4dc570e4f',
- 'automation_engine.py':'67da05374cb70a305ccafd3251ce27a806f9521bfb211ce657596ae7708b0098',
- 'sab_engine.py':'7c84060a3316a014bd859d54f46606f1a3b2f94d4df34f5297a22078d4d5f75e',
- 'static/app.js':'5d9400336a87c0503ef7a1e15cfdea744c1ea0865be37f0c6a1cf3ed666c9e11',
- 'static/index.html':'d77a224e530a4fa8cbfecad88db14321255729adf843feb4fb0e7186e656ea5d',
+ 'server.py':'c6a77e46e4abeafe8c460944828d69efc9c49c3e33aafeb7819e04a9fc697990',
+ 'automation_engine.py':'ee3cf8243a593e4fd1c45f040f3a4056a7a8507e27015107401354482c782c78',
+ 'sab_engine.py':'1b80fe99a1dc42dce9f464095ef14b2227bc100a5c2a83d1b7059b97ae1152ef',
+ 'static/app.js':'3df087fa5aca176db8c84e6f3a9e962600114b1bb9e83470131365ae1d64fc94',
+ 'static/index.html':'018ce4260c885c0cf0360c163c5ef76ca7cbfdf5c83b4034f73c2b6255178e61',
  'static/styles.css':'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
  'static/themes.css':'2a44223d165b8e1caa8bc5a52842ce76cf396557e6af59b9ecd2aee8bf6a1721',
- 'build-manifest.json':'36fd81bfb09be9b1ae23225520719010a43601b60f8467d13e89cd07b06223ac',
- 'version.txt':'7d1e1967d448824bd388968ce6c1665293b9be823deae8e870a46963874fd903',
+ 'build-manifest.json':'b717797975a554d068a3527626d9207aa56ec2e6f107147abdb9ef312898d724',
+ 'version.txt':'84746b20a3a72f6ff85a629706e50507c1bd200907456b76dd808a2a5ca0efba',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.99 payload')
-check((APP/'version.txt').read_text().strip()=='3.6.99','version.txt mismatch')
-check('APP_VERSION = "3.6.99"' in server and "version='3.6.99'" in automation and 'ADAPTER_VERSION = "3.6.99"' in sab and "const UI_VERSION = '3.6.99';" in app,'application identity mismatch')
-check(manifest.get('version')=='3.6.99' and manifest.get('base_version')=='3.6.96' and manifest.get('release')=='Final UX & Backup/Restore' and manifest.get('sab_version')=='5.1.2','manifest identity mismatch')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.7.0 payload')
+check((APP/'version.txt').read_text().strip()=='3.7.0','version.txt mismatch')
+check('APP_VERSION = "3.7.0"' in server and "version='3.7.0'" in automation and 'ADAPTER_VERSION = "3.7.0"' in sab and "const UI_VERSION = '3.7.0';" in app,'application identity mismatch')
+check(manifest.get('version')=='3.7.0' and manifest.get('base_version')=='3.6.99' and manifest.get('release')=='Production Milestone & Repository Hygiene' and manifest.get('sab_version')=='5.1.2','manifest identity mismatch')
 
 # Backup schema + scope.
 for marker in ("'format':'NewzDeckBackup'","'schema':2","'kind':'complete' if include_secrets else 'configuration'","'excluded':['download_payloads','download_queue','sab_runtime','automation_runtime','caches','thumbnails','logs','diagnostics','metadata_cache']"):
@@ -73,6 +73,6 @@ for rel,expected in {
  'release/windows/build-portable.py':'5617ee744dc8ed4e51bb1b7c68bd22cfea65eb74',
  'release/windows/NewzDeck.iss':'b7c96b5721b00d468ab9582dfaa80e7f7fa2308d',
 }.items(): check(blob(rel)==expected,f'protected native/update blob changed: {rel}')
-check('python release/windows/validate-v3699-regressions.py' in workflow,'canonical workflow does not run v3.6.99 guard')
+check('python release/windows/validate-v3699-regressions.py' in workflow,'canonical workflow does not run v3.7.0 guard')
 check("-ArgumentList @('--taskbar-fix')" not in workflow,'retired Picker behavior returned')
-print('v3.6.99 Final UX & Backup/Restore regression guard: PASS')
+print('v3.6.99 Backup/Restore behavior carried forward under v3.7.0: PASS')

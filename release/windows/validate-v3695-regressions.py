@@ -7,17 +7,17 @@ def check(c,m):
     if not c: raise AssertionError(m)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 EXPECTED={
-    'server.py': '115b49c5c656e5d9366746d6adba166a0fc8d3770d6b33847aff48c4dc570e4f',
-    'automation_engine.py': '67da05374cb70a305ccafd3251ce27a806f9521bfb211ce657596ae7708b0098',
-    'sab_engine.py': '7c84060a3316a014bd859d54f46606f1a3b2f94d4df34f5297a22078d4d5f75e',
-    'static/app.js': '5d9400336a87c0503ef7a1e15cfdea744c1ea0865be37f0c6a1cf3ed666c9e11',
-    'static/index.html': 'd77a224e530a4fa8cbfecad88db14321255729adf843feb4fb0e7186e656ea5d',
+    'server.py': 'c6a77e46e4abeafe8c460944828d69efc9c49c3e33aafeb7819e04a9fc697990',
+    'automation_engine.py': 'ee3cf8243a593e4fd1c45f040f3a4056a7a8507e27015107401354482c782c78',
+    'sab_engine.py': '1b80fe99a1dc42dce9f464095ef14b2227bc100a5c2a83d1b7059b97ae1152ef',
+    'static/app.js': '3df087fa5aca176db8c84e6f3a9e962600114b1bb9e83470131365ae1d64fc94',
+    'static/index.html': '018ce4260c885c0cf0360c163c5ef76ca7cbfdf5c83b4034f73c2b6255178e61',
     'static/styles.css': 'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
     'static/themes.css': '2a44223d165b8e1caa8bc5a52842ce76cf396557e6af59b9ecd2aee8bf6a1721',
-    'build-manifest.json': '36fd81bfb09be9b1ae23225520719010a43601b60f8467d13e89cd07b06223ac',
-    'version.txt': '7d1e1967d448824bd388968ce6c1665293b9be823deae8e870a46963874fd903'
+    'build-manifest.json': 'b717797975a554d068a3527626d9207aa56ec2e6f107147abdb9ef312898d724',
+    'version.txt': '84746b20a3a72f6ff85a629706e50507c1bd200907456b76dd808a2a5ca0efba'
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.99 Final UX & Backup/Restore payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.7.0 Production Milestone & Repository Hygiene payload')
 server=(APP/'server.py').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 sab=(APP/'sab_engine.py').read_text(encoding='utf-8')
@@ -31,13 +31,13 @@ yenc=(ROOT/'src'/'windows'/'NewzDeckYenc.go').read_text(encoding='utf-8')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 installer=(ROOT/'release'/'windows'/'NewzDeck.iss').read_text(encoding='utf-8')
-check((APP/'version.txt').read_text().strip()=='3.6.99','version.txt mismatch')
-check('APP_VERSION = "3.6.99"' in server,'server version mismatch')
-check("version='3.6.99'" in automation,'Automation version mismatch')
-check('ADAPTER_VERSION = "3.6.99"' in sab,'SAB adapter version mismatch')
-check("const UI_VERSION = '3.6.99';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.99' and manifest.get('base_version')=='3.6.96' and manifest.get('adapter_version')=='3.6.99','manifest lineage mismatch')
-check(manifest.get('release')=='Final UX & Backup/Restore','release name mismatch')
+check((APP/'version.txt').read_text().strip()=='3.7.0','version.txt mismatch')
+check('APP_VERSION = "3.7.0"' in server,'server version mismatch')
+check("version='3.7.0'" in automation,'Automation version mismatch')
+check('ADAPTER_VERSION = "3.7.0"' in sab,'SAB adapter version mismatch')
+check("const UI_VERSION = '3.7.0';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.7.0' and manifest.get('base_version')=='3.6.99' and manifest.get('adapter_version')=='3.7.0','manifest lineage mismatch')
+check(manifest.get('release')=='Production Milestone & Repository Hygiene','release name mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 # v3.6.95 was deliberately presentation-only. The underlying tokenized stylesheet
@@ -104,7 +104,7 @@ for theme in LIGHT:
 # Theme registry/persistence behavior and backend isolation remain v3.6.94.
 for required in ("const THEME_STORAGE_KEY = 'newzdeckTheme';","const LIGHT_THEME_IDS = new Set(['light','arctic','sandstone']);",'function applyTheme(value,{persist=false}={})',"localStorage.setItem(THEME_STORAGE_KEY,theme)"):
     check(required in app,'theme behavior changed: '+required)
-check('/themes.css?v=3.6.99-final-ux-backup-restore' in index and '/styles.css?v=3.6.99-final-ux-backup-restore' in index and '/app.js?v=3.6.99-final-ux-backup-restore' in index,'hotfix cache identity mismatch')
+check('/themes.css?v=3.7.0-production-milestone-repository-hygiene' in index and '/styles.css?v=3.7.0-production-milestone-repository-hygiene' in index and '/app.js?v=3.7.0-production-milestone-repository-hygiene' in index,'hotfix cache identity mismatch')
 check('newzdeckTheme' not in server and 'newzdeckTheme' not in automation and 'newzdeckTheme' not in sab,'theme preference leaked into backend')
 
 # Defender-clean/update architecture stays frozen.
@@ -118,5 +118,5 @@ for required in ('def _launch_verified_setup_update(', 'def _schedule_verified_s
 for forbidden in ('def _launch_update_handoff(', 'NewzDeckUpdateHandoff-', 'shutil.copy2(PICKER_HELPER_EXE'):
     check(forbidden not in server,'legacy copied update handoff returned: '+forbidden)
 check("Exec(AppExe, '--close-app-windows'" in installer and "Exec(Helper, '--close-app-windows'" not in installer,'installer update ownership changed')
-check('python release/windows/validate-v3695-regressions.py' in workflow,'canonical workflow does not run v3.6.99 guard')
-print('v3.6.99 Library Article-Aware Sorting regression guard: PASS (three light palettes corrected; nine dark palettes and Defender baseline frozen).')
+check('python release/windows/validate-v3695-regressions.py' in workflow,'canonical workflow does not run v3.7.0 guard')
+print('v3.7.0 Library Article-Aware Sorting regression guard: PASS (three light palettes corrected; nine dark palettes and Defender baseline frozen).')

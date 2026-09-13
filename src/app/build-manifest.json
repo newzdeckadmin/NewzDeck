@@ -1,26 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.99",
-  "base_version": "3.6.96",
-  "release": "Final UX & Backup/Restore",
-  "adapter_version": "3.6.99",
-  "name": "Final UX & Backup/Restore",
+  "version": "3.7.0",
+  "base_version": "3.6.99",
+  "release": "Production Milestone & Repository Hygiene",
+  "adapter_version": "3.7.0",
+  "name": "Production Milestone & Repository Hygiene",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds a dedicated Settings > Backup & Restore experience with one-click configuration backup, password-encrypted Complete Backup, and validated transactional restore.",
-    "Complete backups use browser-side AES-256-GCM with PBKDF2-SHA-256 (600,000 iterations); the backup password never reaches the backend.",
-    "Restores Settings and Automation only, creates an automatic pre-restore safety snapshot, preserves machine-specific metadata identity, and never imports active downloads/SAB runtime/caches/logs.",
-    "Preserves v3.6.96 article-aware TV/Movie sorting, all twelve themes, private SABnzbd 5.1.2, and the Defender-clean native/update architecture."
+    "Promotes the proven v3.6.99 application to the v3.7 production milestone without changing user-facing runtime behavior outside version identity.",
+    "Removes the obsolete duplicate windows-release.yml workflow so the guarded publish-release-trigger.yml pipeline is the single authoritative Windows production release path.",
+    "Modernizes release/windows/README.md and src/README.md to describe the current source/build topology without stale v3.5.33 guidance or missing documentation links.",
+    "Makes THIRD_PARTY_NOTICES.md version-neutral so current third-party licensing statements do not become stale on every NewzDeck version bump."
   ],
   "regression_guards": [
-    "Configuration Backup omits provider passwords and API keys while Complete Backup uses browser-side authenticated encryption and sends no backup password to the backend.",
-    "Restore validates schema before mutation, writes a pre-restore safety snapshot, uses Automation locks, and rolls back configuration on failure.",
-    "Portable restore excludes active downloads, SAB/Automation runtime state, caches, thumbnails, logs, diagnostics, and metadata cache state.",
-    "v3.6.96 article-aware A/An/The sorting, v3.6.95 theme/readability payloads, and Defender-clean Picker/yEnc/update architecture remain unchanged."
+    "v3.6.99 Backup & Restore, v3.6.96 A/An/The library sorting, all twelve themes, private SABnzbd 5.1.2, and the Defender-clean native/update architecture remain unchanged.",
+    "The obsolete manual windows-release.yml workflow is absent and the canonical publish-release-trigger.yml workflow runs the complete historical regression chain plus the v3.7.0 hygiene guard.",
+    "Repository source/build documentation contains no stale v3.5.33 current-tree wording, no missing RELEASE_COMPLIANCE.md reference, and no v3.6.93-specific third-party statements.",
+    "styles.css, themes.css, Picker, Launcher, yEnc helper source, installer, and Portable builder remain on their proven v3.6.99 baselines."
   ],
   "preserved": [
+    "v3.6.99 portable Settings and Automation Backup & Restore.",
     "v3.6.96 Automation library A/An/The-aware presentation sorting.",
     "v3.6.95 theme readability and all twelve palettes.",
-    "Newsgroup Browser, download engine, Smart Import, Automation search/grab behavior, updater ownership, Picker/yEnc and installer behavior."
+    "Newsgroup Browser, Downloads, Smart Import, Automation search/grab/import behavior, private SABnzbd 5.1.2, updater ownership, Picker/yEnc and installer behavior."
   ]
 }

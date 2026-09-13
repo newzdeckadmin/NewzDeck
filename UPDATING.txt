@@ -1,14 +1,9 @@
-NewzDeck v3.6.99 update notes
+NewzDeck v3.7.0 update notes
 
-v3.6.99 is the final pre-v3.7 UX and consistency release, built on the proven v3.6.96 production baseline.
+v3.7.0 is the production-milestone release built directly on the proven v3.6.99 application baseline.
 
-The normal in-app verified Setup update path is unchanged. Existing NewzDeck settings, history, Automation data, queue state, and provider configuration remain in the normal user-data location and are preserved by a normal update.
+The normal in-app verified Setup update path is unchanged. Existing NewzDeck settings, history, Automation data, queue state, provider configuration, backups, and other persistent data remain in the normal user-data location and are preserved by a normal update.
 
-New in v3.6.99: Settings > Backup & Restore can create portable Configuration or Complete backups of Settings and Automation configuration.
+There are no intentional user-facing runtime changes from v3.6.99 beyond the 3.7.0 version identity. Settings > Backup & Restore, article-aware TV/Movie sorting, all twelve themes, the Newsgroup Browser, Downloads, Smart Import, Automation, private SABnzbd 5.1.2, and the Defender-clean update/helper architecture are preserved.
 
-- Configuration Backup excludes passwords and API keys.
-- Complete Backup includes credentials and is encrypted with a password you choose. NewzDeck cannot recover a forgotten backup password.
-- Restore validates first and creates a pre-restore safety snapshot.
-- Portable backups intentionally exclude active downloads, SAB runtime/queue state, caches, logs, diagnostics, and other transient runtime data.
-
-The v3.6.96 article-aware TV/Movie sorting, all twelve themes, and the Defender-clean update/helper architecture are unchanged.
+The v3.7.0 source also removes an obsolete duplicate GitHub Actions Windows build workflow and refreshes source/build/licensing documentation. These repository-hygiene changes do not alter installed application behavior.

@@ -1,47 +1,52 @@
 # Building NewzDeck for Windows
 
-> **Just want to use NewzDeck?** You do not need anything in this folder. Download the latest Windows Installer or Portable ZIP from the [Releases page](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+> **Just want to use NewzDeck?** Download the latest Windows Installer or Portable ZIP from the [Releases page](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
-This directory contains the Windows packaging tools used to build the same type of artifacts distributed in official NewzDeck releases.
+This directory contains the Windows packaging, smoke-test, and regression-gate source used by the official NewzDeck release pipeline.
 
-## Official build model
+## Authoritative production release model
 
-A Windows build starts from the public source tree and produces:
+NewzDeck has one authoritative production Windows publication path: `.github/workflows/publish-release-trigger.yml`.
+
+A reviewed release first creates an immutable production-source commit and annotated `vX.Y.Z` tag. A separate trigger-only commit then adds `.release-trigger/X.Y.Z`. That trigger commit starts the canonical workflow, which verifies that its parent is the declared source commit before any release artifact is published.
+
+The former manually-dispatched duplicate `windows-release.yml` workflow was retired in v3.7.0 to prevent two build/release implementations from drifting apart.
+
+## Produced artifacts
+
+The canonical workflow produces:
 
 - `NewzDeck_vX.Y.Z_Portable.zip`
 - `NewzDeck_vX.Y.Z_Setup.exe`
 - `NewzDeck_vX.Y.Z_SHA256.txt`
 
-The Portable build compiles all six NewzDeck-owned Windows executables from the Go source under `src/windows/` and packages the application source/static files from `src/app/`.
+The Portable build compiles all six NewzDeck-owned Windows executables from the Go source under `src/windows/` and packages the application source/static files from `src/app/`. The installer is built from that validated Portable payload.
 
-The installer is built from that exact Portable payload.
+## Canonical toolchain
 
-## Toolchain
-
-The canonical Windows build uses:
+The production workflow pins:
 
 - Python 3.12.10
 - Go 1.23.2
 - Windows x64 (`GOOS=windows`, `GOARCH=amd64`, `CGO_ENABLED=0`)
 - Inno Setup 7.1.0 x64
 
-The GitHub Actions workflow verifies the Inno Setup installer download by SHA-256 and Authenticode before using it.
+The workflow verifies the Inno Setup installer download by SHA-256 and Authenticode before using it. The Defender-compatible yEnc helper is rebuilt from canonical LF source with the pinned Go toolchain and checked against its accepted binary SHA-256 before packaging.
 
-## GitHub Actions
+## Release validation
 
-Use **Actions → Build Windows release artifacts → Run workflow** and enter the version from `src/app/version.txt`.
+Before publication, the production workflow:
 
-The workflow:
+1. proves the trigger/source topology and version identities;
+2. runs the complete carried-forward regression chain plus the current release guard;
+3. compiles the Python, JavaScript, and protected Go source;
+4. builds and validates the Portable ZIP and its source manifest;
+5. builds the Setup EXE from that exact payload;
+6. verifies release checksums;
+7. performs clean-install and installed-upgrade smoke tests, including service/tray restoration and locked native-helper replacement;
+8. publishes the GitHub Release only after all gates pass.
 
-1. validates the public application source;
-2. builds all six NewzDeck Windows executables from source;
-3. builds and validates the Portable ZIP;
-4. compiles the Setup EXE;
-5. verifies the release checksums;
-6. performs a clean-install and installed-upgrade smoke test, including the tray-lock/service-repair upgrade path;
-7. uploads the three completed files as a GitHub Actions artifact.
-
-The build workflow does **not** publish or replace a GitHub Release automatically. This keeps release publication separate from the build and acceptance test.
+For local/source work, `build-portable.py` remains the canonical source-to-Portable builder. Local builds are useful for development but are not a substitute for the pinned production release gate.
 
 ## Installer behavior
 
@@ -50,9 +55,9 @@ The normal installer:
 - installs per-user under `%LOCALAPPDATA%\Programs\NewzDeck`;
 - preserves persistent data under `%LOCALAPPDATA%\NewzDeck`;
 - upgrades over an existing installation;
-- closes the NewzDeck tray companion before replacing locked files;
-- repairs an existing NewzDeck background service when necessary;
-- keeps the same NewzDeck application icon for the installed app and shortcuts;
+- closes the NewzDeck tray companion and protected native helpers before replacing locked files;
+- repairs/restores an existing NewzDeck background service when necessary;
+- keeps the NewzDeck application icon for the installed app and shortcuts;
 - does not add Defender exclusions;
 - remains intentionally unsigned.
 
