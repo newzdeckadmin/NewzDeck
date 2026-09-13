@@ -11,16 +11,16 @@ def load(name,path):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'cf095fa4af834c60d050e56e90aacbddf3d26b2e7e672e1938766725b97a17db',
-    'automation_engine.py':'5880a9747dbe5ef4be2bc17685119d82155c1f688d3d10b04ee5c9b1c0513e39',
-    'sab_engine.py':'56e5a089f26cfdd3a2b6e40e1838973194220687c191de14f91e1f6953be42c3',
-    'static/app.js':'42f5c835e9435b7ceba0ae4664326813c803718de3c9f2dfe6430a40b87c1845',
-    'static/index.html':'7c1f68a8aa7b7e6441d142592f6f198dbe8331c2e6dd5c60d4952d1d236296ad',
+    'server.py':'115b49c5c656e5d9366746d6adba166a0fc8d3770d6b33847aff48c4dc570e4f',
+    'automation_engine.py':'67da05374cb70a305ccafd3251ce27a806f9521bfb211ce657596ae7708b0098',
+    'sab_engine.py':'7c84060a3316a014bd859d54f46606f1a3b2f94d4df34f5297a22078d4d5f75e',
+    'static/app.js':'5d9400336a87c0503ef7a1e15cfdea744c1ea0865be37f0c6a1cf3ed666c9e11',
+    'static/index.html':'d77a224e530a4fa8cbfecad88db14321255729adf843feb4fb0e7186e656ea5d',
     'static/styles.css':'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
-    'build-manifest.json':'623006d630ae88ec859e371561e69e46daeebc55f7c8417847015799e720e1f8',
-    'version.txt':'44a1fcae929eb12521b0218135694ad3d84f616ba88ff4914fa1e8ffb45617ea',
+    'build-manifest.json':'36fd81bfb09be9b1ae23225520719010a43601b60f8467d13e89cd07b06223ac',
+    'version.txt':'7d1e1967d448824bd388968ce6c1665293b9be823deae8e870a46963874fd903',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.96 payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.99 payload')
 
 auto=load('newzdeck_v3688_automation_guard',APP/'automation_engine.py')
 server=(APP/'server.py').read_text(encoding='utf-8')
@@ -29,17 +29,17 @@ index=(APP/'static'/'index.html').read_text(encoding='utf-8')
 styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 _THEME_COLOR_FALLBACK=re.compile(r'var\(--nz-[a-z0-9-]+,(#[0-9a-fA-F]{3,8}|rgba?\([^()]*\)|white)\)')
 styles=_THEME_COLOR_FALLBACK.sub(lambda m:m.group(1),styles)
-check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.96 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
+check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','v3.6.99 Night fallback reconstruction does not preserve the exact v3.6.93 stylesheet for this carried-forward guard')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
-check((APP/'version.txt').read_text().strip()=='3.6.96','version.txt mismatch')
-check('APP_VERSION = "3.6.96"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.96';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.96' and manifest.get('base_version')=='3.6.95' and manifest.get('adapter_version')=='3.6.96','build manifest lineage mismatch')
-check(manifest.get('release')=='Library Article-Aware Sorting','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.99','version.txt mismatch')
+check('APP_VERSION = "3.6.99"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.99';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.99' and manifest.get('base_version')=='3.6.96' and manifest.get('adapter_version')=='3.6.99','build manifest lineage mismatch')
+check(manifest.get('release')=='Final UX & Backup/Restore','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
-check('v=3.6.96-library-article-aware-sorting' in index,'v3.6.89 asset cache identity missing')
+check('v=3.6.99-final-ux-backup-restore' in index,'v3.6.89 asset cache identity missing')
 check(hashlib.sha256(styles.encode('utf-8')).hexdigest()=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','frozen stylesheet changed')
 
 for required in (
@@ -56,7 +56,7 @@ check('positive probe is the strongest' in automation and 'A positive probe may 
 class DummyDownloadManager: pass
 root=Path(tempfile.mkdtemp(prefix='newzdeck-v3688-guard-'))
 data=root/'data'; data.mkdir(); tvroot=root/'TV'; tvroot.mkdir()
-engine=auto.MediaAutomationEngine(data,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.96')
+engine=auto.MediaAutomationEngine(data,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.99')
 p4=copy.deepcopy(auto.DEFAULT_PROFILES[0]); p1080=copy.deepcopy(auto.DEFAULT_PROFILES[1])
 (data/'quality-profiles.json').write_text(json.dumps([p4]),encoding='utf-8')
 (data/'media-automation-config.json').write_text(json.dumps({'tv_roots':[str(tvroot)],'movie_roots':[],'plex_organize_enabled':True,'plex_cleanup_staging':False}),encoding='utf-8')

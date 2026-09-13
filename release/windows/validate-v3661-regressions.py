@@ -96,16 +96,16 @@ for marker in (
 
 # 4. Preserve the v3.6.60 Discover optimization stack and all established runtime
 # architecture while only migrating current version markers.
-check("const UI_VERSION = '3.6.96'" in app_js, 'UI version marker is not v3.6.96.')
-check('3.6.96-library-article-aware-sorting' in index_html, 'v3.6.96 static cache identity is missing.')
-check('<div class="version"><b>NewzDeck</b><span>v3.6.96</span></div>' in index_html, 'Visible sidebar version is not v3.6.96.')
-check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.96', 'version.txt is not v3.6.96.')
-check(manifest.get('version') == '3.6.96' and manifest.get('base_version') == '3.6.95', f'Build manifest version/base mismatch: {manifest}')
-check(manifest.get('adapter_version') == '3.6.96' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
-check(sab.ADAPTER_VERSION == '3.6.96', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
-check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.96 changed SAB 5.1.2 or terminal-history schema 3.')
-check("version='3.6.96'" in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'Automation default version identity did not migrate to v3.6.96.')
+check("const UI_VERSION = '3.6.99'" in app_js, 'UI version marker is not v3.6.99.')
+check('3.6.99-final-ux-backup-restore' in index_html, 'v3.6.99 static cache identity is missing.')
+check('<div class="version"><b>NewzDeck</b><span>v3.6.99</span></div>' in index_html, 'Visible sidebar version is not v3.6.99.')
+check((APP / 'version.txt').read_text(encoding='utf-8').strip() == '3.6.99', 'version.txt is not v3.6.99.')
+check(manifest.get('version') == '3.6.99' and manifest.get('base_version') == '3.6.96', f'Build manifest version/base mismatch: {manifest}')
+check(manifest.get('adapter_version') == '3.6.99' and manifest.get('sab_version') == '5.1.2', f'Build manifest adapter/SAB mismatch: {manifest}')
+check(sab.ADAPTER_VERSION == '3.6.99', f'Wrong SAB adapter identity: {sab.ADAPTER_VERSION}')
+check(sab.SAB_VERSION == '5.1.2' and sab.TERMINAL_HISTORY_VERSION == 3, 'v3.6.99 changed SAB 5.1.2 or terminal-history schema 3.')
+check("version='3.6.99'" in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'Automation default version identity did not migrate to v3.6.99.')
 check('_discover_library_index_snapshot' in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'v3.6.60 Discover library index was not preserved.')
 check('_flush_metadata_cache_now' in (APP / 'automation_engine.py').read_text(encoding='utf-8'), 'v3.6.60 metadata-cache coalescing was not preserved.')
 
-print('v3.6.96 regression guard: PASS')
+print('v3.6.99 regression guard: PASS')

@@ -1,7 +1,14 @@
-NewzDeck v3.6.96 update notes
+NewzDeck v3.6.99 update notes
 
-This release is a narrow Automation library sorting update built on the proven v3.6.95 production baseline.
+v3.6.99 is the final pre-v3.7 UX and consistency release, built on the proven v3.6.96 production baseline.
 
-After updating, TV Shows and Movies remain displayed with their canonical titles, but alphabetic placement ignores a leading A, An, or The. No library folders, media filenames, monitoring state, quality profiles, downloads, or themes are renamed or migrated.
+The normal in-app verified Setup update path is unchanged. Existing NewzDeck settings, history, Automation data, queue state, and provider configuration remain in the normal user-data location and are preserved by a normal update.
 
-The normal in-app verified Setup update path is unchanged.
+New in v3.6.99: Settings > Backup & Restore can create portable Configuration or Complete backups of Settings and Automation configuration.
+
+- Configuration Backup excludes passwords and API keys.
+- Complete Backup includes credentials and is encrypted with a password you choose. NewzDeck cannot recover a forgotten backup password.
+- Restore validates first and creates a pre-restore safety snapshot.
+- Portable backups intentionally exclude active downloads, SAB runtime/queue state, caches, logs, diagnostics, and other transient runtime data.
+
+The v3.6.96 article-aware TV/Movie sorting, all twelve themes, and the Defender-clean update/helper architecture are unchanged.

@@ -7,16 +7,16 @@ def check(c,m):
     if not c: raise AssertionError(m)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 EXPECTED={
-    'server.py':'cf095fa4af834c60d050e56e90aacbddf3d26b2e7e672e1938766725b97a17db',
-    'automation_engine.py':'5880a9747dbe5ef4be2bc17685119d82155c1f688d3d10b04ee5c9b1c0513e39',
-    'sab_engine.py':'56e5a089f26cfdd3a2b6e40e1838973194220687c191de14f91e1f6953be42c3',
-    'static/app.js':'42f5c835e9435b7ceba0ae4664326813c803718de3c9f2dfe6430a40b87c1845',
-    'static/index.html':'7c1f68a8aa7b7e6441d142592f6f198dbe8331c2e6dd5c60d4952d1d236296ad',
+    'server.py':'115b49c5c656e5d9366746d6adba166a0fc8d3770d6b33847aff48c4dc570e4f',
+    'automation_engine.py':'67da05374cb70a305ccafd3251ce27a806f9521bfb211ce657596ae7708b0098',
+    'sab_engine.py':'7c84060a3316a014bd859d54f46606f1a3b2f94d4df34f5297a22078d4d5f75e',
+    'static/app.js':'5d9400336a87c0503ef7a1e15cfdea744c1ea0865be37f0c6a1cf3ed666c9e11',
+    'static/index.html':'d77a224e530a4fa8cbfecad88db14321255729adf843feb4fb0e7186e656ea5d',
     'static/styles.css':'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d',
-    'build-manifest.json':'623006d630ae88ec859e371561e69e46daeebc55f7c8417847015799e720e1f8',
-    'version.txt':'44a1fcae929eb12521b0218135694ad3d84f616ba88ff4914fa1e8ffb45617ea',
+    'build-manifest.json':'36fd81bfb09be9b1ae23225520719010a43601b60f8467d13e89cd07b06223ac',
+    'version.txt':'7d1e1967d448824bd388968ce6c1665293b9be823deae8e870a46963874fd903',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.96 payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.99 payload')
 server=(APP/'server.py').read_text(encoding='utf-8')
 app=(APP/'static'/'app.js').read_text(encoding='utf-8')
 index=(APP/'static'/'index.html').read_text(encoding='utf-8')
@@ -27,12 +27,12 @@ installer=(ROOT/'release'/'windows'/'NewzDeck.iss').read_text(encoding='utf-8')
 builder=(ROOT/'release'/'windows'/'build-portable.py').read_text(encoding='utf-8')
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 
-check((APP/'version.txt').read_text().strip()=='3.6.96','version.txt mismatch')
-check('APP_VERSION = "3.6.96"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.96';" in app,'UI version mismatch')
-check('v=3.6.96-library-article-aware-sorting' in index,'asset cache identity mismatch')
-check(manifest.get('version')=='3.6.96' and manifest.get('base_version')=='3.6.95' and manifest.get('adapter_version')=='3.6.96','manifest lineage mismatch')
-check(manifest.get('release')=='Library Article-Aware Sorting','release name mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.99','version.txt mismatch')
+check('APP_VERSION = "3.6.99"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.99';" in app,'UI version mismatch')
+check('v=3.6.99-final-ux-backup-restore' in index,'asset cache identity mismatch')
+check(manifest.get('version')=='3.6.99' and manifest.get('base_version')=='3.6.96' and manifest.get('adapter_version')=='3.6.99','manifest lineage mismatch')
+check(manifest.get('release')=='Final UX & Backup/Restore','release name mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
 
 # The in-app updater must launch the verified Setup directly. No copied executable handoff may return.
@@ -64,5 +64,5 @@ for required in ('PICKER_GO_LDFLAGS = "-H windowsgui"','if exe == "NewzDeckPicke
     check(required in builder,'builder protection missing: '+required)
 
 for required in ('python release/windows/validate-v3692-regressions.py','Picker source is not folder-picker-only','Launcher source is missing the bounded browser-window close mode',"[bool]$pickerOverride.source_behavior_changed"):
-    check(required in workflow,'workflow v3.6.96 release gate missing: '+required)
-print('v3.6.96 Defender Handoff Release Gate Recovery carried-forward guard: PASS')
+    check(required in workflow,'workflow v3.6.99 release gate missing: '+required)
+print('v3.6.99 Defender Handoff Release Gate Recovery carried-forward guard: PASS')

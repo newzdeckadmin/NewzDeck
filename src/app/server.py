@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.6.96"
+APP_VERSION = "3.6.99"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -12850,9 +12850,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return None
             raise
 
-    def _body_json(self) -> dict[str, Any]:
+    def _body_json(self, max_bytes: int = 2_000_000) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0") or 0)
-        if length > 2_000_000:
+        if length > max(1, int(max_bytes)):
             raise ValueError("Request is too large")
         raw = self.rfile.read(length) if length else b"{}"
         return json.loads(raw.decode("utf-8"))
@@ -13083,7 +13083,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.nzb_import_upload_api()
             if parsed.path == "/api/nzb/inspect":
                 return self.nzb_inspect_upload_api()
-            data = self._body_json()
+            data = self._body_json(25_000_000 if parsed.path == "/api/config/restore" else 2_000_000)
             if parsed.path == "/api/nzb/import-selection":
                 return self.nzb_import_selection_api(data)
             if parsed.path == "/api/app/heartbeat":
@@ -13162,6 +13162,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.choose_download_folder_api(data)
             if parsed.path == "/api/settings/choose-watch-folder":
                 return self.choose_watch_folder_api(data)
+            if parsed.path == "/api/config/backup/complete":
+                return self.config_backup_complete_api()
             if parsed.path == "/api/config/restore":
                 return self.config_restore_api(data)
             if parsed.path == "/api/app/open-data":
@@ -14147,27 +14149,252 @@ class AppHandler(SimpleHTTPRequestHandler):
             raise ValueError(f'Folder does not exist or is not accessible: {path}')
         return self._json(200, {'ok': True, 'cancelled': False, 'folder': os.path.normpath(str(folder))})
 
+    def _backup_json_clone(self, value: Any, default: Any):
+        try:
+            return json.loads(json.dumps(value, ensure_ascii=False))
+        except Exception:
+            return json.loads(json.dumps(default, ensure_ascii=False))
+
+    def _backup_sanitize_automation_config(self, config: dict[str, Any], include_secrets: bool) -> dict[str, Any]:
+        current = dict(config or {})
+        out = self._backup_json_clone(current, {})
+        # Metadata-service installation credentials belong to this installation and
+        # are never portable, even in a Complete Backup.
+        for key in ('metadata_installation_secret_protected','metadata_access_token_protected','metadata_authenticated_at'):
+            out.pop(key, None)
+        protected = str(current.get('tmdb_api_key_protected') or '')
+        out.pop('tmdb_api_key_protected', None)
+        out['tmdb_api_key_configured'] = bool(protected)
+        if include_secrets and protected:
+            out['tmdb_api_key'] = unprotect_secret(protected)
+        return out
+
+    def _backup_providers(self, include_secrets: bool) -> list[dict[str, Any]]:
+        out=[]
+        for raw in get_providers():
+            if not isinstance(raw, dict):
+                continue
+            rec=self._backup_json_clone(raw,{})
+            protected=str(rec.pop('password_protected','') or '')
+            rec['password_configured']=bool(protected)
+            if include_secrets and protected:
+                rec['password']=unprotect_secret(protected)
+            out.append(rec)
+        return out
+
+    def _backup_indexers(self, include_secrets: bool) -> list[dict[str, Any]]:
+        out=[]
+        for raw in MEDIA_AUTOMATION._indexers():
+            if not isinstance(raw, dict):
+                continue
+            rec=self._backup_json_clone(raw,{})
+            protected=str(rec.pop('api_key_protected','') or '')
+            rec['api_key_configured']=bool(protected)
+            if include_secrets and protected:
+                rec['api_key']=unprotect_secret(protected)
+            out.append(rec)
+        return out
+
+    def _build_portable_backup(self, include_secrets: bool=False) -> dict[str, Any]:
+        with MEDIA_AUTOMATION.lock:
+            settings=json_read(SETTINGS_FILE,{})
+            searches=json_read(SAVED_SEARCHES_FILE,[])
+            library=MEDIA_AUTOMATION._library()
+            config=MEDIA_AUTOMATION._config()
+            profiles=MEDIA_AUTOMATION._profiles()
+            backup={
+                'format':'NewzDeckBackup','schema':2,'created_with':APP_VERSION,
+                'created':datetime.now().astimezone().isoformat(timespec='seconds'),
+                'kind':'complete' if include_secrets else 'configuration',
+                'contains_secrets':bool(include_secrets),
+                'settings':self._backup_json_clone(settings,{}),
+                'providers':self._backup_providers(include_secrets),
+                'saved_searches':self._backup_json_clone(searches,[]),
+                'media_automation':{
+                    'library':self._backup_json_clone(library,[]),
+                    'config':self._backup_sanitize_automation_config(config,include_secrets),
+                    'indexers':self._backup_indexers(include_secrets),
+                    'profiles':self._backup_json_clone(profiles,[]),
+                },
+                'excluded':['download_payloads','download_queue','sab_runtime','automation_runtime','caches','thumbnails','logs','diagnostics','metadata_cache'],
+            }
+        return backup
+
     def config_backup_api(self):
-        backup = {'format':'NewzDeckConfigBackup', 'version':APP_VERSION, 'created':datetime.now().isoformat(timespec='seconds'), 'settings':json_read(SETTINGS_FILE, {}), 'providers':json_read(PROVIDERS_FILE, []), 'saved_searches':json_read(SAVED_SEARCHES_FILE, []), 'media_automation': {'library': MEDIA_AUTOMATION._library(), 'config': MEDIA_AUTOMATION._config(), 'indexers': MEDIA_AUTOMATION._indexers(), 'profiles': MEDIA_AUTOMATION._profiles()}}
-        raw = json.dumps(backup, indent=2, ensure_ascii=False).encode('utf-8')
-        name = f"NewzDeck-Config-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
-        self.send_response(200); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Disposition',f'attachment; filename="{name}"'); self.send_header('Content-Length',str(len(raw))); self.end_headers(); self.wfile.write(raw)
+        # Configuration Backup is intentionally secret-free and may remain a GET
+        # for compatibility with older NewzDeck clients.
+        return self._json(200,self._build_portable_backup(False))
+
+    def config_backup_complete_api(self):
+        # Complete Backup is POST-only so normal same-origin mutation protection
+        # applies before decrypted local secrets are returned to the NewzDeck UI.
+        return self._json(200,self._build_portable_backup(True))
+
+    def _raw_config_snapshot(self) -> dict[str, Any]:
+        return {
+            'settings':json_read(SETTINGS_FILE,{}),
+            'providers':json_read(PROVIDERS_FILE,[]),
+            'saved_searches':json_read(SAVED_SEARCHES_FILE,[]),
+            'library':json_read(MEDIA_AUTOMATION.library_file,[]),
+            'automation_config':json_read(MEDIA_AUTOMATION.config_file,{}),
+            'indexers':json_read(MEDIA_AUTOMATION.indexers_file,[]),
+            'profiles':json_read(MEDIA_AUTOMATION.profiles_file,[]),
+        }
+
+    def _write_pre_restore_safety_backup(self, snapshot: dict[str, Any]) -> str:
+        folder=DATA_DIR/'backups'; folder.mkdir(parents=True,exist_ok=True)
+        stamp=datetime.now().strftime('%Y%m%d-%H%M%S')
+        path=folder/f'NewzDeck-PreRestore-{stamp}.json'
+        json_write(path,{'format':'NewzDeckInternalSafetyBackup','schema':1,'created_with':APP_VERSION,'created':datetime.now().astimezone().isoformat(timespec='seconds'),'snapshot':snapshot})
+        try:
+            files=sorted(folder.glob('NewzDeck-PreRestore-*.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+            for old in files[10:]: old.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return str(path)
+
+    def _clear_automation_config_caches(self):
+        try:
+            with MEDIA_AUTOMATION._small_json_cache_lock:
+                MEDIA_AUTOMATION._small_json_cache.clear()
+        except Exception:
+            pass
+        try:
+            MEDIA_AUTOMATION.library_integrity_cache_signature=None
+            MEDIA_AUTOMATION.library_integrity_cache_result=None
+        except Exception:
+            pass
+
+    def _restore_raw_snapshot(self, snapshot: dict[str, Any]):
+        global DOWNLOAD_DIR
+        json_write(PROVIDERS_FILE,snapshot.get('providers') if isinstance(snapshot.get('providers'),list) else [])
+        json_write(SAVED_SEARCHES_FILE,snapshot.get('saved_searches') if isinstance(snapshot.get('saved_searches'),list) else [])
+        json_write(MEDIA_AUTOMATION.library_file,snapshot.get('library') if isinstance(snapshot.get('library'),list) else [])
+        json_write(MEDIA_AUTOMATION.config_file,snapshot.get('automation_config') if isinstance(snapshot.get('automation_config'),dict) else {})
+        json_write(MEDIA_AUTOMATION.indexers_file,snapshot.get('indexers') if isinstance(snapshot.get('indexers'),list) else [])
+        json_write(MEDIA_AUTOMATION.profiles_file,snapshot.get('profiles') if isinstance(snapshot.get('profiles'),list) else [])
+        old_settings=snapshot.get('settings') if isinstance(snapshot.get('settings'),dict) else {}
+        _settings_json_write(old_settings)
+        old_folder=str(old_settings.get('download_folder') or '').strip()
+        if old_folder:
+            DOWNLOAD_DIR=Path(old_folder).expanduser()
+        self._clear_automation_config_caches()
+        try: DOWNLOAD_MANAGER.request_sync()
+        except Exception: pass
+
+    def _restore_match_provider_secret(self, rec: dict[str, Any], current: list[dict[str, Any]]) -> str:
+        ident=str(rec.get('id') or '')
+        if ident:
+            hit=next((x for x in current if str(x.get('id') or '')==ident),None)
+            if hit: return str(hit.get('password_protected') or '')
+        host=str(rec.get('host') or '').strip().casefold(); port=str(rec.get('port') or ''); user=str(rec.get('username') or '').strip().casefold()
+        hit=next((x for x in current if str(x.get('host') or '').strip().casefold()==host and str(x.get('port') or '')==port and str(x.get('username') or '').strip().casefold()==user),None)
+        return str((hit or {}).get('password_protected') or '')
+
+    def _restore_match_indexer_secret(self, rec: dict[str, Any], current: list[dict[str, Any]]) -> str:
+        ident=str(rec.get('id') or '')
+        if ident:
+            hit=next((x for x in current if str(x.get('id') or '')==ident),None)
+            if hit: return str(hit.get('api_key_protected') or '')
+        url=str(rec.get('url') or '').strip().rstrip('/').casefold()
+        hit=next((x for x in current if str(x.get('url') or '').strip().rstrip('/').casefold()==url),None) if url else None
+        return str((hit or {}).get('api_key_protected') or '')
+
+    def _protect_restored_secret(self, value: str) -> str:
+        return protect_secret(str(value or ''),machine_scope=True if sys.platform=='win32' else None) if str(value or '') else ''
+
+    def _normalize_backup_for_restore(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        if not isinstance(data,dict): raise ValueError('This is not a NewzDeck backup')
+        if data.get('format')=='NewzDeckConfigBackup':
+            # Legacy v3.6.x JSON export. Its DPAPI blobs are machine/user-bound, so
+            # treat it as a configuration-only backup and preserve matching local secrets.
+            legacy=self._backup_json_clone(data,{})
+            legacy['format']='NewzDeckBackup'; legacy['schema']=1; legacy['kind']='configuration'; legacy['contains_secrets']=False
+            return legacy,False
+        if data.get('format')!='NewzDeckBackup': raise ValueError('This is not a NewzDeck backup')
+        try: schema=int(data.get('schema') or 0)
+        except Exception: schema=0
+        if schema<1 or schema>2: raise ValueError(f'Unsupported NewzDeck backup schema: {schema or "unknown"}')
+        return self._backup_json_clone(data,{}),bool(data.get('contains_secrets') or data.get('kind')=='complete')
+
+    def _sanitize_restore_paths(self, restored: dict[str, Any], current: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+        out=self._backup_json_clone(restored,{}) if isinstance(restored,dict) else {}
+        warnings=[]
+        for key,label in (('download_folder','Download folder'),('watch_folder','NZB watch folder')):
+            value=str(out.get(key) or '').strip()
+            if not value: continue
+            try: usable=Path(value).expanduser().is_dir()
+            except OSError: usable=False
+            if not usable:
+                old=str(current.get(key) or '').strip()
+                if old: out[key]=old
+                else: out.pop(key,None)
+                warnings.append(f'{label} was not available on this PC, so the current local path was kept.')
+        return out,warnings
 
     def config_restore_api(self, data: dict[str, Any]):
-        if not isinstance(data, dict) or data.get('format') != 'NewzDeckConfigBackup':
-            raise ValueError('This is not a NewzDeck configuration backup')
-        settings = data.get('settings'); providers = data.get('providers'); searches = data.get('saved_searches')
-        if not isinstance(settings, dict) or not isinstance(providers, list):
-            raise ValueError('The configuration backup is incomplete')
-        json_write(PROVIDERS_FILE, providers)
-        if isinstance(searches, list): json_write(SAVED_SEARCHES_FILE, searches)
-        media_auto = data.get('media_automation')
-        if isinstance(media_auto, dict):
-            if isinstance(media_auto.get('library'), list): json_write(MEDIA_AUTOMATION.library_file, media_auto['library'])
-            if isinstance(media_auto.get('config'), dict): json_write(MEDIA_AUTOMATION.config_file, media_auto['config'])
-            if isinstance(media_auto.get('indexers'), list): json_write(MEDIA_AUTOMATION.indexers_file, media_auto['indexers'])
-            if isinstance(media_auto.get('profiles'), list): json_write(MEDIA_AUTOMATION.profiles_file, media_auto['profiles'])
-        return self.settings_api(settings)
+        backup,has_secrets=self._normalize_backup_for_restore(data)
+        settings=backup.get('settings'); providers=backup.get('providers'); searches=backup.get('saved_searches',[]); media=backup.get('media_automation')
+        if not isinstance(settings,dict) or not isinstance(providers,list) or not isinstance(media,dict): raise ValueError('The NewzDeck backup is incomplete')
+        library=media.get('library'); config=media.get('config'); indexers=media.get('indexers'); profiles=media.get('profiles')
+        if not isinstance(library,list) or not isinstance(config,dict) or not isinstance(indexers,list) or not isinstance(profiles,list): raise ValueError('The Automation backup is incomplete')
+        if not isinstance(searches,list): searches=[]
+        current=self._raw_config_snapshot(); settings,warnings=self._sanitize_restore_paths(settings,current.get('settings') or {})
+        current_providers=current.get('providers') if isinstance(current.get('providers'),list) else []
+        current_indexers=current.get('indexers') if isinstance(current.get('indexers'),list) else []
+        restored_providers=[]
+        for raw in providers:
+            if not isinstance(raw,dict): continue
+            rec=self._backup_json_clone(raw,{})
+            rec.pop('password_configured',None); plaintext=str(rec.pop('password','') or ''); rec.pop('password_protected',None)
+            if has_secrets:
+                rec['password_protected']=self._protect_restored_secret(plaintext)
+            else:
+                rec['password_protected']=self._restore_match_provider_secret(rec,current_providers)
+            restored_providers.append(rec)
+        restored_indexers=[]
+        for raw in indexers:
+            if not isinstance(raw,dict): continue
+            rec=self._backup_json_clone(raw,{})
+            rec.pop('api_key_configured',None); plaintext=str(rec.pop('api_key','') or ''); rec.pop('api_key_protected',None)
+            if has_secrets:
+                rec['api_key_protected']=self._protect_restored_secret(plaintext)
+            else:
+                rec['api_key_protected']=self._restore_match_indexer_secret(rec,current_indexers)
+            restored_indexers.append(rec)
+        # Keep this PC's metadata-service identity while restoring portable user
+        # Automation configuration. A user-supplied TMDB key is handled separately.
+        current_auto=current.get('automation_config') if isinstance(current.get('automation_config'),dict) else {}
+        restored_config=self._backup_json_clone(config,{})
+        for key in ('metadata_installation_secret_protected','metadata_access_token_protected','metadata_authenticated_at'):
+            if key in current_auto: restored_config[key]=current_auto[key]
+            else: restored_config.pop(key,None)
+        tmdb_plain=str(restored_config.pop('tmdb_api_key','') or ''); restored_config.pop('tmdb_api_key_configured',None); restored_config.pop('tmdb_api_key_protected',None)
+        if has_secrets:
+            if tmdb_plain: restored_config['tmdb_api_key_protected']=self._protect_restored_secret(tmdb_plain)
+        elif current_auto.get('tmdb_api_key_protected'):
+            restored_config['tmdb_api_key_protected']=current_auto['tmdb_api_key_protected']
+        safety_path=''
+        with MEDIA_AUTOMATION.auto_run_lock:
+            with MEDIA_AUTOMATION.lock:
+                safety_path=self._write_pre_restore_safety_backup(current)
+                try:
+                    json_write(PROVIDERS_FILE,restored_providers)
+                    json_write(SAVED_SEARCHES_FILE,searches)
+                    json_write(MEDIA_AUTOMATION.library_file,library)
+                    json_write(MEDIA_AUTOMATION.config_file,restored_config)
+                    json_write(MEDIA_AUTOMATION.indexers_file,restored_indexers)
+                    json_write(MEDIA_AUTOMATION.profiles_file,profiles)
+                    self._clear_automation_config_caches()
+                    saved_settings=self.settings_api(settings,respond=False)
+                    try: DOWNLOAD_MANAGER.request_sync()
+                    except Exception: pass
+                except Exception:
+                    self._restore_raw_snapshot(current)
+                    raise
+        try: DIAGNOSTICS.event('info','backup-restore','NewzDeck configuration and Automation backup restored',backup_kind='complete' if has_secrets else 'configuration',safety_backup=safety_path,warnings=len(warnings))
+        except Exception: pass
+        return self._json(200,{'ok':True,'settings':saved_settings,'warnings':warnings,'safety_backup':safety_path,'restored_kind':'complete' if has_secrets else 'configuration','restart_recommended':False})
 
     def downloads_open_folder_api(self, data: dict[str, Any]):
         DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -14264,7 +14491,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         _schedule_verified_setup_update(staged, target_version="", server_obj=self.server)
         return self._json(200, {"ok": True, "handoff": True, "message": "Update staged. Setup will open directly, close NewzDeck, update it, restore the background runtime, and reopen automatically."})
 
-    def settings_api(self, data: dict[str, Any]):
+    def settings_api(self, data: dict[str, Any], respond: bool = True):
         global DOWNLOAD_DIR
         current = json_read(SETTINGS_FILE, {})
         if not isinstance(current, dict):
@@ -14413,7 +14640,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             DOWNLOAD_MANAGER.request_sync()
         except Exception:
             pass
-        return self._json(200, settings)
+        return self._json(200, settings) if respond else settings
 
     def serve_thumbnail(self, token: str):
         if not re.fullmatch(r"[0-9a-f]{32}", token or ""):

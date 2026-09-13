@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.96** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.99** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.96_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.99_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,17 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.96 highlights
+## v3.6.99 highlights
 
-v3.6.96 makes Automation TV and Movie library sorting more natural without renaming any title or media.
+v3.6.99 is the final pre-v3.7 UX and consistency release, adding portable Settings and Automation backup/restore.
 
-- **Ignore leading articles for placement:** A, An, and The are ignored only when they are complete leading words followed by whitespace.
-- **Examples:** A Knight of the Seven Kingdoms sorts under K; The Legend of Vox Machina sorts under L.
-- **Titles stay canonical:** cards, metadata, library folders, and media filenames keep the original title exactly as before.
-- **Deterministic order:** stripped sort key is followed by the complete displayed title, year, and media id as tie-breakers.
-- **Everything else is frozen:** all v3.6.95 themes/readability fixes, Automation processing, Downloads, Newsgroup Browser, updater ownership, Picker/yEnc, SABnzbd 5.1.2, Metadata Server v0.3.3, and Diagnostic Collector v1.0.31 are unchanged.
+- **Configuration Backup:** one-click portable backup without passwords/API keys.
+- **Encrypted Complete Backup:** includes provider/indexer credentials using browser-side AES-256-GCM + PBKDF2-SHA-256 (600,000 iterations); the backup password never reaches the backend.
+- **Transactional restore:** validates first, creates a pre-restore safety snapshot, rolls back on failure, and excludes active download/SAB/runtime/cache state.
+- **Cross-PC safe:** unavailable local Download/Watch paths do not overwrite working destination-PC paths; Automation root paths are retained for reconnectable media drives.
+- **Everything proven stays proven:** v3.6.96 A/An/The library sorting, all twelve themes, private SABnzbd 5.1.2, and the Defender-clean native/update architecture are preserved.
 
-See [the full v3.6.96 release notes](release/RELEASE_NOTES_v3.6.96.md).
+See [the full v3.6.99 release notes](release/RELEASE_NOTES_v3.6.99.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.96_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.99_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

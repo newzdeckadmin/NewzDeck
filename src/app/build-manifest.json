@@ -1,21 +1,26 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.96",
-  "base_version": "3.6.95",
-  "release": "Library Article-Aware Sorting",
-  "adapter_version": "3.6.96",
-  "name": "Library Article-Aware Sorting",
+  "version": "3.6.99",
+  "base_version": "3.6.96",
+  "release": "Final UX & Backup/Restore",
+  "adapter_version": "3.6.99",
+  "name": "Final UX & Backup/Restore",
   "sab_version": "5.1.2",
   "changes": [
-    "Sorts Automation TV Shows and Movies by title while ignoring a leading English article A, An, or The for alphabetical placement.",
-    "Keeps the original title text unchanged everywhere; only the temporary library sort key ignores the leading article.",
-    "Uses the full displayed title, then year and media id as deterministic tie-breakers when article-stripped sort keys are equal.",
-    "Preserves all v3.6.95 themes, layout, Automation behavior beyond library presentation order, downloading, updater ownership, and Defender-clean native helper architecture."
+    "Adds a dedicated Settings > Backup & Restore experience with one-click configuration backup, password-encrypted Complete Backup, and validated transactional restore.",
+    "Complete backups use browser-side AES-256-GCM with PBKDF2-SHA-256 (600,000 iterations); the backup password never reaches the backend.",
+    "Restores Settings and Automation only, creates an automatic pre-restore safety snapshot, preserves machine-specific metadata identity, and never imports active downloads/SAB runtime/caches/logs.",
+    "Preserves v3.6.96 article-aware TV/Movie sorting, all twelve themes, private SABnzbd 5.1.2, and the Defender-clean native/update architecture."
   ],
   "regression_guards": [
-    "A Knight of the Seven Kingdoms sorts under Knight, The Legend of Vox Machina sorts under Legend, and An American title sorts under American.",
-    "Only whole leading A, An, or The words followed by whitespace are ignored; titles such as Theodore and Annihilation are not modified for sorting.",
-    "Visible TV and Movie titles remain unchanged and both Automation library tabs continue to use the shared comparator.",
-    "v3.6.95 styles.css, themes.css, theme persistence/readability, backend Automation logic, and Defender-clean Picker/yEnc/update architecture remain unchanged."
+    "Configuration Backup omits provider passwords and API keys while Complete Backup uses browser-side authenticated encryption and sends no backup password to the backend.",
+    "Restore validates schema before mutation, writes a pre-restore safety snapshot, uses Automation locks, and rolls back configuration on failure.",
+    "Portable restore excludes active downloads, SAB/Automation runtime state, caches, thumbnails, logs, diagnostics, and metadata cache state.",
+    "v3.6.96 article-aware A/An/The sorting, v3.6.95 theme/readability payloads, and Defender-clean Picker/yEnc/update architecture remain unchanged."
+  ],
+  "preserved": [
+    "v3.6.96 Automation library A/An/The-aware presentation sorting.",
+    "v3.6.95 theme readability and all twelve palettes.",
+    "Newsgroup Browser, download engine, Smart Import, Automation search/grab behavior, updater ownership, Picker/yEnc and installer behavior."
   ]
 }
