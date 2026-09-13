@@ -15,7 +15,7 @@ styles=(APP/'static'/'styles.css').read_text(encoding='utf-8')
 manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 
 class DummyDownloadManager: pass
-engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3681-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.90')
+engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3681-guard-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.91')
 profile=auto.DEFAULT_PROFILES[0]
 
 def info(title): return auto.parse_release(title)
@@ -50,5 +50,5 @@ for required in ('QUALITY_CATALOG=[','qualityProfileTemplate','qualityProfileQua
 check("['2160p','1080p','720p','WEB']" not in app,'Primitive raw quality defaults returned')
 for required in ('quality-profile-modal-card','quality-ladder-row','quality-policy-grid','quality-profile-summary'):
     check(required in styles,'Quality Profile Builder stylesheet marker missing: '+required)
-check(manifest.get('release')=='Windows Defender Picker Compatibility & Release Gate Hardening','Release manifest name mismatch')
-print('v3.6.90 Automation Intelligence & Quality Profiles regression guard: PASS')
+check(manifest.get('release')=='Defender Picker Release Gate Compatibility Fix','Release manifest name mismatch')
+print('v3.6.91 Automation Intelligence & Quality Profiles regression guard: PASS')

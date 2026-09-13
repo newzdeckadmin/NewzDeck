@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.90",
-  "base_version": "3.6.89",
-  "release": "Windows Defender Picker Compatibility & Release Gate Hardening",
-  "adapter_version": "3.6.90",
-  "name": "Windows Defender Picker Compatibility & Release Gate Hardening",
+  "version": "3.6.91",
+  "base_version": "3.6.90",
+  "release": "Defender Picker Release Gate Compatibility Fix",
+  "adapter_version": "3.6.91",
+  "name": "Defender Picker Release Gate Compatibility Fix",
   "sab_version": "5.1.2",
   "changes": [
-    "Rebuilds NewzDeckPicker.exe with normal Go build metadata instead of the stripped -s -w -buildid= profile after Microsoft Defender flagged the v3.6.89 Portable ZIP as Trojan:Win32/Wacatac.B!ml specifically through NewzDeckPicker.exe.",
-    "Keeps NewzDeckPicker.go source behavior unchanged while using the same -H windowsgui metadata-retaining strategy that previously resolved the NewzDeckYenc.exe Defender false-positive condition.",
-    "Adds explicit Picker build provenance to SOURCE_MANIFEST.json and release-time checks requiring a normal Go build ID and symbol table for NewzDeckPicker.exe.",
-    "Forces the canonical Windows release checkout back to LF/no-autocrlf before hash-based regression guards run so reviewed payload hashes are evaluated against canonical Git bytes rather than CRLF-converted working-tree files.",
-    "Makes native Python, Node and Go validation failures fatal in the GitHub Actions release gate instead of allowing a PowerShell step to continue after a nonzero native-command exit code.",
-    "Preserves all v3.6.89 Automation, Wanted, Smart Import, Newsgroup Browser and SABnzbd 5.1.2 behavior; this release changes Windows build/release hardening plus version identity only."
+    "Completes the Windows Defender Picker packaging hotfix after the first v3.6.90 canonical workflow correctly stopped on obsolete historical whole-builder fingerprint guards.",
+    "Carries forward the v3.6.90 NewzDeckPicker.exe normal-metadata -H windowsgui build unchanged; NewzDeckPicker.go behavior remains byte-for-byte unchanged.",
+    "Updates the v3.6.79 and v3.6.80 historical release guards to validate the accepted yEnc and Picker helper invariants instead of pinning the entire pre-Picker build-portable.py blob.",
+    "Adds a v3.6.91 regression guard proving the obsolete whole-builder blob pins are gone while the yEnc/default routing expression, Picker build override, native failure propagation and LF checkout protections remain enforced.",
+    "Preserves all v3.6.89 application behavior and the v3.6.90 Windows build hardening; this release changes release-gate compatibility plus version identity only."
   ],
   "regression_guards": [
-    "NewzDeckPicker.go remains byte-for-byte the published v3.6.89 source while build-portable.py gives only Picker the normal-metadata -H windowsgui build profile.",
-    "Portable payload validation requires NewzDeckPicker.exe to expose a non-empty Go build ID and symbol table and records its build override in SOURCE_MANIFEST.json.",
-    "The release workflow enforces canonical LF checkout before payload-hash guards and enables PSNativeCommandUseErrorActionPreference so any guard failure stops publication.",
-    "All v3.6.82-v3.6.89 application regression guards are carried forward with v3.6.90 payload fingerprints.",
-    "Defender-clean NewzDeckYenc.exe provenance and frozen application/browser behavior remain unchanged."
+    "NewzDeckPicker.go remains the reviewed c2552887 Git blob and NewzDeckYenc.go remains the reviewed 38f6df7e Git blob.",
+    "build-portable.py must retain PICKER_GO_LDFLAGS = -H windowsgui, the Picker-first helper routing, and the historical yEnc/default routing expression.",
+    "validate-v3679-regressions.py and validate-v3680-regressions.py may no longer pin the obsolete v3.6.78 whole-builder blob hash.",
+    "The canonical workflow still makes native Python/Node/Go failures fatal and validates Picker build ID/symbol retention before release publication.",
+    "All v3.6.82-v3.6.90 application regressions are carried forward with v3.6.91 payload fingerprints."
   ]
 }
