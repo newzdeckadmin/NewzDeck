@@ -1,24 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.6.88",
-  "base_version": "3.6.87",
-  "release": "Smart Import Wanted Reconciliation Fix",
-  "adapter_version": "3.6.88",
-  "name": "Smart Import Wanted Reconciliation Fix",
+  "version": "3.6.89",
+  "base_version": "3.6.88",
+  "release": "Duplicate Fingerprint Reconciliation Fix",
+  "adapter_version": "3.6.89",
+  "name": "Duplicate Fingerprint Reconciliation Fix",
   "sab_version": "5.1.2",
   "changes": [
-    "Fixes Wanted remaining on the pre-import dynamic-range state after a successful Smart Import upgrade that already satisfies the active profile target.",
-    "Makes dynamic-range evidence confidence-aware: positive lightweight media-probe signatures can confirm, promote, or correct traits, while an all-negative bounded probe no longer erases explicit release traits.",
-    "Stamps successful Smart Import release traits as the authoritative post-import Automation state so a newly imported Dolby Vision + HDR fallback release immediately satisfies 4K Preferred.",
-    "Keeps pre-v3.6.88 optimistic DV/HDR provenance correctable by allowing one same-rank preferred replacement while that legacy current trait remains unconfirmed and below target.",
-    "Prevents corrective replacement loops because v3.6.88 imports become trusted post-import records; same-rank DV replacements are rejected after a DV import while DV -> DV+HDR remains eligible.",
-    "Preserves v3.6.86 cache-snapshot performance, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and frozen Newsgroup Browser behavior."
+    "Fixes the remaining Smart Import repeat-download loop when a downloaded Automation release is byte-identical to the existing library file and is classified as DUPLICATE.",
+    "Carries explicit fingerprint-verification evidence from import planning through staging cleanup so duplicate provenance can be reconciled after the redundant staging file is removed.",
+    "When an Automation DUPLICATE is fingerprint-proven, stamps the selected release traits and dynamic-range trust onto the existing library record, binds the release title to the existing fingerprint cache record, and recalculates cutoff from the canonical record used by Wanted.",
+    "Preserves trusted release traits and dynamic-range state when KEEP_EXISTING retains an equal or better library file instead of rebuilding that record from the lightweight media probe alone.",
+    "Prevents the same byte-identical DV or DV+HDR payload from remaining an unconfirmed legacy target and being selected repeatedly after a successful duplicate reconciliation.",
+    "Preserves v3.6.88 confidence-aware dynamic-range handling, v3.6.86 cache-snapshot performance, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and frozen Newsgroup Browser behavior."
   ],
   "regression_guards": [
-    "Fresh Smart Import of DV+HDR remains DV+HDR for Wanted even when the lightweight media probe returns no positive dynamic-range signature.",
-    "Fresh DV-only import remains Wanted only for the higher DV+HDR target and rejects another same-rank DV replacement.",
-    "Legacy unconfirmed DV provenance can still accept one corrective same-rank DV candidate, preserving the v3.6.87 user-reported fix without download loops.",
-    "Wanted persistence is validated after serializing and reloading the library record from disk.",
-    "v3.6.86 one-cache-read summary/search behavior and frozen unrelated subsystems remain guarded."
+    "A fingerprint-identical DV+HDR download reconciles the existing episode as trusted DV+HDR and removes the satisfied target from Wanted after a disk reload.",
+    "A fingerprint-identical DV-only corrective replacement remains Wanted for DV+HDR, but the same DV-only release is no longer eligible as another same-rank corrective replacement.",
+    "KEEP_EXISTING preserves prior trusted DV/HDR provenance rather than erasing it with an inconclusive lightweight probe.",
+    "The duplicate fingerprint proof survives the pre-reconciliation staging cleanup boundary.",
+    "v3.6.88 confidence-aware evidence, v3.6.86 snapshot performance and frozen unrelated subsystems remain guarded."
   ]
 }

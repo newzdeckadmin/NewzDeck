@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.88'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.6.89'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -5713,7 +5713,7 @@ class MediaAutomationEngine:
                     action='KEEP_EXISTING'; reason=f'Existing {old_quality or "unknown-quality file"} is equal, better, or cannot be safely downgraded to {quality}'
                     if not bool(context.get('preview')):
                         self._note_target_integrity('downgrades_blocked')
-            entries.append({'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing is not None and existing.exists() else '', 'episode':None,'season':None,'episode_title':'','incoming_info':parse_release(release_title or source.name),'existing_info':self._current_target_release_info(item,None,None,old_quality)})
+            entries.append({'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing is not None and existing.exists() else '', 'episode':None,'season':None,'episode_title':'','incoming_info':parse_release(release_title or source.name),'existing_info':self._current_target_release_info(item,None,None,old_quality),'duplicate_fingerprint_verified':action=='DUPLICATE'})
             inspections.append({'source':str(source),'identified':f'{title} ({year})' if year else title,'quality':quality,'action':action,'destination':str(dest),'reason':reason})
             for f in candidates:
                 if f!=source: inspections.append({'source':str(f),'identified':'Additional video','quality':str(parse_release(f.name).get('quality') or ''),'action':'IGNORE','destination':'','reason':'Movie import selected the strongest main feature candidate'})
@@ -5802,7 +5802,7 @@ class MediaAutomationEngine:
                                 self._note_target_integrity('downgrades_blocked')
                 key=(sn,en)
                 prev=seen.get(key)
-                candidate={'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing.exists() else '', 'episode':en,'season':sn,'episode_title':ep_title,'episode_ref':ep,'incoming_info':parse_release(release_title or source.name),'existing_info':self._current_target_release_info(item,sn,en,old_quality)}
+                candidate={'source':source,'dest':dest,'quality':quality,'action':action,'reason':reason,'old_quality':old_quality,'existing_path':str(existing) if existing.exists() else '', 'episode':en,'season':sn,'episode_title':ep_title,'episode_ref':ep,'incoming_info':parse_release(release_title or source.name),'existing_info':self._current_target_release_info(item,sn,en,old_quality),'duplicate_fingerprint_verified':action=='DUPLICATE'}
                 if prev is None or (self._quality_rank(quality,profile),-(source.stat().st_size if source.exists() else 0)) < (self._quality_rank(prev['quality'],profile),-(prev['source'].stat().st_size if prev['source'].exists() else 0)):
                     if prev is not None: inspections.append({'source':str(prev['source']),'identified':f'S{sn:02d}E{en:02d}','quality':prev['quality'],'action':'IGNORE','destination':'','reason':'A stronger candidate for the same episode was present'})
                     seen[key]=candidate
@@ -5921,6 +5921,10 @@ class MediaAutomationEngine:
                 entry['action']='DUPLICATE'
                 entry['reason']='Existing library file has the same fingerprint'
                 entry['existing_path']=str(existing)
+                # v3.6.89: preserve the positive byte-identity proof through the
+                # staging cleanup/reconciliation phase. The incoming file may be
+                # deleted as redundant before the Automation record is rewritten.
+                entry['duplicate_fingerprint_verified']=True
             else:
                 previous={
                     'file_path':str(existing),
@@ -6308,32 +6312,79 @@ class MediaAutomationEngine:
                 if action not in {'IMPORT','UPGRADE','DUPLICATE','KEEP_EXISTING'}: continue
                 dest=Path(e['dest']); quality=str(e.get('quality') or 'Unknown')
                 if action in {'DUPLICATE','KEEP_EXISTING'}:
-                    # v3.5.39: a duplicate/equal-or-better library match is a real
-                    # successful Smart Import outcome. Reconcile the Automation
-                    # library record immediately instead of waiting for the next
-                    # periodic library scan. This is especially important for Movies:
-                    # leaving movie_file unset made a completed duplicate look Missing
-                    # again and could trigger another download of the same title.
+                    # A duplicate/equal-or-better library match is a real successful
+                    # Smart Import outcome. v3.6.89 additionally distinguishes a
+                    # byte-proven DUPLICATE from KEEP_EXISTING: when the downloaded
+                    # Automation release has the exact same fingerprint as the
+                    # library file, the release provenance belongs to that existing
+                    # file too. Persisting that proof prevents Wanted from treating
+                    # the same bytes as an unconfirmed legacy file and downloading
+                    # the same release forever.
                     existing_raw=str(e.get('existing_path') or '').strip()
                     existing=Path(existing_raw) if existing_raw else None
                     if existing is not None and existing.exists():
                         existing_quality=str(e.get('old_quality') or '')
                         if not existing_quality or existing_quality=='Unknown':
                             existing_quality=quality if action=='DUPLICATE' else (existing_quality or 'Unknown')
+                        media_bytes=int(existing.stat().st_size)
                         fp=self._media_fingerprint(existing)
                         media_info=self._probe_media_traits(existing)
-                        cutoff=self._quality_cutoff_met(existing_quality,profile,media_info)
-                        media_bytes=int(existing.stat().st_size)
-                        record={'path':str(existing),'quality':existing_quality,'size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':media_info,'cutoff_met':cutoff}
+
+                        # Preserve the authoritative metadata already attached to
+                        # the file when merely keeping an equal/better library copy.
+                        # Rebuilding that record from only the bounded probe can
+                        # otherwise erase a prior trusted DV/HDR import.
+                        if item.get('kind')=='tv':
+                            ep=e.get('episode_ref')
+                            prior=dict(ep) if isinstance(ep,dict) else {}
+                        else:
+                            prior=dict(item.get('movie_file') or {})
+                        preserved={}
+                        for key_name in ('release_traits','dynamic_range_import_trusted','dynamic_range_imported_at',
+                                         'duplicate_fingerprint_verified','duplicate_fingerprint_verified_at'):
+                            if key_name in prior: preserved[key_name]=copy.deepcopy(prior.get(key_name))
+
+                        quality_source=str(prior.get('quality_source') or 'existing-library')
+                        record=dict(prior)
+                        record.update({'path':str(existing),'quality':existing_quality,'size':media_bytes,'file_fingerprint':fp,
+                                       'quality_source':quality_source,'media_info':media_info,**preserved})
+
+                        duplicate_proven=bool(action=='DUPLICATE' and e.get('duplicate_fingerprint_verified'))
+                        release_title=str(context.get('release_title') or '').strip()
+                        if duplicate_proven and str(context.get('source') or '')=='automation_grab' and release_title:
+                            # The staging file and the library file are byte-identical.
+                            # Therefore the selected release's provenance applies to
+                            # the existing file just as surely as if we had moved the
+                            # staging copy over it. This is the missing v3.6.88 path.
+                            incoming_traits=e.get('incoming_info') if isinstance(e.get('incoming_info'),dict) else parse_release(release_title)
+                            record.update({'quality_source':'newzdeck-duplicate-proof',
+                                           'release_traits':copy.deepcopy(incoming_traits),
+                                           'dynamic_range_import_trusted':True,
+                                           'dynamic_range_imported_at':_now(),
+                                           'duplicate_fingerprint_verified':True,
+                                           'duplicate_fingerprint_verified_at':_now()})
+                            # Bind the original release title to the proven existing
+                            # fingerprint as well, so later scans/restarts retain the
+                            # same provenance even if the library filename is generic.
+                            fp=self._remember_media_quality(existing,existing_quality,release_title)
+                            record['file_fingerprint']=fp
+
+                        record['cutoff_met']=self._quality_cutoff_met(existing_quality,profile,self._record_release_info(record,existing_quality))
+                        cutoff=bool(record['cutoff_met'])
                         if item.get('kind')=='tv':
                             ep=e.get('episode_ref')
                             if isinstance(ep,dict):
-                                ep.update({'has_file':True,'file_path':str(existing),'file_quality':existing_quality,'file_size':media_bytes,'file_fingerprint':fp,'quality_source':'existing-library','media_info':record['media_info'],'cutoff_met':cutoff})
+                                ep.update({'has_file':True,'file_path':str(existing),'file_quality':existing_quality,'file_size':media_bytes,
+                                           'file_fingerprint':record['file_fingerprint'],'quality_source':record['quality_source'],
+                                           'media_info':record['media_info'],'cutoff_met':cutoff})
+                                for key_name in ('release_traits','dynamic_range_import_trusted','dynamic_range_imported_at',
+                                                 'duplicate_fingerprint_verified','duplicate_fingerprint_verified_at'):
+                                    if key_name in record: ep[key_name]=copy.deepcopy(record[key_name])
                                 ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
                         else:
                             item['movie_file']=record
-                        kept_existing_files.append({'destination':str(existing),'quality':existing_quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':existing.name})
-                        self._event('import-existing',f"Kept existing library file {existing.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(existing),final_filename=existing.name,final_folder=str(existing.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=str(context.get('release_title') or ''),quality=existing_quality,season=e.get('season'),episode=e.get('episode'),season_pack=bool(context.get('season_pack')),verified=True,decision=action)
+                        kept_existing_files.append({'destination':str(existing),'quality':existing_quality,'action':action,'season':e.get('season'),'episode':e.get('episode'),'from_quality':str(e.get('old_quality') or ''),'bytes':media_bytes,'source_filename':Path(e['source']).name,'final_filename':existing.name,'duplicate_fingerprint_verified':duplicate_proven,'cutoff_met':cutoff})
+                        self._event('import-existing',f"Kept existing library file {existing.name}",item_id=item.get('id'),target_key=str(context.get('target_key') or ''),destination=str(existing),final_filename=existing.name,final_folder=str(existing.parent),file_size=media_bytes,source_filename=Path(e['source']).name,release_title=release_title,quality=existing_quality,season=e.get('season'),episode=e.get('episode'),season_pack=bool(context.get('season_pack')),verified=True,decision=action,duplicate_fingerprint_verified=duplicate_proven,cutoff_met=cutoff)
                     continue
                 release_traits=parse_release(str(context.get('release_title') or ''))
                 fp=self._remember_media_quality(dest,quality,str(context.get('release_title') or ''))

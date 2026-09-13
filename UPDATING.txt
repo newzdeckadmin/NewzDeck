@@ -1,10 +1,10 @@
-NewzDeck v3.6.88 update notes
+NewzDeck v3.6.89 update notes
 
 Installed build
-- Run NewzDeck_v3.6.88_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
+- Run NewzDeck_v3.6.89_Setup.exe over the existing installation after the canonical GitHub release workflow publishes it.
 - The installer is designed to stop/restart NewzDeck-owned runtime components automatically.
 
 Portable build
-- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.88 Portable ZIP contents, then restart NewzDeck.
+- Close the portable NewzDeck UI/tray, replace the application files with the v3.6.89 Portable ZIP contents, then restart NewzDeck.
 
 No settings reset, library rescan, or cache clearing is required for this hotfix.

@@ -11,16 +11,16 @@ def load(name,path):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 EXPECTED={
-    'server.py':'ac9e7bd7358db1730f65734273d7522e8d355072f94c1f496f55bd49bc1f5fa6',
-    'automation_engine.py':'99c3be38f1391cb69ed080e25590adfa0686a2f825e08855a2ace418cedc4482',
-    'sab_engine.py':'730251293a10456b507755f0c5b2fc5ed7058991dcd8c8c219e69165eece6645',
-    'static/app.js':'14b20eeb8ff607aa54ab5f33bacd225def4908fd179f0178439cf310a42a3b1c',
-    'static/index.html':'c64cc5580d5367216e6415402bc5b5e59fa503c81be3fb9b68c0d515e3030301',
+    'server.py':'659fcda33ba2b8dacbb2622700ce13d238dbc8a8c7a3610cf0f2ca2fce10a5bc',
+    'automation_engine.py':'b52472c91b28beb30ec39397c2eada73b3578cf9248ba05786369a2a94c36f5e',
+    'sab_engine.py':'adb5181ab4d7378107c486a4c03297baf1c8e54b6d85290ea108687970604a85',
+    'static/app.js':'39e41639201214aa7b7ef4cf657d3562485729d3befdb752882a21de7b0310c0',
+    'static/index.html':'b7dd2a6baa418aaadabb6f7b6b3e97314f24d38e1bb5032ce73851af5d3afb2b',
     'static/styles.css':'ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2',
-    'build-manifest.json':'92e12f63a1d2229802c3b16933d137e58c7ce7d681f8de1e6eec0ed2580f4fcc',
-    'version.txt':'8b61b18dd869a8daa094d28bd3e92a380c14d8d457f299d3f00486300a2bc287',
+    'build-manifest.json':'aacab78324f152feec6f89fabb8bb57b29206f7b27860642c036dfba9d088897',
+    'version.txt':'1e7cca510709f95886df2e13480dc49fc97318ccb7d705f9d5a2975ab43e33e7',
 }
-for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.88 payload')
+for rel,expected in EXPECTED.items(): check(sha(APP/rel)==expected,f'{rel} differs from reviewed v3.6.89 payload')
 
 auto=load('newzdeck_v3686_automation_guard',APP/'automation_engine.py')
 server=(APP/'server.py').read_text(encoding='utf-8')
@@ -31,13 +31,13 @@ manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
 workflow=(ROOT/'.github'/'workflows'/'publish-release-trigger.yml').read_text(encoding='utf-8')
 automation=(APP/'automation_engine.py').read_text(encoding='utf-8')
 
-check((APP/'version.txt').read_text().strip()=='3.6.88','version.txt mismatch')
-check('APP_VERSION = "3.6.88"' in server,'server version mismatch')
-check("const UI_VERSION = '3.6.88';" in app,'UI version mismatch')
-check(manifest.get('version')=='3.6.88' and manifest.get('base_version')=='3.6.87' and manifest.get('adapter_version')=='3.6.88','build manifest lineage mismatch')
-check(manifest.get('release')=='Smart Import Wanted Reconciliation Fix','release identity mismatch')
+check((APP/'version.txt').read_text().strip()=='3.6.89','version.txt mismatch')
+check('APP_VERSION = "3.6.89"' in server,'server version mismatch')
+check("const UI_VERSION = '3.6.89';" in app,'UI version mismatch')
+check(manifest.get('version')=='3.6.89' and manifest.get('base_version')=='3.6.88' and manifest.get('adapter_version')=='3.6.89','build manifest lineage mismatch')
+check(manifest.get('release')=='Duplicate Fingerprint Reconciliation Fix','release identity mismatch')
 check(manifest.get('sab_version')=='5.1.2','SAB version changed')
-check('v=3.6.88-smart-import-wanted-reconciliation-fix' in index,'v3.6.87 asset cache identity missing')
+check('v=3.6.89-duplicate-fingerprint-reconciliation-fix' in index,'v3.6.87 asset cache identity missing')
 check(sha(APP/'static'/'styles.css')=='ad20bff9927560c8b877a932c0f42ec6fe7b104a606812f61c47b6c0013e7bd2','frozen stylesheet changed')
 
 # The fix must be structural: callers may provide one cache snapshot and one
@@ -57,7 +57,7 @@ for required in (
 
 class DummyDownloadManager: pass
 root=Path(tempfile.mkdtemp(prefix='newzdeck-v3686-guard-'))
-engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.88')
+engine=auto.MediaAutomationEngine(root,lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.89')
 p4=copy.deepcopy(auto.DEFAULT_PROFILES[0]); p1080=copy.deepcopy(auto.DEFAULT_PROFILES[1])
 
 # v3.6.87 evidence authority remains intact before measuring performance behavior.
@@ -88,7 +88,7 @@ check(engine._dynamic_range_upgrade_target(p1080) is None,'1080p Balanced Allow 
 
 # Health is a separate UI endpoint and must also own exactly one snapshot rather
 # than referencing a summary-local variable or re-reading per Wanted record.
-health_engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3686-health-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.88')
+health_engine=auto.MediaAutomationEngine(Path(tempfile.mkdtemp(prefix='newzdeck-v3686-health-')),lambda x:x,lambda x:x,DummyDownloadManager(),lambda:[],version='3.6.89')
 health_engine._library=lambda:[]
 health_engine.public_config=lambda:{'tv_roots':[],'movie_roots':[],'automatic_grab_enabled':False,'automatic_feed_enabled':True}
 health_engine.public_indexers=lambda:[]
@@ -192,4 +192,4 @@ for required in ('const THUMBNAIL_HTTP_ADMISSION_LIMIT=5;','state.videoThumbConc
     check(required in app,'Frozen Newsgroup Browser value changed: '+required)
 for required in ('VIDEO_THUMB_SAMPLE_MB = 24','max_segments=12','BROWSE_OVERVIEW_CHUNK_HEADERS = 800','BROWSE_FIRST_PAINT_HEADERS = 800','BROWSE_LARGE_PAGE_THRESHOLD = 1000'):
     check(required in server,'Frozen backend/browser value changed: '+required)
-print('v3.6.86 Automation Cache Snapshot Performance Hotfix carried-forward guard under v3.6.88: PASS')
+print('v3.6.86 Automation Cache Snapshot Performance Hotfix carried-forward guard under v3.6.89: PASS')

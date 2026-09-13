@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.6.88** for 64-bit Windows.
+The current stable release is **NewzDeck v3.6.89** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.6.88_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.6.89_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.6.88 highlights
+## v3.6.89 highlights
 
-v3.6.88 is a targeted Smart Import / Wanted reconciliation hotfix built on the published v3.6.87 baseline.
+v3.6.89 is a targeted Smart Import duplicate-fingerprint reconciliation hotfix built on the published v3.6.88 baseline.
 
-- **Fresh imports reconcile correctly:** explicit DV/HDR release traits remain the saved Automation state when the bounded probe is all-negative, while positive file evidence can still correct or promote those traits.
-- **Wanted clears correctly:** a newly imported Dolby Vision + HDR fallback release satisfies 4K Preferred and disappears from Wanted on the next normal Automation summary refresh.
-- **Legacy correction remains:** pre-v3.6.88 records with optimistic/unconfirmed DV/HDR provenance can still accept one corrective same-rank preferred replacement instead of being rejected as `same quality tier`.
-- **No replacement loops:** after v3.6.88 imports a DV-only release, another DV-only candidate is not treated as an upgrade; DV -> DV+HDR fallback remains eligible.
+- **Fingerprint proof becomes authoritative:** when a completed Automation release is byte-identical to the existing library file, NewzDeck transfers that selected release's provenance/trust to the existing record instead of discarding it.
+- **Wanted stops re-downloading the same payload:** a fingerprint-proven DV+HDR duplicate satisfies 4K Preferred and leaves Wanted; a fingerprint-proven DV-only file remains eligible only for the real DV+HDR step, not another DV-only correction.
+- **KEEP_EXISTING preserves trusted state:** retaining an equal/better file no longer erases its prior trusted DV/HDR release traits through an inconclusive bounded probe.
+- **v3.6.88 behavior preserved:** confidence-aware dynamic-range evidence and normal IMPORT/UPGRADE reconciliation remain intact.
 - **Performance preserved:** the v3.6.86 one-quality-cache-snapshot-per-operation behavior remains intact.
 - **Frozen behavior preserved:** Newsgroup Browser tuning, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31 and Defender-clean yEnc remain unchanged.
 
-See [the full v3.6.88 release notes](release/RELEASE_NOTES_v3.6.88.md).
+See [the full v3.6.89 release notes](release/RELEASE_NOTES_v3.6.89.md).
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -67,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.88_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.6.89_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
