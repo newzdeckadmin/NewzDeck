@@ -2,16 +2,12 @@
 param(
     [Parameter(Mandatory)]
     [string]$PayloadDirectory,
-
     [Parameter(Mandatory)]
     [string]$PortableArchive,
-
     [Parameter(Mandatory)]
     [string]$OutputDirectory,
-
     [Parameter(Mandatory)]
     [string]$Version,
-
     [Parameter(Mandatory)]
     [string]$IsccPath
 )
@@ -22,7 +18,18 @@ $ErrorActionPreference = 'Stop'
 $PayloadDirectory = (Resolve-Path -LiteralPath $PayloadDirectory).Path
 $PortableArchive = (Resolve-Path -LiteralPath $PortableArchive).Path
 $IsccPath = (Resolve-Path -LiteralPath $IsccPath).Path
-$scriptPath = Join-Path $PSScriptRoot 'NewzDeck.iss'
+$baseScriptPath = Join-Path $PSScriptRoot 'NewzDeck.iss'
+$scriptPath = Join-Path $env:TEMP ("NewzDeck-v{0}.iss" -f $Version)
+$installerSource = Get-Content -LiteralPath $baseScriptPath -Raw
+$retiredYencDelete = 'Type: files; Name: "{app}\NewzDeckYenc.exe"'
+if (-not $installerSource.Contains($retiredYencDelete)) {
+    $anchor = 'Type: files; Name: "{app}\NewzDeckCore.exe"'
+    if (-not $installerSource.Contains($anchor)) {
+        throw 'Installer retired-binary cleanup anchor is missing.'
+    }
+    $installerSource = $installerSource.Replace($anchor, $anchor + [Environment]::NewLine + $retiredYencDelete)
+}
+[System.IO.File]::WriteAllText($scriptPath, $installerSource, [System.Text.UTF8Encoding]::new($false))
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Version '$Version' is invalid. Expected X.Y.Z."
@@ -36,10 +43,12 @@ $requiredFiles = @(
     'NewzDeckTray.exe',
     'NewzDeckPicker.exe',
     'NewzDeckThumb.exe',
-    'NewzDeckYenc.exe',
     'server.py',
     'sab_engine.py',
     'automation_engine.py',
+    'yenc_decoder.py',
+    'sabctools/__init__.py',
+    'sabctools/sabctools.cp312-win_amd64.pyd',
     'static/index.html',
     'static/app.js',
     'static/styles.css',
@@ -54,7 +63,7 @@ foreach ($requiredFile in $requiredFiles) {
     }
 }
 
-foreach ($retiredFile in @('NewzDeckBootstrap.exe', 'NewzDeckCore.exe')) {
+foreach ($retiredFile in @('NewzDeckBootstrap.exe', 'NewzDeckCore.exe', 'NewzDeckYenc.exe')) {
     if (Test-Path -LiteralPath (Join-Path $PayloadDirectory $retiredFile)) {
         throw "Retired legacy helper '$retiredFile' must not be present in a source-complete release payload."
     }
@@ -69,8 +78,12 @@ $sourceManifest = Get-Content -LiteralPath (Join-Path $PayloadDirectory 'SOURCE_
 if ($sourceManifest.version -cne $Version -or $sourceManifest.license -cne 'GPL-3.0-only') {
     throw 'SOURCE_MANIFEST.json version/license validation failed.'
 }
-if (@($sourceManifest.newzdeck_owned_binaries).Count -ne 6) {
-    throw 'SOURCE_MANIFEST.json must map exactly six NewzDeck-owned Windows binaries.'
+if (@($sourceManifest.newzdeck_owned_binaries).Count -ne 5) {
+    throw 'SOURCE_MANIFEST.json must map exactly five NewzDeck-owned Windows binaries.'
+}
+$sab = @($sourceManifest.vendored_python_packages | Where-Object { $_.name -ceq 'sabctools' })
+if ($sab.Count -ne 1 -or [string]$sab[0].version -cne '9.6.3' -or [string]$sab[0].python_abi -cne 'cp312') {
+    throw 'SOURCE_MANIFEST.json SABCTools provenance is missing or incorrect.'
 }
 
 $iconBytes = [System.IO.File]::ReadAllBytes((Join-Path $PayloadDirectory 'NewzDeck.ico'))
@@ -111,7 +124,6 @@ if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Inno Setup did not produce expected installer '$installerName'."
 }
 
-# The source-built Portable ZIP is copied byte-for-byte into the release output.
 Copy-Item -LiteralPath $PortableArchive -Destination $portablePath -Force
 
 $checksumLines = foreach ($artifact in @($installerPath, $portablePath)) {
