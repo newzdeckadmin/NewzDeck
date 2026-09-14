@@ -3,57 +3,70 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="NewzDeck is a free and open-source Windows Usenet newsreader, downloader, and personal media automation application." />
-  <meta name="theme-color" content="#090d14" />
+  <meta name="description" content="NewzDeck is a modern, free and open-source Windows Usenet newsreader, downloader and personal media automation app." />
+  <meta name="theme-color" content="#070c18" />
   <meta property="og:title" content="NewzDeck — Usenet, Reimagined" />
-  <meta property="og:description" content="Browse. Download. Discover. Automate. One focused Windows app for your Usenet workflow." />
+  <meta property="og:description" content="Browse, download, discover and automate from one polished Windows app." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://www.newzdeck.com/" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <link rel="icon" href="assets/NewzDeck.png" type="image/png" />
-  <link rel="apple-touch-icon" href="assets/NewzDeck.png" />
+  <meta property="og:image" content="https://www.newzdeck.com/assets/NewzDeck.png" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="icon" href="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" type="image/png" />
+  <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" />
   <title>NewzDeck — Usenet, Reimagined</title>
 
   <script type="application/ld+json">
   {
-    "@context":"https://schema.org",
-    "@type":"SoftwareApplication",
-    "name":"NewzDeck",
-    "applicationCategory":"MultimediaApplication",
-    "operatingSystem":"Windows x64",
-    "description":"Free and open-source Usenet newsreader, downloader, and personal media automation application.",
-    "url":"https://www.newzdeck.com/",
-    "downloadUrl":"https://github.com/newzdeckadmin/NewzDeck/releases/latest",
-    "license":"https://github.com/newzdeckadmin/NewzDeck/blob/main/LICENSE",
-    "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "NewzDeck",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Windows 10, Windows 11",
+    "description": "Free and open-source Windows Usenet newsreader, downloader and personal media automation application.",
+    "url": "https://www.newzdeck.com/",
+    "downloadUrl": "https://github.com/newzdeckadmin/NewzDeck/releases/latest",
+    "license": "https://github.com/newzdeckadmin/NewzDeck/blob/main/LICENSE",
+    "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
   }
   </script>
 
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #070b11;
-      --bg-2: #090d14;
-      --panel: rgba(13, 19, 29, .78);
-      --panel-solid: #0d131d;
-      --panel-2: #101925;
-      --line: rgba(118, 159, 192, .16);
-      --line-strong: rgba(118, 174, 213, .28);
-      --text: #edf4fb;
-      --muted: #8fa2b6;
-      --muted-2: #b3c2d1;
-      --accent: #6de5d0;
-      --accent-2: #6da7ff;
-      --accent-3: #8b7cff;
-      --success: #73e5aa;
-      --warning: #ffca68;
-      --danger: #ff7b86;
-      --shadow: 0 28px 90px rgba(0,0,0,.44);
-      --max: 1200px;
+      /* Exact NewzDeck Midnight theme tokens */
+      --bg-deep: #040812;
+      --bg: #070c18;
+      --surface: #0b1322;
+      --surface-2: #101a2c;
+      --surface-3: #162238;
+      --input: #091220;
+      --hover: #13253a;
+      --active: #17314b;
+      --border: #22354e;
+      --border-strong: #345273;
+      --text: #edf5ff;
+      --text-2: #c3d1e2;
+      --muted: #8699af;
+      --muted-2: #a2b3c6;
+      --accent: #49d8ff;
+      --accent-2: #6d83ff;
+      --accent-contrast: #04101a;
+      --success: #60dda0;
+      --warning: #ffc967;
+      --danger: #ff7180;
+      --info: #61b9ff;
+      --overlay: #020611;
+      --shadow: #000;
+      --highlight: #fff;
+      --max: 1220px;
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --shadow-lg: 0 34px 90px rgba(0,0,0,.42);
+      --shadow-md: 0 18px 48px rgba(0,0,0,.28);
     }
 
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; color-scheme: dark; }
     body {
       margin: 0;
       min-height: 100vh;
@@ -61,541 +74,504 @@
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at 76% -8%, rgba(65, 135, 187, .20) 0, transparent 34rem),
-        radial-gradient(circle at 12% 22%, rgba(72, 190, 172, .11) 0, transparent 30rem),
-        linear-gradient(180deg, #080c12 0%, #090d14 42%, #06090f 100%);
+        radial-gradient(circle at 72% -4%, rgba(109,131,255,.18), transparent 31rem),
+        radial-gradient(circle at 10% 26%, rgba(73,216,255,.10), transparent 26rem),
+        linear-gradient(180deg, var(--bg-deep) 0%, var(--bg) 32%, #050a14 100%);
     }
-
     body::before {
       content: "";
       position: fixed;
       inset: 0;
       pointer-events: none;
-      opacity: .22;
+      z-index: -2;
+      opacity: .32;
       background-image:
-        linear-gradient(rgba(255,255,255,.027) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.027) 1px, transparent 1px);
-      background-size: 58px 58px;
-      mask-image: linear-gradient(to bottom, #000 0%, transparent 82%);
+        linear-gradient(rgba(109,131,255,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(73,216,255,.03) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.8) 40%, transparent 92%);
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      width: 52rem;
+      height: 52rem;
+      right: -20rem;
+      top: 12rem;
+      border-radius: 50%;
+      pointer-events: none;
       z-index: -1;
+      background: radial-gradient(circle, rgba(73,216,255,.07), rgba(109,131,255,.03) 44%, transparent 70%);
+      filter: blur(10px);
     }
 
     a { color: inherit; }
     button, a { -webkit-tap-highlight-color: transparent; }
+    img { max-width: 100%; }
     .wrap { width: min(var(--max), calc(100% - 40px)); margin-inline: auto; }
     .muted { color: var(--muted); }
     .accent { color: var(--accent); }
+    .section { padding: 100px 0; position: relative; }
+    .section.compact { padding: 76px 0; }
+    .section-kicker {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      margin-bottom: 15px;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      margin-bottom: 24px;
+      font-size: clamp(52px, 7vw, 90px);
+      line-height: .96;
+      letter-spacing: -.065em;
+      font-weight: 900;
+      text-wrap: balance;
+    }
+    h2 {
+      margin-bottom: 18px;
+      max-width: 790px;
+      font-size: clamp(34px, 4.5vw, 58px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+      font-weight: 850;
+      text-wrap: balance;
+    }
+    h3 { font-size: 21px; letter-spacing: -.02em; margin-bottom: 10px; }
+    p { color: var(--text-2); line-height: 1.72; }
+    .lead {
+      max-width: 760px;
+      color: var(--muted-2);
+      font-size: clamp(17px, 2vw, 20px);
+      line-height: 1.68;
+    }
 
     .site-header {
       position: sticky;
       top: 0;
       z-index: 100;
-      border-bottom: 1px solid rgba(126,160,190,.11);
-      background: rgba(7,11,17,.76);
-      backdrop-filter: blur(20px) saturate(140%);
+      border-bottom: 1px solid rgba(52,82,115,.42);
+      background: rgba(4,8,18,.78);
+      backdrop-filter: blur(20px) saturate(135%);
     }
-
     .nav {
-      height: 72px;
+      height: 74px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 22px;
     }
-
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 11px;
+      gap: 12px;
       text-decoration: none;
-      font-weight: 800;
+      font-size: 18px;
+      font-weight: 850;
       letter-spacing: -.025em;
     }
-
-    .brand-icon, .hero-icon {
-      position: relative;
-      flex: 0 0 auto;
-      border: 1px solid rgba(109,229,208,.28);
-      background:
-        radial-gradient(circle at 30% 20%, rgba(109,229,208,.19), transparent 45%),
-        linear-gradient(145deg, #102230, #0d151e 70%);
-      box-shadow: inset 0 1px rgba(255,255,255,.06), 0 0 30px rgba(109,229,208,.08);
-      overflow: hidden;
-      display: grid;
-      place-items: center;
+    .brand img {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      filter: drop-shadow(0 7px 18px rgba(73,216,255,.18));
     }
-
-    .brand-icon { width: 40px; height: 40px; border-radius: 12px; }
-    .hero-icon { width: 70px; height: 70px; border-radius: 20px; }
-    .brand-icon img, .hero-icon img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .nav-links { display: flex; align-items: center; gap: 8px; }
+    .nav-links { display: flex; align-items: center; gap: 4px; }
     .nav-links a {
+      color: var(--muted-2);
       text-decoration: none;
-      color: #9fb1c4;
       font-size: 13px;
-      font-weight: 650;
-      padding: 9px 11px;
-      border-radius: 9px;
+      font-weight: 720;
+      padding: 10px 12px;
+      border-radius: 10px;
       transition: .18s ease;
     }
-    .nav-links a:hover { color: #fff; background: rgba(255,255,255,.045); }
-
-    .nav-cta {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 14px !important;
-      border: 1px solid rgba(109,229,208,.26);
-      color: #dffff9 !important;
-      background: rgba(109,229,208,.07);
+    .nav-links a:hover { color: var(--text); background: var(--surface-2); }
+    .nav-links .nav-cta {
+      margin-left: 5px;
+      color: var(--accent) !important;
+      border: 1px solid rgba(73,216,255,.28);
+      background: rgba(73,216,255,.07);
     }
-    .nav-cta:hover { background: rgba(109,229,208,.12) !important; border-color: rgba(109,229,208,.42); }
-
-    .menu-btn { display: none; border: 0; background: transparent; color: #d9e6f2; font-size: 24px; cursor: pointer; }
-
-    .hero {
-      position: relative;
-      padding: 96px 0 74px;
-      overflow: hidden;
-    }
-
-    .hero::after {
-      content: "";
-      position: absolute;
-      width: 700px;
-      height: 700px;
-      border-radius: 50%;
-      left: 62%;
-      top: 4%;
-      border: 1px solid rgba(109,229,208,.07);
-      box-shadow: 0 0 0 90px rgba(109,167,255,.018), 0 0 0 180px rgba(109,229,208,.012);
-      pointer-events: none;
-      z-index: -1;
+    .nav-links .nav-cta:hover { background: rgba(73,216,255,.12); border-color: rgba(73,216,255,.46); }
+    .menu-btn {
+      display: none;
+      width: 42px;
+      height: 42px;
+      border-radius: 11px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 20px;
+      cursor: pointer;
     }
 
+    .hero { padding: 96px 0 84px; position: relative; overflow: hidden; }
     .hero-grid {
       display: grid;
-      grid-template-columns: .92fr 1.08fr;
-      gap: 58px;
+      grid-template-columns: .94fr 1.06fr;
+      gap: 64px;
       align-items: center;
     }
-
-    .hero-copy { max-width: 610px; }
-    .hero-badge {
+    .hero-copy { max-width: 650px; }
+    .hero-brand-line {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 25px;
+    }
+    .hero-icon {
+      width: 70px;
+      height: 70px;
+      object-fit: contain;
+      filter: drop-shadow(0 16px 30px rgba(73,216,255,.18));
+    }
+    .eyebrow {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 7px 10px;
-      border: 1px solid rgba(109,229,208,.18);
+      width: fit-content;
+      padding: 8px 11px;
       border-radius: 999px;
-      background: rgba(109,229,208,.055);
-      color: #bdeee6;
+      border: 1px solid rgba(73,216,255,.20);
+      color: #bfefff;
+      background: rgba(73,216,255,.055);
       font-size: 11px;
-      font-weight: 800;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      margin-bottom: 22px;
-    }
-    .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 14px rgba(115,229,170,.75); }
-    .hero-brand-row { display:flex; align-items:center; gap:16px; margin-bottom:22px; }
-    .hero-brand-row .hero-badge { margin-bottom:0; }
-    .hero-app-icon {
-      width: 82px;
-      height: 82px;
-      object-fit: contain;
-      flex: 0 0 auto;
-      filter: drop-shadow(0 12px 30px rgba(40,152,255,.28)) drop-shadow(0 0 22px rgba(0,229,255,.13));
-    }
-
-    h1 {
-      margin: 0;
-      max-width: 760px;
-      font-size: clamp(52px, 7.2vw, 86px);
-      line-height: .97;
-      letter-spacing: -.066em;
       font-weight: 900;
-      text-wrap: balance;
+      letter-spacing: .085em;
+      text-transform: uppercase;
     }
-
+    .eyebrow i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 15px rgba(96,221,160,.75);
+    }
     .gradient-text {
-      background: linear-gradient(140deg, #fff 8%, #d7e9f8 40%, #8fe3d4 68%, #82aaff 100%);
+      background: linear-gradient(135deg, var(--text) 5%, #d8e8ff 36%, var(--accent) 69%, var(--accent-2) 100%);
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
     }
-
-    .hero-copy > p {
-      margin: 26px 0 0;
-      max-width: 590px;
-      color: #a8bacb;
-      font-size: clamp(18px, 2.1vw, 21px);
-      line-height: 1.65;
-      letter-spacing: -.015em;
+    .hero .lead { max-width: 610px; }
+    .hero-actions, .download-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 31px;
     }
-
-    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
     .btn {
-      min-height: 48px;
-      padding: 0 18px;
-      border-radius: 12px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 9px;
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 12px;
       text-decoration: none;
       font-size: 14px;
       font-weight: 800;
-      transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+      border: 1px solid transparent;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
     }
-    .btn:hover { transform: translateY(-1px); }
+    .btn:hover { transform: translateY(-2px); }
     .btn-primary {
-      border: 1px solid rgba(109,229,208,.42);
-      background: linear-gradient(135deg, #62decb, #6d9ff4);
-      color: #061014;
-      box-shadow: 0 12px 35px rgba(77,191,197,.15);
+      color: var(--accent-contrast);
+      background: linear-gradient(135deg, var(--accent), #62c7ff 52%, #7b8cff);
+      box-shadow: 0 14px 38px rgba(73,216,255,.17), inset 0 1px rgba(255,255,255,.32);
     }
-    .btn-primary:hover { box-shadow: 0 16px 42px rgba(77,191,197,.22); }
-    .btn-secondary { border: 1px solid var(--line-strong); background: rgba(17,27,40,.72); color: #dce9f5; }
-    .btn-secondary:hover { border-color: rgba(139,190,225,.4); background: #121d2a; }
-    .btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
-
+    .btn-primary:hover { box-shadow: 0 17px 44px rgba(73,216,255,.23); }
+    .btn-secondary {
+      color: var(--text);
+      background: rgba(16,26,44,.78);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover { background: var(--hover); border-color: var(--border-strong); }
     .hero-meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px 18px;
-      align-items: center;
-      margin-top: 20px;
-      color: #70859a;
+      gap: 10px 22px;
+      margin-top: 26px;
+      color: var(--muted);
       font-size: 12px;
+      font-weight: 700;
     }
-    .hero-meta span { display: inline-flex; align-items: center; gap: 6px; }
-    .hero-meta i { width: 5px; height: 5px; border-radius: 50%; background: #4d667a; }
+    .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+    .hero-meta b { color: var(--success); font-size: 11px; }
 
-    .app-window {
+    .app-shell {
       position: relative;
-      border: 1px solid rgba(125,170,205,.20);
-      border-radius: 20px;
+      min-height: 520px;
+      border: 1px solid rgba(52,82,115,.72);
+      border-radius: 25px;
+      background: linear-gradient(145deg, rgba(11,19,34,.96), rgba(7,12,24,.97));
+      box-shadow: var(--shadow-lg), 0 0 0 1px rgba(109,131,255,.04), 0 0 80px rgba(73,216,255,.06);
       overflow: hidden;
-      background: #080d14;
-      box-shadow: 0 42px 100px rgba(0,0,0,.50), 0 0 80px rgba(80,178,195,.06), inset 0 1px rgba(255,255,255,.05);
-      transform: perspective(1300px) rotateY(-5deg) rotateX(2deg);
-      transform-origin: center;
+      transform: perspective(1100px) rotateY(-3deg) rotateX(1deg);
+      transform-origin: 50% 50%;
     }
-
-    .app-window::before {
+    .app-shell::after {
       content: "";
       position: absolute;
       inset: 0;
       pointer-events: none;
-      background: linear-gradient(130deg, rgba(255,255,255,.035), transparent 26%);
-      z-index: 5;
+      background: linear-gradient(120deg, rgba(255,255,255,.035), transparent 22%, transparent 78%, rgba(109,131,255,.025));
     }
-
     .app-topbar {
       height: 52px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      padding: 0 14px;
-      border-bottom: 1px solid #1b2736;
-      background: rgba(8,12,18,.96);
+      gap: 10px;
+      padding: 0 15px;
+      background: #08101d;
+      border-bottom: 1px solid var(--border);
     }
-    .mini-brand { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; }
-    .mini-mark { width: 25px; height: 25px; border-radius: 7px; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(109,229,208,.22); background: #102230; box-shadow: inset 0 1px rgba(255,255,255,.05); }
-    .mini-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .mini-provider { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid #26374a; border-radius: 7px; color: #96aabd; font-size: 9px; }
-    .mini-provider b { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(115,229,170,.7); }
+    .app-topbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
+    .app-topbar .dot:nth-child(1) { background: var(--danger); }
+    .app-topbar .dot:nth-child(2) { background: var(--warning); }
+    .app-topbar .dot:nth-child(3) { background: var(--success); }
+    .app-topbar .app-title { margin-left: 8px; color: var(--text-2); font-size: 12px; font-weight: 800; }
+    .app-layout { display: grid; grid-template-columns: 150px 1fr; min-height: 468px; }
+    .app-sidebar { padding: 15px 10px; background: rgba(9,18,32,.88); border-right: 1px solid var(--border); }
+    .app-brand-mini { display: flex; align-items: center; gap: 8px; padding: 4px 7px 15px; border-bottom: 1px solid rgba(34,53,78,.72); margin-bottom: 12px; }
+    .app-brand-mini img { width: 27px; height: 27px; object-fit: contain; }
+    .app-brand-mini b { font-size: 12px; }
+    .side-link { padding: 9px 10px; margin: 3px 0; border-radius: 8px; color: var(--muted); font-size: 10px; font-weight: 760; }
+    .side-link.active { color: #dff9ff; background: var(--active); border: 1px solid rgba(73,216,255,.17); }
+    .side-link i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; background: currentColor; opacity: .8; }
+    .app-content { padding: 20px; background: linear-gradient(180deg, rgba(7,12,24,.64), rgba(4,8,18,.52)); }
+    .app-heading { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 16px; }
+    .app-heading small { color: var(--accent); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; font-weight: 900; }
+    .app-heading strong { display: block; font-size: 18px; margin-top: 5px; }
+    .app-status { color: var(--success); font-size: 9px; font-weight: 800; padding: 6px 8px; border-radius: 999px; background: rgba(96,221,160,.08); border: 1px solid rgba(96,221,160,.23); }
+    .app-toolbar { display: grid; grid-template-columns: 1.4fr .7fr .7fr; gap: 8px; margin-bottom: 15px; }
+    .app-field { height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--input); color: var(--muted); font-size: 8px; display: flex; align-items: center; padding: 0 10px; }
+    .app-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .poster-card { min-height: 132px; padding: 12px; display: flex; flex-direction: column; justify-content: end; border-radius: 11px; border: 1px solid rgba(52,82,115,.67); overflow: hidden; position: relative; background: var(--surface-2); }
+    .poster-card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 70% 15%, rgba(73,216,255,.20), transparent 30%), linear-gradient(145deg, var(--surface-3), var(--surface)); }
+    .poster-card:nth-child(2)::before { background: radial-gradient(circle at 28% 22%, rgba(109,131,255,.26), transparent 32%), linear-gradient(145deg, #10182e, #0a1221); }
+    .poster-card:nth-child(3)::before { background: radial-gradient(circle at 74% 30%, rgba(96,221,160,.15), transparent 30%), linear-gradient(145deg, #101d29, #0a1320); }
+    .poster-card:nth-child(4)::before { background: radial-gradient(circle at 32% 18%, rgba(255,201,103,.13), transparent 30%), linear-gradient(145deg, #171b2f, #0c1220); }
+    .poster-card:nth-child(5)::before { background: radial-gradient(circle at 75% 24%, rgba(97,185,255,.19), transparent 28%), linear-gradient(145deg, #0e2032, #081321); }
+    .poster-card:nth-child(6)::before { background: radial-gradient(circle at 26% 20%, rgba(255,113,128,.13), transparent 28%), linear-gradient(145deg, #1c172b, #0e1120); }
+    .poster-card > * { position: relative; z-index: 1; }
+    .poster-card b { font-size: 9px; }
+    .poster-card span { color: var(--muted); font-size: 7px; margin-top: 4px; }
+    .poster-card .chip { width: fit-content; color: var(--accent); margin-bottom: auto; border: 1px solid rgba(73,216,255,.22); background: rgba(73,216,255,.06); padding: 4px 5px; border-radius: 5px; font-weight: 850; }
+    .app-footerbar { margin-top: 11px; height: 27px; display: flex; align-items: center; justify-content: space-between; border-radius: 8px; padding: 0 9px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-size: 7px; }
+    .app-footerbar strong { color: var(--success); }
 
-    .app-body { min-height: 430px; display: grid; grid-template-columns: 122px 1fr; }
-    .mini-sidebar { padding: 13px 8px; border-right: 1px solid #1b2736; background: rgba(9,14,21,.72); }
-    .mini-section { margin: 14px 9px 5px; color: #4f6477; font-size: 7px; font-weight: 900; letter-spacing: .13em; }
-    .mini-nav { height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 8px; margin: 2px 0; border-radius: 7px; color: #6f8498; font-size: 8px; font-weight: 650; }
-    .mini-nav.active { color: #e9f6f3; background: linear-gradient(90deg,rgba(109,229,208,.13),rgba(109,167,255,.05)); box-shadow: inset 2px 0 var(--accent); }
-    .mini-nav .mi { width: 13px; text-align: center; color: #9ab0c3; font-size: 10px; }
-    .mini-side-foot { margin: 58px 8px 0; color: #51687b; font-size: 7px; line-height: 1.5; }
-    .mini-side-foot .online { color: var(--success); }
-
-    .mini-workspace { padding: 16px; min-width: 0; background: radial-gradient(circle at 78% 0, rgba(35,74,100,.22), transparent 48%), #0a1018; }
-    .mini-head { display: flex; align-items: end; justify-content: space-between; gap: 14px; }
-    .mini-eyebrow { color: #63839b; font-size: 7px; font-weight: 900; letter-spacing: .16em; }
-    .mini-title { margin-top: 4px; font-size: 18px; font-weight: 800; letter-spacing: -.035em; }
-    .mini-tabs { display: flex; gap: 4px; }
-    .mini-tab { padding: 5px 7px; border: 1px solid #26374a; border-radius: 6px; color: #73899c; font-size: 7px; }
-    .mini-tab.active { color: #cffff7; border-color: #2d5f5a; background: #10251f; }
-
-    .poster-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-    .poster {
-      aspect-ratio: .68;
-      border: 1px solid #1f2e3d;
-      border-radius: 8px;
-      overflow: hidden;
-      position: relative;
-      background: #0f1822;
-      box-shadow: 0 9px 24px rgba(0,0,0,.2);
+    .trust-strip {
+      border-top: 1px solid rgba(34,53,78,.62);
+      border-bottom: 1px solid rgba(34,53,78,.62);
+      background: rgba(11,19,34,.54);
     }
-    .poster:nth-child(1) { background: radial-gradient(circle at 70% 20%, #5778a2, transparent 34%), linear-gradient(160deg,#19263a,#0b1520 62%,#153846); }
-    .poster:nth-child(2) { background: radial-gradient(circle at 40% 32%, #8c714f, transparent 25%), linear-gradient(160deg,#3b2119,#10151d 64%,#3c4b48); }
-    .poster:nth-child(3) { background: radial-gradient(circle at 55% 15%, #5e7b70, transparent 28%), linear-gradient(160deg,#19383d,#10141c 66%,#3a2947); }
-    .poster:nth-child(4) { background: radial-gradient(circle at 55% 28%, #7a4a57, transparent 28%), linear-gradient(160deg,#351724,#0d141c 60%,#223d4b); }
-    .poster:nth-child(5) { background: radial-gradient(circle at 65% 22%, #697a91, transparent 25%), linear-gradient(160deg,#17273d,#10141b 62%,#44523e); }
-    .poster:nth-child(6) { background: radial-gradient(circle at 35% 20%, #8b615a, transparent 26%), linear-gradient(160deg,#3c2021,#111721 60%,#334655); }
-    .poster:nth-child(7) { background: radial-gradient(circle at 70% 20%, #496c9b, transparent 25%), linear-gradient(160deg,#132c3f,#11151c 62%,#3d4d3e); }
-    .poster:nth-child(8) { background: radial-gradient(circle at 35% 25%, #84756c, transparent 26%), linear-gradient(160deg,#2e2a36,#11161d 64%,#304455); }
-    .poster::after {
-      content: "";
-      position: absolute;
-      left: 18%; right: 18%; top: 15%; bottom: 28%;
-      border-radius: 50% 50% 42% 42%;
-      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(0,0,0,.12));
-      filter: blur(.1px);
-      opacity: .72;
-    }
-    .poster-info { position: absolute; inset: auto 0 0; z-index: 2; padding: 22px 7px 7px; background: linear-gradient(transparent, rgba(5,9,14,.95)); }
-    .poster-info b { display: block; color: #e1ecf5; font-size: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .poster-info span { color: #6b8295; font-size: 6px; }
-
-    .download-toast {
-      position: absolute;
-      right: -18px;
-      bottom: -22px;
-      width: 245px;
-      border: 1px solid rgba(109,229,208,.2);
-      border-radius: 13px;
-      padding: 12px;
-      background: rgba(10,17,25,.94);
-      backdrop-filter: blur(15px);
-      box-shadow: 0 20px 55px rgba(0,0,0,.45);
-      z-index: 8;
-    }
-    .toast-top { display: flex; justify-content: space-between; gap: 10px; color: #d7e5f0; font-size: 9px; font-weight: 750; }
-    .toast-top span { color: var(--accent); }
-    .progress { height: 5px; overflow: hidden; border-radius: 999px; margin: 9px 0 7px; background: #1a2834; }
-    .progress b { display: block; width: 73%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: 0 0 16px rgba(109,229,208,.3); }
-    .toast-meta { display: flex; justify-content: space-between; color: #677f93; font-size: 7px; }
-
-    .trust-strip { padding: 24px 0 20px; }
-    .trust-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: rgba(12,18,27,.56);
-      overflow: hidden;
-    }
-    .trust-item { padding: 20px 22px; border-right: 1px solid var(--line); }
+    .trust-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+    .trust-item { padding: 24px 20px; text-align: center; border-right: 1px solid rgba(34,53,78,.55); }
     .trust-item:last-child { border-right: 0; }
-    .trust-item span { display: block; color: #688095; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
-    .trust-item strong { display: block; margin-top: 5px; color: #dce8f4; font-size: 14px; font-weight: 750; }
+    .trust-item strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 5px; }
+    .trust-item span { color: var(--muted); font-size: 11px; }
 
-    section { scroll-margin-top: 88px; }
-    .section { padding: 94px 0; }
-    .section-kicker { color: var(--accent); font-size: 11px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
-    .section h2 { margin: 10px 0 0; max-width: 780px; font-size: clamp(34px, 5vw, 54px); line-height: 1.05; letter-spacing: -.05em; text-wrap: balance; }
-    .section-lead { max-width: 720px; margin: 18px 0 0; color: #91a5b8; font-size: 17px; line-height: 1.7; }
-
-    .feature-grid { margin-top: 38px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 42px; }
     .feature-card {
-      min-height: 235px;
-      position: relative;
-      overflow: hidden;
+      min-height: 255px;
       padding: 24px;
-      border: 1px solid var(--line);
-      border-radius: 17px;
-      background: linear-gradient(180deg, rgba(255,255,255,.025), transparent 45%), rgba(13,19,29,.67);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      background: linear-gradient(145deg, rgba(16,26,44,.88), rgba(11,19,34,.88));
       box-shadow: inset 0 1px rgba(255,255,255,.025);
-      transition: border-color .2s ease, transform .2s ease, background .2s ease;
+      transition: .2s ease;
     }
-    .feature-card:hover { transform: translateY(-3px); border-color: rgba(109,229,208,.24); background: linear-gradient(180deg, rgba(109,229,208,.035), transparent 45%), rgba(13,19,29,.82); }
-    .feature-card::after { content: ""; position: absolute; width: 150px; height: 150px; right: -65px; top: -70px; border-radius: 50%; background: radial-gradient(circle, rgba(109,167,255,.08), transparent 66%); }
-    .feature-icon { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid rgba(109,229,208,.15); border-radius: 11px; color: var(--accent); background: rgba(109,229,208,.055); }
-    .feature-icon svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; }
-    .feature-card h3 { margin: 18px 0 8px; font-size: 17px; letter-spacing: -.02em; }
-    .feature-card p { margin: 0; color: #8296aa; font-size: 13px; line-height: 1.68; }
-    .feature-card .mini-tag { position: absolute; left: 24px; bottom: 20px; color: #5d7589; font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+    .feature-card:hover { transform: translateY(-4px); border-color: var(--border-strong); background: linear-gradient(145deg, rgba(19,37,58,.92), rgba(11,19,34,.92)); }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      margin-bottom: 31px;
+      color: var(--accent);
+      border: 1px solid rgba(73,216,255,.20);
+      background: rgba(73,216,255,.055);
+      box-shadow: inset 0 1px rgba(255,255,255,.04);
+    }
+    .feature-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+    .feature-card p { color: var(--muted); font-size: 13px; line-height: 1.68; margin-bottom: 17px; }
+    .mini-tag { color: var(--muted-2); font-size: 10px; font-weight: 800; letter-spacing: .025em; }
 
     .showcase {
-      padding: 38px;
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      background:
-        radial-gradient(circle at 85% 10%, rgba(109,167,255,.10), transparent 28rem),
-        linear-gradient(180deg, rgba(255,255,255,.018), transparent),
-        rgba(11,17,25,.75);
-      box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.03);
-    }
-    .showcase-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 42px; align-items: center; }
-    .showcase h3 { margin: 9px 0 0; font-size: clamp(31px, 4vw, 46px); line-height: 1.08; letter-spacing: -.045em; }
-    .showcase p { color: #8ea3b6; font-size: 15px; line-height: 1.7; }
-    .bullet-list { display: grid; gap: 10px; margin-top: 23px; }
-    .bullet { display: flex; gap: 10px; align-items: flex-start; color: #afbecb; font-size: 13px; line-height: 1.55; }
-    .bullet b { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; border-radius: 50%; color: #072018; background: var(--success); font-size: 10px; margin-top: 1px; }
-
-    .discover-panel { border: 1px solid #203040; border-radius: 17px; padding: 15px; background: #0a1119; box-shadow: 0 24px 60px rgba(0,0,0,.34); }
-    .discover-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .discover-top strong { font-size: 12px; }
-    .discover-top span { color: #658096; font-size: 8px; }
-    .discover-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .discover-card { aspect-ratio: .72; position: relative; border-radius: 9px; overflow: hidden; border: 1px solid #233445; }
-    .discover-card:nth-child(1){background:radial-gradient(circle at 50% 26%,#698992,transparent 27%),linear-gradient(160deg,#142f35,#0e151e 60%,#354456)}
-    .discover-card:nth-child(2){background:radial-gradient(circle at 55% 25%,#98795f,transparent 27%),linear-gradient(160deg,#432b21,#101821 62%,#344d49)}
-    .discover-card:nth-child(3){background:radial-gradient(circle at 42% 25%,#7a6a9c,transparent 27%),linear-gradient(160deg,#2e2744,#11151d 64%,#27445a)}
-    .discover-card::after { content:""; position:absolute; left:20%;right:20%;top:14%;bottom:28%;border-radius:50%;background:rgba(255,255,255,.07); }
-    .discover-label { position:absolute; z-index:2; inset:auto 0 0; padding:24px 8px 8px; background:linear-gradient(transparent,rgba(5,9,14,.96)); }
-    .discover-label b { display:block; font-size:8px; }
-    .discover-label span { color:#74899d; font-size:7px; }
-    .add-chip { display:inline-flex; margin-top:5px; padding:4px 6px; border-radius:5px; font-size:6px; font-weight:800; color:#06201a; background:linear-gradient(135deg,var(--accent),var(--accent-2)); }
-
-    .flow { margin-top: 38px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch; }
-    .flow-step { position: relative; padding: 19px 16px; min-height: 132px; border: 1px solid var(--line); border-radius: 14px; background: rgba(13,19,29,.62); }
-    .flow-step:not(:last-child)::after { content:"→"; position:absolute; right:-12px; top:50%; transform:translateY(-50%); width:24px;height:24px;display:grid;place-items:center;border:1px solid #203143;border-radius:50%;background:#09111a;color:#5d7a91;font-size:10px;z-index:3; }
-    .flow-num { color: var(--accent); font-size: 9px; font-weight: 900; letter-spacing: .12em; }
-    .flow-step h4 { margin: 9px 0 5px; font-size: 13px; }
-    .flow-step p { margin:0; color:#73899d; font-size:11px; line-height:1.5; }
-
-    .download-section { padding: 95px 0 105px; }
-    .download-card {
-      position: relative;
+      padding: 34px;
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--border);
+      background: linear-gradient(145deg, rgba(11,19,34,.92), rgba(7,12,24,.92));
+      box-shadow: var(--shadow-md);
       overflow: hidden;
+      position: relative;
+    }
+    .showcase::after { content: ""; position: absolute; width: 360px; height: 360px; right: -130px; top: -150px; border-radius: 50%; background: radial-gradient(circle, rgba(109,131,255,.15), transparent 68%); pointer-events: none; }
+    .showcase-grid { display: grid; grid-template-columns: 1fr 1.06fr; gap: 54px; align-items: center; position: relative; z-index: 1; }
+    .bullet-list { display: grid; gap: 11px; margin-top: 28px; }
+    .bullet { display: flex; align-items: flex-start; gap: 11px; color: var(--text-2); font-size: 13px; line-height: 1.55; }
+    .bullet b { color: var(--success); }
+    .automation-panel { padding: 19px; border-radius: 18px; border: 1px solid var(--border-strong); background: var(--surface); }
+    .auto-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 13px; }
+    .auto-head strong { font-size: 13px; }
+    .auto-head span { color: var(--accent); font-size: 9px; font-weight: 800; }
+    .library-list { display: grid; gap: 9px; }
+    .library-row { display: grid; grid-template-columns: 42px 1fr auto; gap: 10px; align-items: center; padding: 9px; border-radius: 11px; border: 1px solid var(--border); background: var(--surface-2); }
+    .library-art { width: 42px; height: 53px; border-radius: 6px; background: linear-gradient(145deg, var(--active), #1f2548); border: 1px solid var(--border-strong); }
+    .library-row:nth-child(2) .library-art { background: linear-gradient(145deg, #132e3b, #17314b); }
+    .library-row:nth-child(3) .library-art { background: linear-gradient(145deg, #222848, #0f1b31); }
+    .library-meta b { font-size: 10px; display: block; }
+    .library-meta span { color: var(--muted); font-size: 8px; }
+    .status-pill { padding: 5px 7px; border-radius: 999px; border: 1px solid rgba(96,221,160,.22); color: var(--success); background: rgba(96,221,160,.06); font-size: 7px; font-weight: 850; }
+
+    .workflow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 42px; }
+    .workflow-step { padding: 21px 18px; min-height: 160px; border-radius: 17px; border: 1px solid var(--border); background: rgba(11,19,34,.82); position: relative; }
+    .workflow-step:not(:last-child)::after { content: "›"; position: absolute; right: -9px; top: 50%; transform: translateY(-50%); z-index: 2; color: var(--accent); font-size: 20px; }
+    .workflow-num { color: var(--accent); font-size: 10px; font-weight: 900; letter-spacing: .08em; margin-bottom: 25px; }
+    .workflow-step h3 { font-size: 16px; margin-bottom: 6px; }
+    .workflow-step p { color: var(--muted); font-size: 11px; line-height: 1.55; margin-bottom: 0; }
+
+    .open-grid { display: grid; grid-template-columns: 1.02fr .98fr; gap: 54px; align-items: center; }
+    .code-card { border: 1px solid var(--border-strong); border-radius: 20px; overflow: hidden; background: #050a15; box-shadow: var(--shadow-md); }
+    .code-head { height: 42px; padding: 0 13px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 10px; }
+    .code-head i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+    .code-head i:nth-child(1){background:var(--danger)} .code-head i:nth-child(2){background:var(--warning)} .code-head i:nth-child(3){background:var(--success)}
+    .code-head span { margin-left: 6px; }
+    pre { margin: 0; padding: 25px; overflow: auto; color: var(--text-2); font: 12px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .code-k { color: var(--accent); } .code-v { color: #b6c5ff; } .code-c { color: var(--muted); }
+
+    .download-section { padding: 78px 0 110px; }
+    .download-card {
       display: grid;
-      grid-template-columns: 1.1fr .9fr;
-      gap: 40px;
-      padding: 46px;
-      border: 1px solid rgba(109,229,208,.20);
-      border-radius: 25px;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 36px;
+      align-items: stretch;
+      padding: 38px;
+      border-radius: 30px;
+      border: 1px solid var(--border-strong);
       background:
-        radial-gradient(circle at 90% 12%, rgba(109,167,255,.15), transparent 26rem),
-        radial-gradient(circle at 15% 90%, rgba(109,229,208,.08), transparent 24rem),
-        #0c131c;
-      box-shadow: 0 35px 90px rgba(0,0,0,.42), inset 0 1px rgba(255,255,255,.035);
+        radial-gradient(circle at 88% 12%, rgba(109,131,255,.14), transparent 23rem),
+        linear-gradient(145deg, rgba(11,19,34,.96), rgba(7,12,24,.97));
+      box-shadow: var(--shadow-lg);
     }
-    .download-card::before { content:""; position:absolute; left:8%; right:8%; top:0; height:1px; background:linear-gradient(90deg,transparent,var(--accent),var(--accent-2),transparent); box-shadow:0 0 25px rgba(109,229,208,.45); }
-    .download-card h2 { margin: 12px 0 0; font-size: clamp(36px, 5vw, 54px); line-height:1.03; letter-spacing:-.05em; }
-    .download-card p { color:#91a4b6; line-height:1.7; }
-    .release-line { display:flex; flex-wrap:wrap; gap:9px; margin-top:21px; }
-    .release-pill { padding:7px 9px; border:1px solid #273a4b; border-radius:7px; background:#0a1119; color:#869caf; font-size:10px; font-weight:700; }
-    .release-pill strong { color:#d7e4ef; }
-    .download-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:25px; }
-    .fineprint { margin-top:16px; max-width:650px; color:#60778a !important; font-size:11px !important; line-height:1.6 !important; }
-    .release-box { align-self:center; padding:22px; border:1px solid #223446; border-radius:17px; background:rgba(7,12,18,.66); }
-    .release-brand { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
-    .release-brand img { width:38px; height:38px; object-fit:contain; filter:drop-shadow(0 5px 14px rgba(34,149,255,.18)); }
-    .release-box .label { color:#5d778d; font-size:9px; font-weight:900; letter-spacing:.13em; text-transform:uppercase; }
-    .release-version { margin-top:6px; display:flex; align-items:end; justify-content:space-between; gap:15px; }
-    .release-version strong { font-size:31px; letter-spacing:-.05em; }
-    .release-version span { color:var(--success); font-size:9px; font-weight:800; padding-bottom:5px; }
-    .release-list { margin-top:15px; display:grid; gap:8px; }
-    .release-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 11px; border:1px solid #1c2d3d; border-radius:9px; color:#8ca1b4; font-size:10px; }
-    .release-row b { color:#c6d4e0; font-weight:700; }
+    .release-line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 25px; }
+    .release-pill { padding: 7px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-2); background: var(--surface-2); font-size: 10px; font-weight: 750; }
+    .release-pill strong { color: var(--accent); }
+    .fineprint { max-width: 720px; color: var(--muted); font-size: 11px; line-height: 1.6; margin: 20px 0 0; }
+    .release-box { padding: 22px; border-radius: 18px; border: 1px solid var(--border); background: rgba(9,18,32,.88); }
+    .release-brand { display: flex; align-items: center; gap: 10px; }
+    .release-brand img { width: 39px; height: 39px; object-fit: contain; }
+    .release-brand .label { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; font-weight: 850; }
+    .release-version { display: flex; align-items: end; justify-content: space-between; gap: 12px; padding: 23px 0 18px; border-bottom: 1px solid var(--border); }
+    .release-version strong { font-size: 34px; letter-spacing: -.05em; }
+    .release-version span { color: var(--success); font-size: 8px; font-weight: 900; padding-bottom: 5px; }
+    .release-list { display: grid; margin-top: 9px; }
+    .release-row { display: flex; justify-content: space-between; gap: 18px; padding: 10px 0; color: var(--muted); font-size: 10px; border-bottom: 1px solid rgba(34,53,78,.55); }
+    .release-row:last-child { border-bottom: 0; }
+    .release-row b { color: var(--text-2); }
 
-    .opensource { display:grid; grid-template-columns: .9fr 1.1fr; gap: 34px; align-items: center; }
-    .code-card { border:1px solid #213343; border-radius:17px; overflow:hidden; background:#080e15; box-shadow:0 22px 55px rgba(0,0,0,.32); }
-    .code-head { height:38px; display:flex;align-items:center;gap:6px;padding:0 13px;border-bottom:1px solid #1a2a38;background:#0b131c; }
-    .code-head i { width:7px;height:7px;border-radius:50%;background:#32495d; }
-    .code-head span { margin-left:5px;color:#617b91;font-size:8px; }
-    pre { margin:0; padding:18px; overflow:auto; color:#8ea8bd; font: 10px/1.8 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .code-a{color:#7adac9}.code-b{color:#80aef7}.code-c{color:#c6d5e2}.code-d{color:#61788d}
+    .faq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 36px; }
+    details { border: 1px solid var(--border); border-radius: 14px; background: rgba(11,19,34,.82); padding: 17px 18px; }
+    summary { cursor: pointer; list-style: none; font-size: 13px; font-weight: 800; color: var(--text); }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; float: right; color: var(--accent); font-size: 17px; font-weight: 500; }
+    details[open] summary::after { content: "−"; }
+    details p { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
 
-    .faq-grid { margin-top:35px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    details { border:1px solid var(--line); border-radius:13px; background:rgba(13,19,29,.57); padding:0 17px; }
-    summary { list-style:none; cursor:pointer; padding:17px 24px 17px 0; position:relative; font-size:13px; font-weight:750; color:#d6e3ee; }
-    summary::-webkit-details-marker { display:none; }
-    summary::after { content:"+"; position:absolute; right:0; top:16px; color:#668198; font-size:18px; font-weight:400; }
-    details[open] summary::after { content:"–"; }
-    details p { margin:0; padding:0 0 17px; color:#7f95a8; font-size:12px; line-height:1.65; }
+    footer { padding: 32px 0 42px; border-top: 1px solid var(--border); background: rgba(4,8,18,.68); }
+    .footer-grid { display: grid; grid-template-columns: 1fr auto; gap: 36px; align-items: start; color: var(--muted); font-size: 11px; line-height: 1.65; }
+    .footer-brand { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 850; margin-bottom: 8px; }
+    .footer-brand img { width: 25px; height: 25px; object-fit: contain; }
+    .tmdb-note { max-width: 770px; margin-top: 10px; color: #71859b; font-size: 9px; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 14px; }
+    .footer-links a { color: var(--muted-2); text-decoration: none; font-weight: 700; }
+    .footer-links a:hover { color: var(--accent); }
 
-    footer { border-top:1px solid rgba(126,160,190,.12); padding:30px 0 42px; color:#62798d; font-size:11px; }
-    .footer-grid { display:grid; grid-template-columns:1fr auto; gap:25px; align-items:start; }
-    .footer-brand { color:#afc0cf; font-weight:800; margin-bottom:8px; display:flex; align-items:center; gap:9px; }
-    .footer-brand img { width:30px; height:30px; object-fit:contain; }
-    .footer-links { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px 16px; }
-    .footer-links a { text-decoration:none; color:#71889c; }
-    .footer-links a:hover { color:#b8c7d4; }
-    .tmdb-note { margin-top:13px; max-width:760px; color:#526a7e; line-height:1.6; }
-
-    .reveal { opacity:0; transform:translateY(18px); transition:opacity .65s ease, transform .65s ease; }
-    .reveal.visible { opacity:1; transform:none; }
-
-    @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior:auto; }
-      .reveal { opacity:1; transform:none; transition:none; }
-      .btn, .feature-card { transition:none; }
-    }
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity .62s ease, transform .62s ease; }
+    .reveal.visible { opacity: 1; transform: none; }
 
     @media (max-width: 980px) {
-      .nav-links a:not(.nav-cta) { display:none; }
-      .hero { padding-top:68px; }
-      .hero-app-icon { width:70px; height:70px; }
-      .hero-grid { grid-template-columns:1fr; gap:48px; }
-      .hero-copy { max-width:760px; }
-      .app-window { max-width:760px; transform:none; }
-      .feature-grid { grid-template-columns:1fr 1fr; }
-      .showcase-grid, .opensource, .download-card { grid-template-columns:1fr; }
-      .flow { grid-template-columns:1fr 1fr; }
-      .flow-step:not(:last-child)::after { display:none; }
-      .trust-grid { grid-template-columns:1fr 1fr; }
-      .trust-item:nth-child(2) { border-right:0; }
-      .trust-item:nth-child(-n+2) { border-bottom:1px solid var(--line); }
+      .hero-grid, .showcase-grid, .open-grid, .download-card { grid-template-columns: 1fr; }
+      .hero { padding-top: 74px; }
+      .hero-copy { max-width: 790px; }
+      .app-shell { transform: none; max-width: 760px; }
+      .feature-grid { grid-template-columns: repeat(2, 1fr); }
+      .workflow { grid-template-columns: repeat(2, 1fr); }
+      .workflow-step:not(:last-child)::after { display: none; }
+      .trust-grid { grid-template-columns: repeat(2, 1fr); }
+      .trust-item:nth-child(2) { border-right: 0; }
+      .trust-item:nth-child(-n+2) { border-bottom: 1px solid rgba(34,53,78,.55); }
     }
-
-    @media (max-width: 680px) {
-      .wrap { width:min(var(--max), calc(100% - 28px)); }
-      .nav { height:64px; }
-      .brand span:last-child { font-size:15px; }
-      .nav-cta { padding:9px 11px !important; font-size:11px !important; }
-      .hero { padding:54px 0 54px; }
-      .hero::after { display:none; }
-      .hero-copy > p { font-size:16px; }
-      .hero-actions .btn { width:100%; }
-      .hero-meta { gap:8px 13px; }
-      .app-body { min-height:350px; grid-template-columns:90px 1fr; }
-      .mini-sidebar { padding-inline:6px; }
-      .mini-nav { padding:0 5px; font-size:6.5px; gap:4px; }
-      .mini-section { margin-inline:5px; }
-      .mini-side-foot { display:none; }
-      .mini-workspace { padding:11px; }
-      .mini-title { font-size:14px; }
-      .mini-tabs { display:none; }
-      .poster-grid { grid-template-columns:repeat(3,1fr); }
-      .poster:nth-child(n+7) { display:none; }
-      .download-toast { width:190px; right:-5px; bottom:-24px; }
-      .feature-grid { grid-template-columns:1fr; }
-      .section { padding:72px 0; }
-      .showcase { padding:24px; border-radius:19px; }
-      .discover-cards { grid-template-columns:repeat(3,1fr); }
-      .flow { grid-template-columns:1fr; }
-      .trust-grid { grid-template-columns:1fr; }
-      .trust-item { border-right:0; border-bottom:1px solid var(--line); }
-      .trust-item:last-child { border-bottom:0; }
-      .download-section { padding:72px 0 80px; }
-      .download-card { padding:28px 22px; border-radius:20px; }
-      .hero-brand-row { align-items:flex-start; gap:12px; }
-      .hero-app-icon { width:62px; height:62px; }
-      .download-actions .btn { width:100%; }
-      .faq-grid { grid-template-columns:1fr; }
-      .footer-grid { grid-template-columns:1fr; }
-      .footer-links { justify-content:flex-start; }
+    @media (max-width: 760px) {
+      .wrap { width: min(var(--max), calc(100% - 28px)); }
+      .section { padding: 78px 0; }
+      .nav { height: 68px; }
+      .menu-btn { display: grid; place-items: center; }
+      .nav-links {
+        display: none;
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        top: 76px;
+        padding: 10px;
+        border-radius: 15px;
+        border: 1px solid var(--border-strong);
+        background: rgba(7,12,24,.98);
+        box-shadow: var(--shadow-md);
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .nav-links.open { display: flex; }
+      .nav-links a { padding: 12px; }
+      .nav-links .nav-cta { margin-left: 0; }
+      .hero { padding: 64px 0; }
+      .hero-grid { gap: 42px; }
+      .hero-brand-line { align-items: flex-start; }
+      .hero-icon { width: 58px; height: 58px; }
+      .app-layout { grid-template-columns: 1fr; }
+      .app-sidebar { display: none; }
+      .app-cards { grid-template-columns: repeat(2, 1fr); }
+      .app-toolbar { grid-template-columns: 1fr 1fr; }
+      .app-toolbar .app-field:first-child { grid-column: 1 / -1; }
+      .feature-grid, .faq-grid { grid-template-columns: 1fr; }
+      .workflow { grid-template-columns: 1fr; }
+      .showcase { padding: 25px 20px; }
+      .download-card { padding: 26px 20px; }
+      .footer-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      h1 { font-size: clamp(46px, 15vw, 64px); }
+      .trust-grid { grid-template-columns: 1fr; }
+      .trust-item { border-right: 0; border-bottom: 1px solid rgba(34,53,78,.55); }
+      .trust-item:last-child { border-bottom: 0; }
+      .app-cards { grid-template-columns: 1fr; }
+      .poster-card:nth-child(n+4) { display: none; }
+      .hero-actions .btn, .download-actions .btn { width: 100%; }
+      .release-version { align-items: flex-start; flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition-duration: .001ms !important; }
+      .reveal { opacity: 1; transform: none; }
     }
   </style>
 </head>
 <body>
   <header class="site-header">
     <div class="wrap nav">
-      <a class="brand" href="#top" aria-label="NewzDeck home">
-        <span class="brand-icon" aria-hidden="true"><img src="assets/NewzDeck.png" alt="" /></span>
-        <span>NewzDeck</span>
-      </a>
-      <nav class="nav-links" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="NewzDeck home"><img src="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" alt="" /><span>NewzDeck</span></a>
+      <button class="menu-btn" id="menuBtn" aria-label="Open navigation" aria-expanded="false">☰</button>
+      <nav class="nav-links" id="navLinks" aria-label="Primary navigation">
         <a href="#features">Features</a>
-        <a href="#discover">Discover</a>
         <a href="#automation">Automation</a>
         <a href="#opensource">Open Source</a>
-        <a class="nav-cta" href="#download">Download <span aria-hidden="true">↓</span></a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">GitHub</a>
+        <a class="nav-cta" href="#download">Download</a>
       </nav>
     </div>
   </header>
@@ -603,223 +579,149 @@
   <main id="top">
     <section class="hero">
       <div class="wrap hero-grid">
-        <div class="hero-copy reveal visible">
-          <div class="hero-brand-row">
-            <img class="hero-app-icon" src="assets/NewzDeck.png" alt="NewzDeck application icon" />
-            <div class="hero-badge"><span class="dot"></span> Free • Open source • Windows</div>
+        <div class="hero-copy reveal">
+          <div class="hero-brand-line">
+            <img class="hero-icon" src="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" alt="NewzDeck icon" />
+            <div class="eyebrow"><i></i><span>Free • Open Source • Windows</span></div>
           </div>
-          <h1><span class="gradient-text">Usenet, reimagined</span> around the way you actually use it.</h1>
-          <p>
-            Browse newsgroups visually, search quickly, manage downloads, discover movies and TV, and automate your media library — all from one focused Windows application.
-          </p>
+          <h1><span class="gradient-text">Usenet, reimagined.</span></h1>
+          <p class="lead">Browse newsgroups visually, download at full speed, discover movies and TV, and automate your media library — all from one polished Windows app.</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" id="heroDownload" href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg>
-              Download for Windows
-            </a>
-            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4 1.2-4-2-5-2.5M14 22v-3.1c0-.9.1-1.5-.4-2.1 3.1-.3 6.4-1.5 6.4-6.9 0-1.5-.5-2.8-1.5-3.8.2-.4.7-1.8-.1-3.8 0 0-1.2-.4-4 1.5a13.5 13.5 0 0 0-7 0c-2.8-1.9-4-1.5-4-1.5-.8 2-.3 3.4-.1 3.8A5.5 5.5 0 0 0 2 9.9c0 5.4 3.3 6.6 6.4 6.9-.4.4-.7 1-.7 2V22"/></svg>
-              View on GitHub
-            </a>
+            <a class="btn btn-primary" id="heroInstallerLink" href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download for Windows</a>
+            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">View on GitHub</a>
           </div>
           <div class="hero-meta">
-            <span><i></i><b id="heroVersion">v3.7.3</b> current release</span>
-            <span><i></i>Installer + Portable</span>
-            <span><i></i>GNU GPLv3</span>
+            <span><b>●</b><strong id="heroVersion">v3.7.3</strong> production</span>
+            <span>Windows 10/11 x64</span>
+            <span>GNU GPLv3</span>
           </div>
         </div>
 
-        <div class="hero-visual reveal visible" aria-label="Stylized NewzDeck application preview">
-          <div class="app-window">
-            <div class="app-topbar">
-              <div class="mini-brand"><span class="mini-mark"><img src="assets/NewzDeck.png" alt="" /></span><span>NewzDeck</span></div>
-              <div class="mini-provider"><b></b> Provider connected</div>
-            </div>
-            <div class="app-body">
-              <aside class="mini-sidebar">
-                <div class="mini-nav"><span class="mi">▤</span> Newsgroups</div>
-                <div class="mini-section">DISCOVER</div>
-                <div class="mini-nav active"><span class="mi">✦</span> Discover</div>
-                <div class="mini-section">AUTOMATION</div>
-                <div class="mini-nav"><span class="mi">▣</span> TV</div>
-                <div class="mini-nav"><span class="mi">◆</span> Movies</div>
-                <div class="mini-nav"><span class="mi">◎</span> Wanted</div>
-                <div class="mini-nav"><span class="mi">▦</span> Calendar</div>
-                <div class="mini-nav"><span class="mi">◷</span> History</div>
-                <div class="mini-section">SYSTEM</div>
-                <div class="mini-nav"><span class="mi">↓</span> Downloads</div>
-                <div class="mini-side-foot"><span class="online">●</span> Local-first<br />v<span id="mockVersion">3.6.99</span></div>
-              </aside>
-              <div class="mini-workspace">
-                <div class="mini-head">
-                  <div><div class="mini-eyebrow">DISCOVER</div><div class="mini-title">What are you watching next?</div></div>
-                  <div class="mini-tabs"><span class="mini-tab active">Trending</span><span class="mini-tab">Movies</span><span class="mini-tab">TV</span></div>
-                </div>
-                <div class="poster-grid" aria-hidden="true">
-                  <div class="poster"><div class="poster-info"><b>Trending now</b><span>Movie • 2026</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>New release</b><span>Series • 2026</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>Recommended</b><span>Movie • 2025</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>Top rated</b><span>Series • 2026</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>Popular</b><span>Movie • 2026</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>Because you watch</b><span>Series • 2025</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>Coming soon</b><span>Movie • 2026</span></div></div>
-                  <div class="poster"><div class="poster-info"><b>Explore</b><span>Series • 2026</span></div></div>
-                </div>
+        <div class="app-shell reveal" aria-label="Stylized NewzDeck Midnight interface preview">
+          <div class="app-topbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="app-title">NewzDeck — Midnight</span></div>
+          <div class="app-layout">
+            <aside class="app-sidebar">
+              <div class="app-brand-mini"><img src="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" alt="" /><b>NewzDeck</b></div>
+              <div class="side-link active"><i></i>Discover</div>
+              <div class="side-link"><i></i>Newsgroups</div>
+              <div class="side-link"><i></i>Downloads</div>
+              <div class="side-link"><i></i>Automation</div>
+              <div class="side-link"><i></i>Calendar</div>
+              <div class="side-link"><i></i>History</div>
+              <div class="side-link"><i></i>Settings</div>
+            </aside>
+            <div class="app-content">
+              <div class="app-heading"><div><small>Discover</small><strong>What do you want to watch?</strong></div><span class="app-status">● ONLINE</span></div>
+              <div class="app-toolbar"><div class="app-field">Search movies, TV and people</div><div class="app-field">Trending</div><div class="app-field">All genres</div></div>
+              <div class="app-cards">
+                <div class="poster-card"><span class="chip">TRENDING</span><b>Featured Movie</b><span>2026 • Movie</span></div>
+                <div class="poster-card"><span class="chip">FOR YOU</span><b>Recommended Series</b><span>2026 • TV</span></div>
+                <div class="poster-card"><span class="chip">NEW</span><b>Latest Release</b><span>2026 • Movie</span></div>
+                <div class="poster-card"><span class="chip">POPULAR</span><b>Popular Tonight</b><span>Series • 4K</span></div>
+                <div class="poster-card"><span class="chip">LIBRARY</span><b>Monitored Title</b><span>Wanted • Ready</span></div>
+                <div class="poster-card"><span class="chip">DISCOVER</span><b>Something New</b><span>Explore details</span></div>
               </div>
-            </div>
-            <div class="download-toast">
-              <div class="toast-top"><b>Active download</b><span>73%</span></div>
-              <div class="progress"><b></b></div>
-              <div class="toast-meta"><span>Downloading</span><span>ETA 02:18</span></div>
+              <div class="app-footerbar"><span>Private SABnzbd 5.1.2 • SABCTools 9.6.3</span><strong>Ready</strong></div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="trust-strip">
-      <div class="wrap trust-grid reveal">
-        <div class="trust-item"><span>Platform</span><strong>Windows x64</strong></div>
-        <div class="trust-item"><span>Distribution</span><strong>Installer + Portable</strong></div>
-        <div class="trust-item"><span>License</span><strong>GNU GPLv3</strong></div>
-        <div class="trust-item"><span>Price</span><strong>NewzDeck is free</strong></div>
+    <section class="trust-strip" aria-label="NewzDeck highlights">
+      <div class="wrap trust-grid">
+        <div class="trust-item"><strong>Visual newsgroup browsing</strong><span>Gallery, list, previews & search</span></div>
+        <div class="trust-item"><strong>High-speed downloads</strong><span>Private SABnzbd + SABCTools</span></div>
+        <div class="trust-item"><strong>TV & movie automation</strong><span>Discover, monitor, grab & import</span></div>
+        <div class="trust-item"><strong>Runs in the background</strong><span>Windows service + system tray</span></div>
       </div>
     </section>
 
     <section class="section" id="features">
       <div class="wrap">
-        <div class="section-kicker reveal">One application. The whole workflow.</div>
-        <h2 class="reveal">More than a downloader. More than an automation tool.</h2>
-        <p class="section-lead reveal">NewzDeck brings browsing, downloads, discovery, and personal media automation together in a single interface designed to feel fast, visual, and straightforward.</p>
-
+        <div class="section-kicker reveal">Everything in one place</div>
+        <h2 class="reveal">A complete Usenet workflow without the patchwork.</h2>
+        <p class="lead reveal">NewzDeck brings browsing, downloading, discovery, automation and media organization together in a single Windows application designed to stay fast and understandable.</p>
         <div class="feature-grid">
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v4H4zM4 11h7v8H4zM13 11h7v8h-7z"/></svg></div>
-            <h3>Visual Newsgroup Browser</h3>
-            <p>Browse retained headers in gallery or list views, preview images and video, group related media, keep persistent tabs, bookmark groups, and pick up where you left off.</p>
-            <span class="mini-tag">Browse • Preview • Organize</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg></div>
-            <h3>Resilient Download Pipeline</h3>
-            <p>Queue control, retries, provider-aware downloading, PAR2 verification and repair, unpacking, post-processing, and clear package-level progress in one place.</p>
-            <span class="mini-tag">Queue • Repair • Unpack</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16Z"/></svg></div>
-            <h3>TMDB-Powered Discover</h3>
-            <p>Explore trending titles, new releases, recommendations, detailed metadata, cast and crew, filtering, and a direct path from discovery into Automation.</p>
-            <span class="mini-tag">Discover • Details • Add</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="m9 3 3 2 3-2M8 9h8M8 13h5"/></svg></div>
-            <h3>TV & Movie Automation</h3>
-            <p>Manage TV and movie libraries, monitoring modes, quality profiles, Wanted items, calendar, history, health, root folders, and Newznab-compatible indexers.</p>
-            <span class="mini-tag">TV • Movies • Wanted</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 16V8m5 8V4m5 12v-6"/></svg></div>
-            <h3>Fast Search & Filtering</h3>
-            <p>Instant local header search, entire-group search, content filters, seen/unseen state, sorting, and tools that make huge retained groups practical to navigate.</p>
-            <span class="mini-tag">Search • Filter • Find</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 16 0 8 8 0 1 0-16 0Z"/><path d="M12 7v5l3 2"/></svg></div>
-            <h3>Background Runtime</h3>
-            <p>Downloads can continue after the main window closes using NewzDeck's Windows background service and system tray runtime.</p>
-            <span class="mini-tag">Service • Tray • Continue</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M8 12h8M8 16h5"/></svg></div>
-            <h3>Smart Import & Organization</h3>
-            <p>Completed automation downloads can be identified, renamed, and moved into Plex-friendly TV and movie folder structures.</p>
-            <span class="mini-tag">Identify • Rename • Move</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/><path d="M8 11h6"/></svg></div>
-            <h3>Interactive Search</h3>
-            <p>Search configured indexers when you want direct control, inspect available releases, and send the release you choose into NewzDeck's download workflow.</p>
-            <span class="mini-tag">Search • Inspect • Grab</span>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 18V9M9 18V5M14 18v-7M19 18V7M3 20h18"/></svg></div>
-            <h3>Health & Diagnostics</h3>
-            <p>Provider status, automation health, download state, runtime diagnostics, and actionable visibility when something needs attention.</p>
-            <span class="mini-tag">Status • Health • Diagnostics</span>
-          </article>
+          <article class="feature-card reveal"><div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="6" cy="6" r="1"/><circle cx="10" cy="12" r="1"/><circle cx="16" cy="18" r="1"/></svg></div><h3>Visual Newsgroup Browser</h3><p>Browse huge retained groups in gallery or list view with image and video previews, tabs, bookmarks, filters, binary grouping and progressive loading.</p><span class="mini-tag">Browse • Preview • Search</span></article>
+          <article class="feature-card reveal"><div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></div><h3>High-Speed Downloads</h3><p>NewzDeck's private SABnzbd engine handles queueing, provider-aware transfers, Direct Unpack, PAR2 verification and repair, extraction and post-processing.</p><span class="mini-tag">SABnzbd • SABCTools • Direct Unpack</span></article>
+          <article class="feature-card reveal"><div class="feature-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 9h18"/></svg></div><h3>Automation That Makes Sense</h3><p>Monitor TV shows and movies, use quality profiles, see Wanted items and calendar state, search compatible indexers and track what happens next.</p><span class="mini-tag">Monitor • Wanted • Calendar</span></article>
+          <article class="feature-card reveal"><div class="feature-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/><path d="M8 11h6M11 8v6"/></svg></div><h3>TMDB-Powered Discover</h3><p>Explore trending and new titles, recommendations, posters, backdrops, cast and crew, then add a title directly to Automation without leaving NewzDeck.</p><span class="mini-tag">Discover • Details • Add</span></article>
+          <article class="feature-card reveal"><div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M8 7V4h8v3"/><path d="M9 13h6"/></svg></div><h3>Smart Import & Organization</h3><p>Identify completed media, protect against duplicates, apply safe quality upgrades, rename files and move them into clean TV and movie library structures.</p><span class="mini-tag">Identify • Protect • Organize</span></article>
+          <article class="feature-card reveal"><div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><h3>Backup, Restore & Diagnostics</h3><p>Back up NewzDeck settings and automation configuration, restore safely across systems, and use built-in health information when you need to troubleshoot.</p><span class="mini-tag">Backup • Restore • Diagnose</span></article>
         </div>
       </div>
     </section>
 
-    <section class="section" id="discover">
+    <section class="section compact" id="automation">
       <div class="wrap showcase reveal">
         <div class="showcase-grid">
           <div>
-            <div class="section-kicker">Discover</div>
-            <h3>Find something great. Add it without leaving NewzDeck.</h3>
-            <p>Discover turns NewzDeck into more than a utility. Browse rich movie and television metadata, explore what is trending or newly released, drill into cast and crew, and move a title directly into your monitored library.</p>
+            <div class="section-kicker">Media automation</div>
+            <h2>From “I want this” to your library.</h2>
+            <p class="lead">NewzDeck keeps the entire path visible: discover a title, monitor it, evaluate releases, download, verify, repair, unpack and organize the finished media.</p>
             <div class="bullet-list">
-              <div class="bullet"><b>✓</b><span>Trending, popular, new-release, and recommendation views.</span></div>
-              <div class="bullet"><b>✓</b><span>Posters, backdrops, overview, genres, ratings, cast, crew, and title details.</span></div>
-              <div class="bullet"><b>✓</b><span>Add TV or movies directly to Automation with your monitoring and quality choices.</span></div>
+              <div class="bullet"><b>✓</b><span>Structured quality profiles with cutoff and upgrade behavior.</span></div>
+              <div class="bullet"><b>✓</b><span>Interactive search when you want direct release-level control.</span></div>
+              <div class="bullet"><b>✓</b><span>Monitored libraries, Wanted state, calendar visibility and durable history.</span></div>
+              <div class="bullet"><b>✓</b><span>Smart Import with duplicate and existing-media safeguards.</span></div>
             </div>
           </div>
-          <div class="discover-panel" aria-label="Stylized Discover view">
-            <div class="discover-top"><strong>Discover</strong><span>Trending this week</span></div>
-            <div class="discover-cards">
-              <div class="discover-card"><div class="discover-label"><b>Featured title</b><span>Movie • 2026</span><span class="add-chip">+ ADD TO AUTOMATION</span></div></div>
-              <div class="discover-card"><div class="discover-label"><b>Recommended</b><span>Series • 2026</span><span class="add-chip">+ ADD TO AUTOMATION</span></div></div>
-              <div class="discover-card"><div class="discover-label"><b>New release</b><span>Movie • 2026</span><span class="add-chip">+ ADD TO AUTOMATION</span></div></div>
+          <div class="automation-panel">
+            <div class="auto-head"><strong>Automation Library</strong><span>3 MONITORED</span></div>
+            <div class="library-list">
+              <div class="library-row"><div class="library-art"></div><div class="library-meta"><b>Example Series</b><span>Season 3 • 2160p WEB-DL</span></div><span class="status-pill">MONITORED</span></div>
+              <div class="library-row"><div class="library-art"></div><div class="library-meta"><b>Featured Movie</b><span>2026 • UHD quality profile</span></div><span class="status-pill">AVAILABLE</span></div>
+              <div class="library-row"><div class="library-art"></div><div class="library-meta"><b>Weekly Drama</b><span>Next episode • Thursday</span></div><span class="status-pill">WANTED</span></div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="section" id="automation">
+    <section class="section compact">
       <div class="wrap">
-        <div class="section-kicker reveal">Automation</div>
-        <h2 class="reveal">From “I want this” to an organized media library.</h2>
-        <p class="section-lead reveal">NewzDeck connects the parts of the workflow that usually live in separate tools while keeping the experience centered around one application.</p>
-        <div class="flow">
-          <div class="flow-step reveal"><div class="flow-num">01</div><h4>Discover or search</h4><p>Find a TV show, movie, or release.</p></div>
-          <div class="flow-step reveal"><div class="flow-num">02</div><h4>Monitor</h4><p>Choose quality, root folder, and monitoring behavior.</p></div>
-          <div class="flow-step reveal"><div class="flow-num">03</div><h4>Grab</h4><p>NewzDeck evaluates indexer results and submits the selected NZB.</p></div>
-          <div class="flow-step reveal"><div class="flow-num">04</div><h4>Download</h4><p>Transfer, verify, repair, unpack, and track progress.</p></div>
-          <div class="flow-step reveal"><div class="flow-num">05</div><h4>Import</h4><p>Identify, rename, and move into your media library.</p></div>
+        <div class="section-kicker reveal">One connected workflow</div>
+        <h2 class="reveal">Less handoff. More visibility.</h2>
+        <div class="workflow">
+          <div class="workflow-step reveal"><div class="workflow-num">01</div><h3>Discover</h3><p>Find a movie, series or release.</p></div>
+          <div class="workflow-step reveal"><div class="workflow-num">02</div><h3>Monitor</h3><p>Choose quality and monitoring rules.</p></div>
+          <div class="workflow-step reveal"><div class="workflow-num">03</div><h3>Grab</h3><p>Select a release or let Automation act.</p></div>
+          <div class="workflow-step reveal"><div class="workflow-num">04</div><h3>Download</h3><p>Transfer, verify, repair and unpack.</p></div>
+          <div class="workflow-step reveal"><div class="workflow-num">05</div><h3>Import</h3><p>Rename, move and reconcile your library.</p></div>
         </div>
       </div>
     </section>
 
     <section class="section" id="opensource">
-      <div class="wrap opensource">
-        <div class="code-card reveal" aria-label="NewzDeck open source code preview">
+      <div class="wrap open-grid">
+        <div class="code-card reveal" aria-label="NewzDeck open-source project preview">
           <div class="code-head"><i></i><i></i><i></i><span>newzdeckadmin / NewzDeck</span></div>
-          <pre><span class="code-d"># NewzDeck</span>
+          <pre><span class="code-c"># NewzDeck</span>
 
-<span class="code-c">project</span> = <span class="code-a">"NewzDeck"</span>
-<span class="code-c">platform</span> = <span class="code-a">"Windows x64"</span>
-<span class="code-c">license</span> = <span class="code-a">"GPL-3.0-only"</span>
-<span class="code-c">price</span> = <span class="code-a">"Free"</span>
+<span class="code-k">platform</span> = <span class="code-v">"Windows x64"</span>
+<span class="code-k">license</span>  = <span class="code-v">"GPL-3.0-only"</span>
+<span class="code-k">price</span>    = <span class="code-v">"Free"</span>
 
-<span class="code-b">features</span> = [
-  <span class="code-a">"Newsgroup browsing"</span>,
-  <span class="code-a">"Downloads"</span>,
-  <span class="code-a">"TMDB Discover"</span>,
-  <span class="code-a">"TV & movie automation"</span>,
-  <span class="code-a">"Smart import"</span>
+<span class="code-k">stack</span> = [
+  <span class="code-v">"Visual newsgroup browsing"</span>,
+  <span class="code-v">"Private SABnzbd 5.1.2"</span>,
+  <span class="code-v">"SABCTools 9.6.3"</span>,
+  <span class="code-v">"TMDB Discover"</span>,
+  <span class="code-v">"TV & movie automation"</span>,
+  <span class="code-v">"Smart Import"</span>
 ]
 
-<span class="code-d"># Source, releases and issue tracking</span>
-<span class="code-c">github.com/newzdeckadmin/NewzDeck</span></pre>
+<span class="code-c"># Source, releases, issues and provenance</span>
+<span class="code-k">github.com/newzdeckadmin/NewzDeck</span></pre>
         </div>
         <div class="reveal">
           <div class="section-kicker">Open source</div>
           <h2>Free software, built in the open.</h2>
-          <p class="section-lead">NewzDeck's published source is licensed under GNU GPLv3. Releases, source, issue tracking, build information, third-party notices, and release provenance are available in the public GitHub repository.</p>
+          <p class="lead">NewzDeck's source, release history, build pipeline, release checksums and issue tracking are public. NewzDeck-owned code is licensed under GNU GPLv3, while bundled third-party components retain their respective licenses.</p>
           <div class="hero-actions">
-            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">Browse source</a>
-            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck/blob/main/docs/SOURCE_RELEASES.md" target="_blank" rel="noopener">Source release status</a>
+            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">Browse Source</a>
+            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck/blob/main/docs/SOURCE_RELEASES.md" target="_blank" rel="noopener">Release Provenance</a>
           </div>
         </div>
       </div>
@@ -829,47 +731,44 @@
       <div class="wrap download-card reveal">
         <div>
           <div class="section-kicker">Download NewzDeck</div>
-          <h2>Ready to try it?</h2>
-          <p>NewzDeck is available free for Windows x64. Choose the standard installer or the portable build from the latest GitHub release.</p>
+          <h2>Ready to make Usenet feel modern?</h2>
+          <p class="lead">Install NewzDeck on Windows x64 or use the Portable ZIP. Your Usenet provider account is separate and required for NNTP access.</p>
           <div class="release-line">
             <span class="release-pill">Latest: <strong id="downloadVersion">v3.7.3</strong></span>
-            <span class="release-pill">Windows x64</span>
-            <span class="release-pill">GPLv3</span>
+            <span class="release-pill">Windows 10/11 x64</span>
+            <span class="release-pill">Free & Open Source</span>
           </div>
           <div class="download-actions">
             <a class="btn btn-primary" id="installerLink" href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Download Installer</a>
             <a class="btn btn-secondary" id="portableLink" href="https://github.com/newzdeckadmin/NewzDeck/releases/latest">Portable ZIP</a>
-            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck/releases/latest" target="_blank" rel="noopener">Release notes</a>
+            <a class="btn btn-secondary" href="https://github.com/newzdeckadmin/NewzDeck/releases/latest" target="_blank" rel="noopener">Release Notes</a>
           </div>
-          <p class="fineprint">NewzDeck is intentionally distributed unsigned. Windows SmartScreen may show an “Unknown Publisher” warning. SHA-256 checksums are published with releases so downloads can be verified.</p>
+          <p class="fineprint">NewzDeck is currently distributed unsigned, so Windows may display an Unknown Publisher or Microsoft Defender SmartScreen warning. SHA-256 checksums are published with each release so downloads can be verified.</p>
         </div>
         <aside class="release-box">
-          <div class="release-brand">
-            <img src="assets/NewzDeck.png" alt="" aria-hidden="true" />
-            <div class="label">Current production release</div>
-          </div>
+          <div class="release-brand"><img src="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" alt="" /><div class="label">Current production release</div></div>
           <div class="release-version"><strong id="releaseVersion">v3.7.3</strong><span>● AVAILABLE</span></div>
           <div class="release-list">
             <div class="release-row"><b>Windows Installer</b><span id="installerSize">Setup.exe</span></div>
-            <div class="release-row"><b>Portable build</b><span id="portableSize">Portable.zip</span></div>
+            <div class="release-row"><b>Portable Build</b><span id="portableSize">Portable.zip</span></div>
             <div class="release-row"><b>Integrity</b><span>SHA-256</span></div>
-            <div class="release-row"><b>Cost</b><span>Free</span></div>
+            <div class="release-row"><b>License</b><span>GNU GPLv3</span></div>
           </div>
         </aside>
       </div>
     </section>
 
-    <section class="section" id="faq">
+    <section class="section compact" id="faq">
       <div class="wrap">
         <div class="section-kicker reveal">FAQ</div>
-        <h2 class="reveal">A few things to know before you start.</h2>
+        <h2 class="reveal">A few things to know.</h2>
         <div class="faq-grid">
-          <details class="reveal"><summary>Does NewzDeck include Usenet access?</summary><p>No. NewzDeck is a client application. You provide your own Usenet provider account and server credentials.</p></details>
-          <details class="reveal"><summary>Do I need an indexer?</summary><p>Direct newsgroup browsing works with your Usenet provider. Automation and interactive NZB search are designed to work with configured Newznab-compatible indexers.</p></details>
-          <details class="reveal"><summary>Can downloads continue when I close the window?</summary><p>Yes. NewzDeck includes a Windows background runtime and tray experience so active work can continue without keeping the main interface open.</p></details>
-          <details class="reveal"><summary>Is NewzDeck signed?</summary><p>No. Current Windows builds are intentionally unsigned, so Windows may display an Unknown Publisher or SmartScreen warning. Release checksums are provided on GitHub for verification.</p></details>
-          <details class="reveal"><summary>Is NewzDeck free?</summary><p>Yes. NewzDeck is a free project with source published under GNU GPLv3. There is no NewzDeck subscription fee.</p></details>
-          <details class="reveal"><summary>Is the project still in development?</summary><p>Yes. NewzDeck is under active development, and current Windows releases are built from the public source in this repository.</p></details>
+          <details class="reveal"><summary>Does NewzDeck include Usenet access?</summary><p>No. NewzDeck is a client application. You provide your own Usenet provider account and NNTP server credentials.</p></details>
+          <details class="reveal"><summary>Do I need an indexer?</summary><p>Direct newsgroup browsing works with your Usenet provider. Automation and Interactive Search can use a configured Newznab-compatible indexer.</p></details>
+          <details class="reveal"><summary>Can downloads continue when I close NewzDeck?</summary><p>Yes. NewzDeck includes a Windows background service and system tray runtime so downloads and automation can continue without the main window staying open.</p></details>
+          <details class="reveal"><summary>Does NewzDeck organize completed media?</summary><p>Yes. Smart Import can identify supported TV and movie downloads, protect against duplicates, rename files and move them into configured library folders.</p></details>
+          <details class="reveal"><summary>Is NewzDeck signed?</summary><p>Not currently. Windows may show an Unknown Publisher or SmartScreen warning. Release checksums are published on GitHub for verification.</p></details>
+          <details class="reveal"><summary>Is NewzDeck free?</summary><p>Yes. NewzDeck is free and open-source software. There is no NewzDeck subscription fee, although your Usenet provider and any third-party indexer may have their own costs.</p></details>
         </div>
       </div>
     </section>
@@ -878,9 +777,9 @@
   <footer>
     <div class="wrap footer-grid">
       <div>
-        <div class="footer-brand"><img src="assets/NewzDeck.png" alt="" aria-hidden="true" /><span>NewzDeck</span></div>
-        <div>Free and open-source Usenet newsreader, downloader, and personal media automation for Windows.</div>
-        <div class="tmdb-note">NewzDeck is an independent software project. This product uses the TMDB API but is not endorsed or certified by TMDB. Third-party software, services, data, and trademarks remain subject to their respective licenses and terms.</div>
+        <div class="footer-brand"><img src="https://raw.githubusercontent.com/newzdeckadmin/NewzDeck/main/assets/NewzDeck.png" alt="" /><span>NewzDeck</span></div>
+        <div>Free and open-source Usenet newsreader, downloader and personal media automation for Windows.</div>
+        <div class="tmdb-note">NewzDeck is an independent software project. This product uses the TMDB API but is not endorsed or certified by TMDB. Third-party software, services, data, logos and trademarks remain subject to their respective licenses and terms.</div>
       </div>
       <div class="footer-links">
         <a href="https://github.com/newzdeckadmin/NewzDeck" target="_blank" rel="noopener">GitHub</a>
@@ -892,29 +791,42 @@
   </footer>
 
   <script>
-    // Lightweight entrance animation.
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-          observer.unobserve(entry.target);
-        }
-      }
-    }, { threshold: 0.08, rootMargin: '0px 0px -25px' });
+    const menuBtn = document.getElementById('menuBtn');
+    const navLinks = document.getElementById('navLinks');
+    menuBtn?.addEventListener('click', () => {
+      const open = navLinks.classList.toggle('open');
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      menuBtn.textContent = open ? '×' : '☰';
+    });
+    navLinks?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+      navLinks.classList.remove('open');
+      menuBtn?.setAttribute('aria-expanded', 'false');
+      if (menuBtn) menuBtn.textContent = '☰';
+    }));
 
-    document.querySelectorAll('.reveal:not(.visible)').forEach(el => observer.observe(el));
+    if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.08, rootMargin: '0px 0px -28px' });
+      document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    } else {
+      document.querySelectorAll('.reveal').forEach(el => el.classList.add('visible'));
+    }
 
-    // Keep the download card current without requiring a website edit for every release.
     const RELEASE_API = 'https://api.github.com/repos/newzdeckadmin/NewzDeck/releases/latest';
     const RELEASE_FALLBACK = 'https://github.com/newzdeckadmin/NewzDeck/releases/latest';
-
-    function humanSize(bytes) {
+    const humanSize = (bytes) => {
       if (!Number.isFinite(bytes) || bytes <= 0) return '';
       const mb = bytes / (1024 * 1024);
       return `${mb.toFixed(mb >= 10 ? 1 : 2)} MB`;
-    }
+    };
 
-    fetch(RELEASE_API, { headers: { 'Accept': 'application/vnd.github+json' } })
+    fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('release lookup failed')))
       .then(release => {
         const version = release.tag_name || 'v3.7.3';
@@ -922,35 +834,24 @@
           const el = document.getElementById(id);
           if (el) el.textContent = version;
         });
-        const mock = document.getElementById('mockVersion');
-        if (mock) mock.textContent = version.replace(/^v/i, '');
-
         const assets = Array.isArray(release.assets) ? release.assets : [];
         const installer = assets.find(a => /setup\.exe$/i.test(a.name || ''));
         const portable = assets.find(a => /portable\.zip$/i.test(a.name || ''));
-
-        const installerLink = document.getElementById('installerLink');
+        const installerHref = installer?.browser_download_url || RELEASE_FALLBACK;
+        const portableHref = portable?.browser_download_url || RELEASE_FALLBACK;
+        ['heroInstallerLink', 'installerLink'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.href = installerHref;
+        });
         const portableLink = document.getElementById('portableLink');
-        const heroDownload = document.getElementById('heroDownload');
-        if (installer && installer.browser_download_url) {
-          installerLink.href = installer.browser_download_url;
-          heroDownload.href = installer.browser_download_url;
-          const size = humanSize(installer.size);
-          document.getElementById('installerSize').textContent = size ? `Setup.exe • ${size}` : 'Setup.exe';
-        } else {
-          installerLink.href = release.html_url || RELEASE_FALLBACK;
-          heroDownload.href = release.html_url || RELEASE_FALLBACK;
-        }
-        if (portable && portable.browser_download_url) {
-          portableLink.href = portable.browser_download_url;
-          const size = humanSize(portable.size);
-          document.getElementById('portableSize').textContent = size ? `Portable.zip • ${size}` : 'Portable.zip';
-        } else {
-          portableLink.href = release.html_url || RELEASE_FALLBACK;
-        }
+        if (portableLink) portableLink.href = portableHref;
+        const installerSize = document.getElementById('installerSize');
+        const portableSize = document.getElementById('portableSize');
+        if (installerSize) installerSize.textContent = installer ? (humanSize(installer.size) || 'Setup.exe') : 'Setup.exe';
+        if (portableSize) portableSize.textContent = portable ? (humanSize(portable.size) || 'Portable.zip') : 'Portable.zip';
       })
       .catch(() => {
-        // Static fallbacks above remain fully functional if GitHub's API is unavailable.
+        // Static fallbacks remain fully usable when the GitHub API is unavailable.
       });
   </script>
 </body>
