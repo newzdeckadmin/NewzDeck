@@ -55,6 +55,7 @@ $requiredFiles = @(
     'LICENSE.txt',
     'THIRD_PARTY_NOTICES.txt',
     'licenses/GO-BSD-3-CLAUSE.txt',
+    'licenses/SABCTOOLS-LICENSE.md',
     'SOURCE_MANIFEST.json'
 )
 foreach ($requiredFile in $requiredFiles) {

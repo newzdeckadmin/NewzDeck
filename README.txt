@@ -1,20 +1,11 @@
-NewzDeck v3.7.0 - Production Milestone & Repository Hygiene
+NewzDeck v3.7.2 - Runtime Identity & Release Metadata Hotfix
 
 NewzDeck is a free and open-source Windows Usenet newsreader, downloader, and personal media automation application.
 
-v3.7.0 promotes the proven v3.6.99 application to the 3.7 production milestone. The application feature set and runtime behavior are intentionally preserved while the public repository, build documentation, and release workflow are cleaned up for the new milestone.
+v3.7.2 corrects the v3.7.1 runtime-version mismatch that could report a v3.7.0 download-engine adapter while the UI/runtime were v3.7.1. All shipped runtime identities now agree on v3.7.2.
 
-Production milestone
---------------------
-- The complete v3.6.99 Settings and Automation Backup & Restore system is preserved.
-- v3.6.96 article-aware TV/Movie sorting remains unchanged: leading A, An, or The is ignored only for alphabetical placement.
-- All twelve themes and the v3.6.95 Light/Arctic/Sandstone readability fixes remain unchanged.
-- Newsgroup Browser, Downloads, Smart Import, Automation search/grab/import behavior, SABnzbd 5.1.2, Metadata Server v0.3.3, Diagnostic Collector v1.0.31, and the Defender-clean native/update architecture are unchanged.
+The v3.7.1 in-process SABCTools 9.6.3 decoder architecture is preserved. NewzDeckYenc.exe remains retired from new payloads, the private SABnzbd 5.1.2 engine and Direct Unpack/post-processing behavior are unchanged, and the Python yEnc fallback remains available for compatibility.
 
-Repository hygiene
-------------------
-- The obsolete duplicate manual Windows release workflow is removed; the guarded publish-release-trigger workflow is the single authoritative production release path.
-- Source/build documentation is updated to the current topology and no longer points at retired v3.5.33-era guidance or a missing RELEASE_COMPLIANCE.md file.
-- Third-party notices are version-neutral while retaining the current pinned component/tool versions and license references.
+The GitHub README, website fallback release labels, build/source documentation, and bundled SABCTools third-party notices are updated with this hotfix.
 
-License: GNU GPLv3.
+License: GNU GPLv3. Bundled SABCTools retains its GPL-2.0-or-later license; see THIRD_PARTY_NOTICES.txt and licenses/SABCTOOLS-LICENSE.md.

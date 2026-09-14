@@ -54,11 +54,6 @@ def copy_app(stage: pathlib.Path, sabctools_package: pathlib.Path):
     ]:
         shutil.copy2(APP / rel, stage / rel)
     shutil.copytree(APP / "static", stage / "static")
-    run([
-        sys.executable, str(ROOT / "release" / "windows" / "apply-v371-runtime.py"),
-        "--server", str(stage / "server.py"),
-        "--app-js", str(stage / "static" / "app.js"),
-    ])
     shutil.copy2(ASSETS / "NewzDeck.ico", stage / "NewzDeck.ico")
     shutil.copy2(ROOT / "README.txt", stage / "README.txt")
     shutil.copy2(ROOT / "UPDATING.txt", stage / "UPDATING.txt")
@@ -91,9 +86,18 @@ def validate_source(version: str):
     actual = (APP / "version.txt").read_text(encoding="utf-8").strip()
     if actual != version:
         raise SystemExit(f"version.txt is {actual}, expected {version}")
-    # server.py/app.js are deliberately frozen at the v3.7.0 baseline in the
-    # public tree; the canonical transformation is hash-pinned and self-tested.
-    run([sys.executable, str(ROOT / "release" / "windows" / "apply-v371-runtime.py"), "--self-test"])
+    server = (APP / "server.py").read_text(encoding="utf-8")
+    sab_engine = (APP / "sab_engine.py").read_text(encoding="utf-8")
+    ui = (APP / "static" / "app.js").read_text(encoding="utf-8")
+    manifest = json.loads((APP / "build-manifest.json").read_text(encoding="utf-8"))
+    if f'APP_VERSION = "{version}"' not in server:
+        raise SystemExit("server.py APP_VERSION does not match version.txt")
+    if f'ADAPTER_VERSION = "{version}"' not in sab_engine:
+        raise SystemExit("sab_engine.py ADAPTER_VERSION does not match version.txt")
+    if f"const UI_VERSION = '{version}';" not in ui:
+        raise SystemExit("app.js UI_VERSION does not match version.txt")
+    if manifest.get("version") != version or manifest.get("adapter_version") != version:
+        raise SystemExit("build-manifest runtime identities do not match version.txt")
     run([
         sys.executable, "-m", "py_compile",
         str(APP / "server.py"), str(APP / "sab_engine.py"),
@@ -155,10 +159,6 @@ def write_manifest(stage: pathlib.Path, version: str):
             "platform": "win_amd64",
             "files": sab_files,
         }],
-        "generated_application": [
-            {"path": "server.py", "sha256": sha(stage / "server.py"), "transform": "release/windows/apply-v371-runtime.py"},
-            {"path": "static/app.js", "sha256": sha(stage / "static" / "app.js"), "transform": "release/windows/apply-v371-runtime.py"},
-        ],
         "application_source": [
             {"path": "src/app/server.py", "sha256": sha(APP / "server.py")},
             {"path": "src/app/sab_engine.py", "sha256": sha(APP / "sab_engine.py")},

@@ -89,17 +89,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Validate NewzDeck source and v3.7.1 regression guard
+      - name: Validate NewzDeck source and v3.7.2 regression guard
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path variable:PSNativeCommandUseErrorActionPreference)) { throw 'PowerShell native-command failure propagation is unavailable.' }
           $PSNativeCommandUseErrorActionPreference = $true
 
-          if ($env:VERSION -cne '3.7.1') { throw "This source workflow is the v3.7.1 production gate, got $env:VERSION." }
-          python release/windows/validate-v3710-regressions.py
-          python release/windows/apply-v371-runtime.py --self-test
-          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py
+          if ($env:VERSION -cne '3.7.2') { throw "This source workflow is the v3.7.2 production gate, got $env:VERSION." }
+          python release/windows/validate-v3720-regressions.py
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3720-regressions.py
           node --check src/app/static/app.js
 
           $env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
@@ -200,9 +199,13 @@ jobs:
           }
           if ((Get-Content -LiteralPath (Join-Path $payload 'version.txt') -Raw).Trim() -cne $env:VERSION) { throw 'Portable version.txt is wrong.' }
           $generatedServer = Get-Content -LiteralPath (Join-Path $payload 'server.py') -Raw
-          if (-not $generatedServer.Contains('APP_VERSION = "3.7.1"')) { throw 'Portable server.py was not transformed to v3.7.1.' }
+          if (-not $generatedServer.Contains(('APP_VERSION = "{0}"' -f $env:VERSION))) { throw 'Portable server.py APP_VERSION is wrong.' }
+          $generatedAdapter = Get-Content -LiteralPath (Join-Path $payload 'sab_engine.py') -Raw
+          if (-not $generatedAdapter.Contains(('ADAPTER_VERSION = "{0}"' -f $env:VERSION))) { throw 'Portable sab_engine.py ADAPTER_VERSION is wrong.' }
           $generatedUi = Get-Content -LiteralPath (Join-Path $payload 'static\app.js') -Raw
-          if (-not $generatedUi.Contains("const UI_VERSION = '3.7.1';")) { throw 'Portable app.js was not transformed to v3.7.1.' }
+          if (-not $generatedUi.Contains(("const UI_VERSION = '{0}';" -f $env:VERSION))) { throw 'Portable app.js UI_VERSION is wrong.' }
+          $buildManifest = Get-Content -LiteralPath (Join-Path $payload 'build-manifest.json') -Raw | ConvertFrom-Json
+          if ([string]$buildManifest.version -cne $env:VERSION -or [string]$buildManifest.adapter_version -cne $env:VERSION) { throw 'Portable build-manifest identities are wrong.' }
           $manifest = Get-Content -LiteralPath (Join-Path $payload 'SOURCE_MANIFEST.json') -Raw | ConvertFrom-Json
           if (@($manifest.newzdeck_owned_binaries).Count -ne 5) { throw 'Expected exactly five NewzDeck-owned Windows binaries.' }
           $sab = @($manifest.vendored_python_packages | Where-Object { $_.name -ceq 'sabctools' })
@@ -275,7 +278,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Join-Path (Join-Path $env:RUNNER_TEMP 'newzdeck-release') ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
-          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v371-smoke'
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v372-smoke'
 
           function Run-Setup([bool]$UpdateMode) {
             $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir")
@@ -313,7 +316,7 @@ jobs:
           else {
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Native Decoder Integration & Defender Compatibility"
+            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Runtime Identity & Release Metadata Hotfix"
             git push origin "refs/tags/$tag"
           }
 

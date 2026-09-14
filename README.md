@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.0** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.2** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.0_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.2_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,17 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.0 milestone
+## v3.7.2 hotfix
 
-v3.7.0 is the production milestone built on the proven v3.6.99 application baseline.
+v3.7.2 is a focused runtime-identity and release-metadata hotfix on the v3.7.1 SABCTools decoder release.
 
-- **Production behavior preserved:** Backup & Restore, article-aware Automation sorting, all twelve themes, Downloads, Smart Import, Automation, and the Defender-clean native/update architecture remain unchanged.
-- **Single production release workflow:** the obsolete duplicate manual Windows workflow has been retired so the guarded trigger workflow is authoritative.
-- **Current source/build documentation:** stale v3.5.33-era source guidance and the nonexistent RELEASE_COMPLIANCE.md link are removed.
-- **Version-neutral third-party notices:** current component/tool versions and license references remain documented without release-specific wording that immediately becomes stale.
+- **Runtime identity is coherent:** UI, backend, download-engine adapter, version file, and build manifest all identify v3.7.2.
+- **SABCTools stays in-process:** the Defender-sensitive standalone `NewzDeckYenc.exe` remains retired; SABCTools 9.6.3 remains the normal high-speed yEnc decoder with the Python fallback preserved.
+- **Public source matches shipped runtime:** current releases no longer rely on a packaging-time transform of frozen v3.7.0 `server.py`/`app.js` blobs.
+- **Release surfaces advance together:** README, website fallback labels, Windows build docs, and source/release history now move with the current release.
 
-See [the full v3.7.0 release notes](release/RELEASE_NOTES_v3.7.0.md).
+See [the full v3.7.2 release notes](release/RELEASE_NOTES_v3.7.2.md).
+
 ## Requirements
 
 - Windows 10 or Windows 11, 64-bit
@@ -65,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.0_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.2_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

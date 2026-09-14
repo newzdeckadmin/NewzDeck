@@ -2,12 +2,13 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.0
+## Current release: v3.7.2
 
-**v3.7.0 is the current stable production release.**
+**v3.7.2 is the current stable production release.**
 
-The `v3.7.0` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
-All six NewzDeck-owned Windows executables are built from public Go source:
+The `v3.7.2` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+
+Five NewzDeck-owned Windows executables are built from public Go source:
 
 | Windows file | Public source |
 | --- | --- |
@@ -16,11 +17,14 @@ All six NewzDeck-owned Windows executables are built from public Go source:
 | `NewzDeckTray.exe` | `src/windows/NewzDeckTray.go` |
 | `NewzDeckPicker.exe` | `src/windows/NewzDeckPicker.go` |
 | `NewzDeckThumb.exe` | `src/windows/NewzDeckThumb.go` |
-| `NewzDeckYenc.exe` | `src/windows/NewzDeckYenc.go` |
 
-The Python backend, Automation engine, SAB adapter, and browser interface are also published in `src/app/`.
+The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 is built from the pinned upstream source during the release workflow and its provenance is recorded in `SOURCE_MANIFEST.json`.
 
 ## Recent production releases
+
+- **v3.7.2 - Runtime Identity & Release Metadata Hotfix.** Corrects the v3.7.1 download-engine adapter identity mismatch, moves the SABCTools-integrated runtime into public source directly, restores current README/website/source documentation, and carries SABCTools licensing/provenance explicitly.
+
+- **v3.7.1 - Native Decoder Integration & Defender Compatibility.** Replaced the standalone NewzDeckYenc.exe runtime with in-process SABCTools 9.6.3, preserving the split NNTP fetch/decode architecture and Python emergency fallback. The release shipped successfully but retained a stale `ADAPTER_VERSION = "3.7.0"` identity and stale v3.7.0 release-facing documentation, corrected by v3.7.2.
 
 - **v3.7.0 - Production Milestone & Repository Hygiene.** Promotes the proven v3.6.99 application to the 3.7 production milestone, removes the obsolete duplicate manual Windows workflow, refreshes source/build documentation, and makes third-party notices version-neutral while preserving all protected runtime behavior.
 

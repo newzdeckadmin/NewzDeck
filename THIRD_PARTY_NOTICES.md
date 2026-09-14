@@ -37,6 +37,18 @@ NewzDeck Download Engine v2 can provision the official **SABnzbd 5.1.2 Windows x
 
 Current NewzDeck releases do not embed the SABnzbd portable archive in their GitHub release payload; it is obtained separately from upstream on the user's machine. SABnzbd is an independent project and is not affiliated with NewzDeck.
 
+## SABCTools 9.6.3
+
+Current NewzDeck Windows release payloads bundle **SABCTools 9.6.3** as an in-process native Python extension for high-speed yEnc/CRC processing. NewzDeck builds it from the reviewed upstream commit `54d7663b9e8f527b5ab196d43f0d5c561a87c1ac` for CPython 3.12 on Windows x64.
+
+- Project: SABCTools
+- License: GPL-2.0-or-later
+- Source: https://github.com/sabnzbd/sabctools
+- Pinned source commit: `54d7663b9e8f527b5ab196d43f0d5c561a87c1ac`
+- Upstream license text preserved at: `licenses/SABCTOOLS-LICENSE.md`
+
+SABCTools is an independent SABnzbd project and retains its upstream license.
+
 ## RARLAB UnRAR 7.23
 
 For RAR extraction/Direct Unpack, NewzDeck can download the official RARLAB UnRAR 7.23 x64 command-line package on the user's machine.

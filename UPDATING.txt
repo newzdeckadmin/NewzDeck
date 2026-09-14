@@ -1,9 +1,9 @@
-NewzDeck v3.7.0 update notes
+NewzDeck v3.7.2 update notes
 
-v3.7.0 is the production-milestone release built directly on the proven v3.6.99 application baseline.
+v3.7.2 is a focused hotfix for v3.7.1. It corrects the download-engine adapter version identity and release-facing metadata while preserving the v3.7.1 SABCTools decoder implementation and download architecture.
 
-The normal in-app verified Setup update path is unchanged. Existing NewzDeck settings, history, Automation data, queue state, provider configuration, backups, and other persistent data remain in the normal user-data location and are preserved by a normal update.
+Install the v3.7.2 Setup.exe normally over v3.7.1 or an earlier release. Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
 
-There are no intentional user-facing runtime changes from v3.6.99 beyond the 3.7.0 version identity. Settings > Backup & Restore, article-aware TV/Movie sorting, all twelve themes, the Newsgroup Browser, Downloads, Smart Import, Automation, private SABnzbd 5.1.2, and the Defender-clean update/helper architecture are preserved.
+The standalone NewzDeckYenc.exe remains retired. If an older installation still has a stale copy, Setup continues to terminate/delete it during upgrade.
 
-The v3.7.0 source also removes an obsolete duplicate GitHub Actions Windows build workflow and refreshes source/build/licensing documentation. These repository-hygiene changes do not alter installed application behavior.
+No NNTP connection, article-cache, Direct Unpack, SABnzbd 5.1.2, post-processing, Automation, Smart Import, Newsgroup Browser, Backup & Restore, or theme behavior is intentionally changed by this hotfix.

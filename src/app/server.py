@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.0"
+APP_VERSION = "3.7.2"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -3972,9 +3972,9 @@ def _decode_yenc_data_line(line: bytes) -> bytes:
 def _decode_yenc_blob_python(encoded: bytes) -> tuple[bytes, int]:
     """Bulk Python fallback for one yEnc data region.
 
-    The normal queued-download path uses NewzDeckYenc.exe so the byte-heavy
-    transform does not contend on Python's GIL. This fallback preserves full
-    compatibility if the native helper is unavailable.
+    v3.7.1 uses in-process SABCTools for the normal queued-download path. This
+    bulk Python implementation remains as a compatibility/emergency fallback if
+    the vendored native module cannot be loaded or rejects an article.
     """
     out = bytearray()
     for line in encoded.splitlines():
@@ -3983,120 +3983,49 @@ def _decode_yenc_blob_python(encoded: bytes) -> tuple[bytes, int]:
     data = bytes(out)
     return data, zlib.crc32(data) & 0xffffffff
 
-class _NativeYencWorker:
-    def __init__(self, path: Path):
-        self.path = path
-        self.lock = threading.Lock()
-        self.proc: subprocess.Popen | None = None
+# NewzDeck v3.7.1 in-process SABCTools decoder. The standalone NewzDeckYenc.exe
+# helper is no longer shipped; pure Python remains the emergency fallback.
+_YENC_DECODER_MODULE = None
+try:
+    _yenc_module_path = APP_DIR / "yenc_decoder.py"
+    if _yenc_module_path.is_file():
+        _YENC_DECODER_MODULE = _load_app_source_module("newzdeck_yenc_decoder", _yenc_module_path)
+except Exception as _yenc_module_exc:
+    safe_print(f"NewzDeck SABCTools decoder module unavailable: {_yenc_module_exc}")
 
-    def _start(self) -> subprocess.Popen:
-        if self.proc is not None and self.proc.poll() is None:
-            return self.proc
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-        self.proc = subprocess.Popen(
-            [str(self.path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            bufsize=0, creationflags=flags,
-        )
-        return self.proc
+_SABCTOOLS_YENC_DECODER = None
+_SABCTOOLS_YENC_ERROR = ""
 
-    @staticmethod
-    def _read_exact(stream, count: int) -> bytes:
-        chunks = bytearray()
-        while len(chunks) < count:
-            chunk = stream.read(count - len(chunks))
-            if not chunk:
-                raise EOFError("Native yEnc decoder closed its output pipe")
-            chunks.extend(chunk)
-        return bytes(chunks)
+def _requested_yenc_decoder() -> str:
+    # v3.7.1 defaults to the vendored in-process SABCTools decoder. ``python``
+    # remains available as an explicit diagnostic/emergency fallback.
+    requested = os.environ.get("NEWZDECK_YENC_DECODER", "sabctools").strip().casefold()
+    return requested if requested in {"sabctools", "auto", "python"} else "sabctools"
 
-    def decode(self, encoded: bytes) -> tuple[bytes, int]:
-        with self.lock:
-            try:
-                proc = self._start()
-                assert proc.stdin is not None and proc.stdout is not None
-                proc.stdin.write(struct.pack("<Q", len(encoded)))
-                proc.stdin.write(encoded)
-                proc.stdin.flush()
-                header = self._read_exact(proc.stdout, 16)
-                decoded_len, crc, status = struct.unpack("<QII", header)
-                if status != 0:
-                    raise NntpError("Truncated yEnc escape sequence")
-                if decoded_len > 128 * 1024 * 1024:
-                    raise NntpError("Native yEnc decoder returned an invalid payload size")
-                payload = self._read_exact(proc.stdout, int(decoded_len))
-                return payload, int(crc)
-            except Exception:
-                try:
-                    if self.proc is not None:
-                        self.proc.kill()
-                except Exception:
-                    pass
-                self.proc = None
-                raise
+def _sabctools_yenc_decoder():
+    global _SABCTOOLS_YENC_DECODER, _SABCTOOLS_YENC_ERROR
+    if _SABCTOOLS_YENC_DECODER is not None:
+        return _SABCTOOLS_YENC_DECODER
+    if _YENC_DECODER_MODULE is None:
+        _SABCTOOLS_YENC_ERROR = "decoder module is unavailable"
+        return None
+    info = _YENC_DECODER_MODULE.sabctools_info()
+    if not info.get("available"):
+        _SABCTOOLS_YENC_ERROR = str(info.get("error") or "SABCTools is unavailable")
+        return None
+    try:
+        _SABCTOOLS_YENC_DECODER = _YENC_DECODER_MODULE.SabctoolsDecoder()
+        _SABCTOOLS_YENC_ERROR = ""
+    except Exception as exc:
+        _SABCTOOLS_YENC_ERROR = str(exc)
+        return None
+    return _SABCTOOLS_YENC_DECODER
 
-    def close(self) -> None:
-        with self.lock:
-            proc, self.proc = self.proc, None
-            if proc is not None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+def _active_yenc_pipeline_label() -> str:
+    if _requested_yenc_decoder() == "python":
+        return "bulk-python-yenc"
+    return "sabctools-yenc" if _sabctools_yenc_decoder() is not None else "bulk-python-yenc"
 
-class NativeYencPool:
-    """Persistent native yEnc workers used only by queued downloads.
-
-    A small worker pool is enough because each process can decode much faster
-    than one gigabit of Usenet traffic. Keeping the processes warm avoids a
-    process-start penalty for each ~700 KB NZB article.
-    """
-    def __init__(self):
-        candidate = APP_DIR / ("NewzDeckYenc.exe" if sys.platform == "win32" else "NewzDeckYenc")
-        self.path = candidate
-        self.lock = threading.Lock()
-        self.next_worker = 0
-        # External native decoders avoid the Python GIL. Four workers were enough
-        # for ordinary broadband but could become the ceiling once 20-100 NNTP
-        # connections were saturated. Scale to eight on modern CPUs.
-        worker_count = max(4, min(12, int(os.cpu_count() or 4)))
-        self.workers = [_NativeYencWorker(candidate) for _ in range(worker_count)] if candidate.exists() else []
-        self.native_bytes = 0
-        self.native_seconds = 0.0
-        self.fallback_bytes = 0
-        self.failures = 0
-
-    def decode(self, encoded: bytes) -> tuple[bytes, int, bool, float]:
-        started = time.perf_counter()
-        if self.workers:
-            with self.lock:
-                worker = self.workers[self.next_worker % len(self.workers)]
-                self.next_worker += 1
-            try:
-                data, crc = worker.decode(encoded)
-                elapsed = time.perf_counter() - started
-                with self.lock:
-                    self.native_bytes += len(data)
-                    self.native_seconds += elapsed
-                return data, crc, True, elapsed
-            except Exception:
-                with self.lock:
-                    self.failures += 1
-        data, crc = _decode_yenc_blob_python(encoded)
-        elapsed = time.perf_counter() - started
-        with self.lock:
-            self.fallback_bytes += len(data)
-        return data, crc, False, elapsed
-
-    def stats(self) -> dict[str, Any]:
-        with self.lock:
-            rate = int(self.native_bytes / self.native_seconds) if self.native_seconds > 0 else 0
-            return {
-                "available": bool(self.workers), "workers": len(self.workers),
-                "native_bytes": self.native_bytes, "fallback_bytes": self.fallback_bytes,
-                "native_rate_bps": rate, "failures": self.failures,
-            }
-
-NATIVE_YENC_POOL = NativeYencPool()
 # Network reads and yEnc decode intentionally use different executors. A queued
 # NNTP worker must be able to request the next article as soon as its socket is
 # finished rather than sitting idle while a native decoder/pipe becomes free.
@@ -4122,11 +4051,13 @@ def decode_raw_binary_article(raw: bytes) -> tuple[bytes, dict[str, Any], dict[s
         meta: dict[str, Any] = {"encoding": "yenc"}
         _parse_yenc_begin(begin_line, meta)
         pos = begin_eol + 1
+        part_line = None
         if raw.startswith(b"=ypart", pos):
             part_eol = raw.find(b"\n", pos)
             if part_eol < 0:
                 raise NntpError("Malformed yEnc =ypart header")
-            _parse_yenc_part(raw[pos:part_eol].rstrip(b"\r"), meta)
+            part_line = raw[pos:part_eol].rstrip(b"\r")
+            _parse_yenc_part(part_line, meta)
             pos = part_eol + 1
         marker = raw.rfind(b"\n=yend")
         if marker < pos:
@@ -4142,8 +4073,40 @@ def decode_raw_binary_article(raw: bytes) -> tuple[bytes, dict[str, Any], dict[s
         if yend_eol < 0:
             yend_eol = len(raw)
         encoded = raw[pos:data_end]
-        _parse_yenc_end(raw[yend_start:yend_eol].rstrip(b"\r"), meta)
-        data, crc_value, native, decode_seconds = NATIVE_YENC_POOL.decode(encoded)
+        end_line = raw[yend_start:yend_eol].rstrip(b"\r")
+        _parse_yenc_end(end_line, meta)
+        requested_decoder = _requested_yenc_decoder()
+        decoder_backend = "sabctools"
+        decoder_fallback_error = ""
+        if requested_decoder == "python":
+            decode_started = time.perf_counter()
+            data, crc_value = _decode_yenc_blob_python(encoded)
+            decode_seconds = time.perf_counter() - decode_started
+            native = False
+            decoder_backend = "python"
+        elif requested_decoder in {"sabctools", "auto"} and (sab_decoder := _sabctools_yenc_decoder()) is not None:
+            try:
+                sab_result = sab_decoder.decode(begin_line, part_line, encoded, end_line)
+                data = sab_result.data
+                crc_value = sab_result.crc32
+                decode_seconds = sab_result.seconds
+                native = True
+                decoder_backend = "sabctools"
+            except Exception as exc:
+                decoder_fallback_error = str(exc)[:500]
+                decode_started = time.perf_counter()
+                data, crc_value = _decode_yenc_blob_python(encoded)
+                decode_seconds = time.perf_counter() - decode_started
+                native = False
+                decoder_backend = "python-fallback"
+        else:
+            if _SABCTOOLS_YENC_ERROR:
+                decoder_fallback_error = _SABCTOOLS_YENC_ERROR[:500]
+            decode_started = time.perf_counter()
+            data, crc_value = _decode_yenc_blob_python(encoded)
+            decode_seconds = time.perf_counter() - decode_started
+            native = False
+            decoder_backend = "python-fallback"
         if not data:
             raise NntpError("yEnc payload decoded to zero bytes")
         begin = int(meta.get("begin", 0) or 0)
@@ -4156,7 +4119,13 @@ def decode_raw_binary_article(raw: bytes) -> tuple[bytes, dict[str, Any], dict[s
             actual_crc = f"{crc_value & 0xffffffff:08x}"
             if actual_crc != expected_crc:
                 raise NntpError(f"yEnc CRC mismatch: expected {expected_crc}, received {actual_crc}")
-        return data, meta, {"decode_seconds": decode_seconds, "native_decode": native, "crc32": crc_value}
+        return data, meta, {
+            "decode_seconds": decode_seconds,
+            "native_decode": native,
+            "decoder_backend": decoder_backend,
+            "decoder_fallback_error": decoder_fallback_error,
+            "crc32": crc_value,
+        }
 
     lines = raw.splitlines()
     decode_started = time.perf_counter()
@@ -6762,7 +6731,11 @@ def get_download_pool(provider: dict[str, Any]) -> ProviderDownloadPool:
         return current
 
 def download_pool_stats() -> dict[str, Any]:
-    yenc = NATIVE_YENC_POOL.stats()
+    decoder = _sabctools_yenc_decoder()
+    if decoder is not None:
+        yenc = decoder.stats()
+    else:
+        yenc = {"available": False, "backend": "python-fallback", "error": _SABCTOOLS_YENC_ERROR}
     result: dict[str, Any] = {
         "active": 0, "open": 0, "capacity": 0, "effective_capacity": 0, "configured": 0, "interactive_reserve": 0,
         "successful_segments": 0, "failed_segments": 0, "retries": 0, "bytes_decoded": 0, "bytes_wire_received": 0,
@@ -10036,7 +10009,7 @@ class DownloadManager:
                 job["recovered_parts"] = recovered_parts
                 job["recovery_sources"] = recovery_sources
                 job["transfer_phase"] = "fetching"
-                job["pipeline"] = "native-yenc" if NATIVE_YENC_POOL.stats().get("available") else "bulk-python-yenc"
+                job["pipeline"] = _active_yenc_pipeline_label()
                 job["peak_speed_bps"] = max(0, int(job.get("peak_speed_bps", 0) or 0))
                 job["status_detail"] = (f"Resumed {resumed_parts} verified block{'s' if resumed_parts != 1 else ''}; fetching {len(missing_indices)} remaining" if resumed_parts else f"Fetching {len(missing_indices)} article blocks")
                 job["last_activity_ts"] = time.time()
@@ -10062,7 +10035,7 @@ class DownloadManager:
                 job["article_cache_total_budget_bytes"] = int(cache_total_mb * 1024 * 1024)
                 job["article_cache_bytes"] = 0
                 job["direct_write_mode"] = "sparse-async" if sparse_direct_write else "sequential-fallback"
-                job["pipeline"] = (("native-yenc" if NATIVE_YENC_POOL.stats().get("available") else "bulk-python-yenc") + "+article-cache+async-disk+" + ("sparse-write" if sparse_direct_write else "sequential-fallback"))
+                job["pipeline"] = ((_active_yenc_pipeline_label()) + "+article-cache+async-disk+" + ("sparse-write" if sparse_direct_write else "sequential-fallback"))
 
             def cache_result(index: int, seg: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
                 """Validate a decoded article and retain it in RAM for batched writes."""
@@ -10245,7 +10218,7 @@ class DownloadManager:
             pipeline_depth = current_pipeline_depth()
             with self.lock:
                 job["pipeline_depth"] = pipeline_depth
-                job["pipeline"] = (("native-yenc" if NATIVE_YENC_POOL.stats().get("available") else "bulk-python-yenc") + f"+nntp-pipeline-{pipeline_depth}+split-decode+article-cache")
+                job["pipeline"] = ((_active_yenc_pipeline_label()) + f"+nntp-pipeline-{pipeline_depth}+split-decode+article-cache")
 
             def segment_progress(index: int, written: int) -> None:
                 now_ts = time.time()
@@ -10325,7 +10298,7 @@ class DownloadManager:
                     job["connection_target"] = current_target
                     job["decode_backlog"] = len(decode_pending)
                     job["pipeline_depth"] = current_pipeline_depth()
-                    job["pipeline"] = (("native-yenc" if NATIVE_YENC_POOL.stats().get("available") else "bulk-python-yenc") + f"+nntp-pipeline-{current_pipeline_depth()}+split-decode+article-cache+async-disk+" + ("sparse-write" if sparse_direct_write else "sequential-fallback"))
+                    job["pipeline"] = ((_active_yenc_pipeline_label()) + f"+nntp-pipeline-{current_pipeline_depth()}+split-decode+article-cache+async-disk+" + ("sparse-write" if sparse_direct_write else "sequential-fallback"))
                 return current_target
 
             def process_decoded_batch(batch_results) -> None:

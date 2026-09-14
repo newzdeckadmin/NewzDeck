@@ -20,7 +20,7 @@ The canonical workflow produces:
 - `NewzDeck_vX.Y.Z_Setup.exe`
 - `NewzDeck_vX.Y.Z_SHA256.txt`
 
-The Portable build compiles all six NewzDeck-owned Windows executables from the Go source under `src/windows/` and packages the application source/static files from `src/app/`. The installer is built from that validated Portable payload.
+The Portable build compiles all five NewzDeck-owned Windows executables from the Go source under `src/windows/` and packages the application source/static files from `src/app/`. The installer is built from that validated Portable payload.
 
 ## Canonical toolchain
 
@@ -31,7 +31,7 @@ The production workflow pins:
 - Windows x64 (`GOOS=windows`, `GOARCH=amd64`, `CGO_ENABLED=0`)
 - Inno Setup 7.1.0 x64
 
-The workflow verifies the Inno Setup installer download by SHA-256 and Authenticode before using it. The Defender-compatible yEnc helper is rebuilt from canonical LF source with the pinned Go toolchain and checked against its accepted binary SHA-256 before packaging.
+The workflow verifies the Inno Setup installer download by SHA-256 and Authenticode before using it. SABCTools 9.6.3 is built from the pinned upstream commit for CPython 3.12.10, validated for yEnc/CRC behavior, and vendored into the release payload; the retired standalone NewzDeckYenc.exe is not built or shipped.
 
 ## Release validation
 

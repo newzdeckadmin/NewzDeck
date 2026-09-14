@@ -1,28 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.1",
-  "base_version": "3.7.0",
-  "release": "Native Decoder Integration & Defender Compatibility",
-  "adapter_version": "3.7.1",
-  "name": "Native Decoder Integration & Defender Compatibility",
+  "version": "3.7.2",
+  "base_version": "3.7.1",
+  "release": "Runtime Identity & Release Metadata Hotfix",
+  "adapter_version": "3.7.2",
+  "name": "Runtime Identity & Release Metadata Hotfix",
   "sab_version": "5.1.2",
   "changes": [
-    "Replaces the shipped NewzDeckYenc.exe subprocess with vendored in-process SABCTools 9.6.3 built for NewzDeck CPython 3.12.10.",
-    "Preserves the split NNTP fetch/decode pipeline and keeps the bulk-Python yEnc decoder as an emergency compatibility fallback.",
-    "Builds and validates the exact SABCTools 9.6.3 upstream source in the Windows release workflow and records its provenance in SOURCE_MANIFEST.json.",
-    "Removes NewzDeckYenc.exe from new Portable/Setup payloads and deletes the retired helper during installed upgrades so Defender cannot continue quarantining the old binary."
+    "Makes server, UI, version.txt, build manifest, and SAB download-engine adapter identity coherent at v3.7.2.",
+    "Moves the SABCTools-integrated server/UI runtime into public source directly instead of transforming frozen v3.7.0 blobs during packaging.",
+    "Updates README, website fallback labels, build/source documentation, and GitHub Pages publication behavior for the current release.",
+    "Documents bundled SABCTools 9.6.3 and includes its GPL-2.0-or-later license text in release payloads."
   ],
   "regression_guards": [
-    "SABCTools must report exactly version 9.6.3 and successfully decode/CRC-check a synthetic yEnc article in the Windows release job.",
-    "NewzDeckYenc.exe is forbidden from the v3.7.1 Portable payload while the installer still terminates/removes a stale helper left by older installations.",
-    "The protected NNTP network executor, article cache, async disk pipeline, private SABnzbd 5.1.2 integration, Backup & Restore, Automation sorting, and all twelve themes remain intact.",
-    "Release artifacts are produced only from the dedicated trigger commit whose parent is the declared v3.7.1 source commit."
+    "Every shipped runtime identity is validated independently before publication.",
+    "Current build and workflow paths may not invoke the historical v3.7.1 runtime transformer.",
+    "SABCTools remains pinned to 9.6.3 at the reviewed upstream commit and NewzDeckYenc.exe remains forbidden from new payloads.",
+    "README and website fallback release identities must match the source version before publication."
   ],
   "preserved": [
-    "v3.7.0 production application behavior outside the yEnc decoder implementation and version identity.",
-    "Private SABnzbd 5.1.2 engine and Direct Unpack/post-processing ownership.",
-    "Newsgroup Browser, Downloads, Smart Import, Automation, Backup & Restore, article-aware library sorting, updater ownership, and all twelve themes.",
-    "Existing Windows service, tray, picker, thumbnail helper, and launcher behavior."
+    "v3.7.1 SABCTools decoder behavior and split NNTP fetch/decode architecture.",
+    "Private SABnzbd 5.1.2, Direct Unpack/post-processing, article cache, async disk, Automation, Smart Import, Newsgroup Browser, Backup & Restore, and all twelve themes.",
+    "Windows launcher, service, tray, picker, thumbnail helper, and installed-upgrade retired-yEnc cleanup behavior."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"
