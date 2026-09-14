@@ -55,6 +55,7 @@ The normal installer:
 - installs per-user under `%LOCALAPPDATA%\Programs\NewzDeck`;
 - preserves persistent data under `%LOCALAPPDATA%\NewzDeck`;
 - upgrades over an existing installation;
+- About & Updates invokes the verified Setup package in managed silent-update mode so Setup closes the browser UI before overlay, stops/restores the tray and service, and relaunches NewzDeck after success;
 - closes the NewzDeck tray companion and protected native helpers before replacing locked files;
 - repairs/restores an existing NewzDeck background service when necessary;
 - keeps the NewzDeck application icon for the installed app and shortcuts;

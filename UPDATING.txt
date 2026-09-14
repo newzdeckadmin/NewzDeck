@@ -1,9 +1,11 @@
-NewzDeck v3.7.2 update notes
+NewzDeck v3.7.3 update notes
 
-v3.7.2 is a focused hotfix for v3.7.1. It corrects the download-engine adapter version identity and release-facing metadata while preserving the v3.7.1 SABCTools decoder implementation and download architecture.
+v3.7.3 restores the managed About & Updates handoff. When you choose the verified in-app update, NewzDeck now closes the browser-hosted app window before file overlay, closes/waits for the tray, stops/waits for the background service, installs the update, restores the service/tray state, and reopens NewzDeck automatically.
 
-Install the v3.7.2 Setup.exe normally over v3.7.1 or an earlier release. Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
+The update still downloads only the canonical GitHub Release Setup asset and verifies its published SHA-256 before launching it.
 
-The standalone NewzDeckYenc.exe remains retired. If an older installation still has a stale copy, Setup continues to terminate/delete it during upgrade.
+The Defender-sensitive copied/renamed Picker coordinator used by older releases remains retired. The Setup executable itself owns the update transaction.
 
-No NNTP connection, article-cache, Direct Unpack, SABnzbd 5.1.2, post-processing, Automation, Smart Import, Newsgroup Browser, Backup & Restore, or theme behavior is intentionally changed by this hotfix.
+Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
+
+No NNTP connection, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, post-processing, Automation, Smart Import, Newsgroup Browser, Backup & Restore, or theme behavior is intentionally changed.

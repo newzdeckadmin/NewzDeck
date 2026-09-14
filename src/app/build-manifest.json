@@ -1,27 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.2",
-  "base_version": "3.7.1",
-  "release": "Runtime Identity & Release Metadata Hotfix",
-  "adapter_version": "3.7.2",
-  "name": "Runtime Identity & Release Metadata Hotfix",
+  "version": "3.7.3",
+  "base_version": "3.7.2",
+  "release": "Managed In-App Update Handoff Hotfix",
+  "adapter_version": "3.7.3",
+  "name": "Managed In-App Update Handoff Hotfix",
   "sab_version": "5.1.2",
   "changes": [
-    "Makes server, UI, version.txt, build manifest, and SAB download-engine adapter identity coherent at v3.7.2.",
-    "Moves the SABCTools-integrated server/UI runtime into public source directly instead of transforming frozen v3.7.0 blobs during packaging.",
-    "Updates README, website fallback labels, build/source documentation, and GitHub Pages publication behavior for the current release.",
-    "Documents bundled SABCTools 9.6.3 and includes its GPL-2.0-or-later license text in release payloads."
+    "Restores one-click About & Updates orchestration using verified Setup in managed /SILENT update mode.",
+    "Closes the browser-hosted NewzDeck UI before file overlay, then closes/waits for tray and service before installation.",
+    "Restores service/tray state and relaunches NewzDeck after managed silent updates without reviving the Defender-sensitive copied Picker coordinator.",
+    "Hardens the guarded publisher so Pages is evaluated for the final trigger commit rather than a superseded source-commit deployment."
   ],
   "regression_guards": [
-    "Every shipped runtime identity is validated independently before publication.",
-    "Current build and workflow paths may not invoke the historical v3.7.1 runtime transformer.",
-    "SABCTools remains pinned to 9.6.3 at the reviewed upstream commit and NewzDeckYenc.exe remains forbidden from new payloads.",
-    "README and website fallback release identities must match the source version before publication."
+    "About & Updates must launch verified Setup with /update /SILENT while retaining CLOSEAPPLICATIONS/FORCECLOSEAPPLICATIONS.",
+    "Managed silent Setup must close the app window before tray/service shutdown and file overlay.",
+    "Managed silent updates must relaunch NewzDeck; CI /VERYSILENT update smoke installs must remain non-relaunching.",
+    "The copied NewzDeckUpdateHandoff/Picker coordinator architecture must remain retired."
   ],
   "preserved": [
-    "v3.7.1 SABCTools decoder behavior and split NNTP fetch/decode architecture.",
-    "Private SABnzbd 5.1.2, Direct Unpack/post-processing, article cache, async disk, Automation, Smart Import, Newsgroup Browser, Backup & Restore, and all twelve themes.",
-    "Windows launcher, service, tray, picker, thumbnail helper, and installed-upgrade retired-yEnc cleanup behavior."
+    "v3.7.2 runtime identity coherence and source-complete packaging.",
+    "In-process SABCTools 9.6.3, split NNTP fetch/decode pipeline, and Python emergency yEnc fallback.",
+    "Private SABnzbd 5.1.2, Direct Unpack/post-processing, article cache, async disk, Automation, Smart Import, Newsgroup Browser, Backup & Restore, and all twelve themes."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

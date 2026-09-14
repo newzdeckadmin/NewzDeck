@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.2"
+APP_VERSION = "3.7.3"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -1230,17 +1230,17 @@ def online_update_status(force: bool = False) -> dict[str, Any]:
 def _launch_verified_setup_update(staged: Path, *, target_version: str = "") -> None:
     """Launch the verified NewzDeck Setup directly in the signed-in Windows session.
 
-    v3.6.92 deliberately removes the copied Picker/update-coordinator executable.
-    Setup owns browser-window shutdown, tray/service maintenance, file overlay, runtime
-    restoration, and relaunch. This keeps NewzDeckPicker.exe folder-picker-only and
-    avoids creating a renamed executable in the per-user update staging directory.
+    v3.7.3 keeps the Defender-safe direct-Setup architecture introduced in v3.6.92,
+    but restores the original one-click lifecycle by using Setup as the managed
+    coordinator. Setup closes the app/tray/service, overlays the verified release,
+    restores background runtime state, and relaunches NewzDeck without a copied helper.
     """
     if sys.platform != "win32":
         raise ValueError("In-app installation is currently available on Windows only")
     staged = Path(staged)
     if not staged.is_file():
         raise ValueError("The verified NewzDeck Setup installer is missing from the update staging folder")
-    args = ["/update", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS"]
+    args = ["/update", "/SILENT", "/SP-", "/NORESTART", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS"]
     launched = False
     if SERVICE_MODE:
         launched = _launch_process_in_active_user_session(str(staged), subprocess.list2cmdline(args))

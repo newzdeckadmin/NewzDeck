@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.2** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.3** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.2_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.3_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.2 hotfix
+## v3.7.3 hotfix
 
-v3.7.2 is a focused runtime-identity and release-metadata hotfix on the v3.7.1 SABCTools decoder release.
+v3.7.3 restores the seamless one-click About & Updates installation lifecycle while preserving the v3.7.2 SABCTools/download architecture.
 
-- **Runtime identity is coherent:** UI, backend, download-engine adapter, version file, and build manifest all identify v3.7.2.
-- **SABCTools stays in-process:** the Defender-sensitive standalone `NewzDeckYenc.exe` remains retired; SABCTools 9.6.3 remains the normal high-speed yEnc decoder with the Python fallback preserved.
-- **Public source matches shipped runtime:** current releases no longer rely on a packaging-time transform of frozen v3.7.0 `server.py`/`app.js` blobs.
-- **Release surfaces advance together:** README, website fallback labels, Windows build docs, and source/release history now move with the current release.
+- **Managed update handoff restored:** the verified Setup package now runs in managed `/SILENT` update mode rather than opening the normal installer wizard.
+- **Correct shutdown order:** the NewzDeck browser-hosted UI closes before file overlay, then Setup closes/waits for the tray and stops/waits for the Windows service.
+- **Automatic restoration:** after installation, Setup repairs/restarts the service, restores the tray state, and reopens NewzDeck.
+- **Defender-safe design preserved:** the old copied/renamed Picker update coordinator remains retired; Setup itself owns the transaction.
 
-See [the full v3.7.2 release notes](release/RELEASE_NOTES_v3.7.2.md).
+See [the full v3.7.3 release notes](release/RELEASE_NOTES_v3.7.3.md).
 
 ## Requirements
 
@@ -66,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.2_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.3_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

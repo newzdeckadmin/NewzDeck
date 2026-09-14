@@ -71,8 +71,8 @@ Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "{group}\NewzDeck"; Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NewzDeck.ico"
 Name: "{autodesktop}\NewzDeck"; Filename: "{app}\NewzDeck.exe"; WorkingDir: "{app}"; IconFilename: "{app}\NewzDeck.ico"; Tasks: desktopicon
 
-; NewzDeck is intentionally not auto-launched from inside Setup. Users launch
-; NewzDeck normally after Setup exits, avoiding upgrade/startup handoff races.
+; Normal installs are not auto-launched. The verified About & Updates /SILENT
+; /update path is coordinated in [Code] and relaunches only after service/tray restoration.
 
 [Code]
 const
@@ -90,6 +90,7 @@ var
   TrayAutostartWasEnabled: Boolean;
   TrayWasRunning: Boolean;
   UpdateMode: Boolean;
+  ManagedSilentUpdate: Boolean;
 
 function GetWindowThreadProcessId(hWnd: HWND; var ProcessId: DWORD): DWORD;
   external 'GetWindowThreadProcessId@user32.dll stdcall';
@@ -115,6 +116,25 @@ begin
   for I := 1 to ParamCount do
   begin
     if Lowercase(ParamStr(I)) = '/update' then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function IsManagedSilentUpdate(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if not IsUpdateMode() then
+    Exit;
+  for I := 1 to ParamCount do
+  begin
+    { About & Updates deliberately uses /SILENT. CI upgrade smoke tests use
+      /VERYSILENT, so they stay non-relaunching and do not spawn the app. }
+    if Lowercase(ParamStr(I)) = '/silent' then
     begin
       Result := True;
       Exit;
@@ -298,13 +318,46 @@ begin
   Sleep(750);
 end;
 
+procedure CloseInstalledAppWindowForUpdate();
+var
+  AppExe: String;
+  ResultCode: Integer;
+begin
+  if not UpdateMode then
+    Exit;
+
+  { The launcher owns bounded Chromium NewzDeck-window discovery. In the managed
+    About & Updates path this runs before file overlay so the visible app closes
+    before Setup stops/restores the tray and service. A post-install safety call
+    remains harmless if no NewzDeck browser window is left. }
+  AppExe := ExpandConstant('{app}\NewzDeck.exe');
+  if not FileExists(AppExe) then
+  begin
+    Log('Updated NewzDeck.exe is unavailable; the stale browser-hosted app window could not be closed by Setup.');
+    Exit;
+  end;
+
+  if not Exec(AppExe, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Log('Setup could not launch NewzDeck.exe to close the browser-hosted app window.')
+  else
+    Log('NewzDeck browser-window close mode exit=' + IntToStr(ResultCode));
+
+  Sleep(300);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   UpdateMode := IsUpdateMode();
+  ManagedSilentUpdate := IsManagedSilentUpdate();
   ServiceWasInstalled := ServiceInstalled();
   TrayWasRunning := FindWindowByClassName('NewzDeckTrayWindow') <> 0;
   TrayAutostartWasEnabled := RegValueExists(HKCU, TrayRunKey, TrayRunValue);
+
+  { The one-click About & Updates path closes the browser-hosted UI before
+    any application file is overlaid. }
+  if ManagedSilentUpdate then
+    CloseInstalledAppWindowForUpdate();
 
   { Close the signed-in-user tray companion and wait for the real process to
     exit before Inno's Restart Manager/file overlay work begins. }
@@ -363,32 +416,6 @@ begin
   RegWriteStringValue(HKCU, TrayRunKey, TrayRunValue, Cmd);
 end;
 
-procedure CloseInstalledAppWindowForUpdate();
-var
-  AppExe: String;
-  ResultCode: Integer;
-begin
-  if not UpdateMode then
-    Exit;
-
-  { v3.6.92: Picker is deliberately folder-only. After the new files are overlaid,
-    ask the installed launcher (which already owns Chromium window discovery for
-    taskbar identity) to close any stale NewzDeck app-mode browser window. }
-  AppExe := ExpandConstant('{app}\NewzDeck.exe');
-  if not FileExists(AppExe) then
-  begin
-    Log('Updated NewzDeck.exe is unavailable; the stale browser-hosted app window could not be closed by Setup.');
-    Exit;
-  end;
-
-  if not Exec(AppExe, '--close-app-windows', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    Log('Setup could not launch NewzDeck.exe to close the browser-hosted app window.')
-  else
-    Log('NewzDeck browser-window close mode exit=' + IntToStr(ResultCode));
-
-  Sleep(300);
-end;
-
 procedure RestoreTrayAfterInstall();
 var
   Tray, Params: String;
@@ -416,7 +443,9 @@ var
   AppExe: String;
   ResultCode: Integer;
 begin
-  if (not UpdateMode) or WizardSilent then
+  if not UpdateMode then
+    Exit;
+  if WizardSilent and not ManagedSilentUpdate then
     Exit;
 
   AppExe := ExpandConstant('{app}\NewzDeck.exe');

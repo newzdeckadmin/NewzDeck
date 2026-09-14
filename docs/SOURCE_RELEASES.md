@@ -2,25 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.2
+## Current release: v3.7.3
 
-**v3.7.2 is the current stable production release.**
+**v3.7.3 is the current stable production release.**
 
-The `v3.7.2` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.3` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
-Five NewzDeck-owned Windows executables are built from public Go source:
-
-| Windows file | Public source |
-| --- | --- |
-| `NewzDeck.exe` | `src/windows/NewzDeckLauncher.go` |
-| `NewzDeckService.exe` | `src/windows/NewzDeckService.go` |
-| `NewzDeckTray.exe` | `src/windows/NewzDeckTray.go` |
-| `NewzDeckPicker.exe` | `src/windows/NewzDeckPicker.go` |
-| `NewzDeckThumb.exe` | `src/windows/NewzDeckThumb.go` |
-
-The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 is built from the pinned upstream source during the release workflow and its provenance is recorded in `SOURCE_MANIFEST.json`.
+Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.3 - Managed In-App Update Handoff Hotfix.** Restores the seamless About & Updates close/install/restore/relaunch lifecycle using verified Setup itself as the managed coordinator, without restoring the Defender-sensitive copied Picker handoff.
 
 - **v3.7.2 - Runtime Identity & Release Metadata Hotfix.** Corrects the v3.7.1 download-engine adapter identity mismatch, moves the SABCTools-integrated runtime into public source directly, restores current README/website/source documentation, and carries SABCTools licensing/provenance explicitly.
 

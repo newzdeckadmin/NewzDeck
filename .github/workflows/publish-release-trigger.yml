@@ -89,16 +89,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Validate NewzDeck source and v3.7.2 regression guard
+      - name: Validate NewzDeck source and v3.7.3 regression guard
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path variable:PSNativeCommandUseErrorActionPreference)) { throw 'PowerShell native-command failure propagation is unavailable.' }
           $PSNativeCommandUseErrorActionPreference = $true
 
-          if ($env:VERSION -cne '3.7.2') { throw "This source workflow is the v3.7.2 production gate, got $env:VERSION." }
-          python release/windows/validate-v3720-regressions.py
-          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3720-regressions.py
+          if ($env:VERSION -cne '3.7.3') { throw "This source workflow is the v3.7.3 production gate, got $env:VERSION." }
+          python release/windows/validate-v3730-regressions.py
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3730-regressions.py
           node --check src/app/static/app.js
 
           $env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
@@ -278,7 +278,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Join-Path (Join-Path $env:RUNNER_TEMP 'newzdeck-release') ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
-          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v372-smoke'
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v373-smoke'
 
           function Run-Setup([bool]$UpdateMode) {
             $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir")
@@ -316,7 +316,7 @@ jobs:
           else {
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Runtime Identity & Release Metadata Hotfix"
+            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Managed In-App Update Handoff Hotfix"
             git push origin "refs/tags/$tag"
           }
 
