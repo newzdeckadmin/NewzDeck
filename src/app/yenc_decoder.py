@@ -1,4 +1,4 @@
-"""NewzDeck v3.7.1 in-process yEnc decoder powered by SABCTools 9.6.3.
+"""NewzDeck in-process yEnc decoder powered by SABCTools 9.6.3.
 
 The Windows release vendors the exact CPython 3.12 SABCTools package beside
 server.py. The standalone NewzDeckYenc.exe helper is retired from the shipped
@@ -126,7 +126,7 @@ def _import_sabctools():
     version = str(getattr(sabctools, "__version__", "") or "")
     if version != EXPECTED_SABCTOOLS_VERSION:
         raise SabctoolsUnavailable(
-            f"SABCTools {version!r} is not the exact {EXPECTED_SABCTOOLS_VERSION} build required by NewzDeck 3.7.1"
+            f"SABCTools {version!r} is not the exact {EXPECTED_SABCTOOLS_VERSION} build required by this NewzDeck release"
         )
     return sabctools
 

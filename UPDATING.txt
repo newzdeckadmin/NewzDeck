@@ -1,11 +1,11 @@
-NewzDeck v3.7.3 update notes
+NewzDeck v3.7.4 update notes
 
-v3.7.3 restores the managed About & Updates handoff. When you choose the verified in-app update, NewzDeck now closes the browser-hosted app window before file overlay, closes/waits for the tray, stops/waits for the background service, installs the update, restores the service/tray state, and reopens NewzDeck automatically.
+v3.7.4 is a release-hygiene and publisher-reliability maintenance update. It synchronizes the remaining current-version fallbacks and release-facing text while preserving the proven v3.7.3 application behavior.
 
-The update still downloads only the canonical GitHub Release Setup asset and verifies its published SHA-256 before launching it.
+About & Updates continues to download only the canonical GitHub Release Setup asset, verify its published SHA-256, and launch the verified installer through the existing managed /SILENT update lifecycle.
 
-The Defender-sensitive copied/renamed Picker coordinator used by older releases remains retired. The Setup executable itself owns the update transaction.
+The Defender-sensitive copied/renamed Picker coordinator remains retired. Setup itself continues to own browser-window close, tray/service handoff, file overlay, restoration, and relaunch.
 
 Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
 
-No NNTP connection, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, post-processing, Automation, Smart Import, Newsgroup Browser, Backup & Restore, or theme behavior is intentionally changed.
+No NNTP connection, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, PAR2/repair, post-processing, Automation, Smart Import, Newsgroup Browser, Backup & Restore, or theme behavior is intentionally changed.

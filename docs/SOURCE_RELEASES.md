@@ -2,15 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.3
+## Current release: v3.7.4
 
-**v3.7.3 is the current stable production release.**
+**v3.7.4 is the current stable production release.**
 
-The `v3.7.3` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.4` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.4 - Release Hygiene & Publisher Reliability Maintenance.** Synchronizes remaining current-version fallbacks and release-facing text, makes SABCTools/yEnc wording version-neutral, and corrects publisher Pages/tag verification while preserving the v3.7.3 runtime and protected behavior.
 
 - **v3.7.3 - Managed In-App Update Handoff Hotfix.** Restores the seamless About & Updates close/install/restore/relaunch lifecycle using verified Setup itself as the managed coordinator, without restoring the Defender-sensitive copied Picker handoff.
 

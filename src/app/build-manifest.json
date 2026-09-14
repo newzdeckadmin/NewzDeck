@@ -1,27 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.3",
-  "base_version": "3.7.2",
-  "release": "Managed In-App Update Handoff Hotfix",
-  "adapter_version": "3.7.3",
-  "name": "Managed In-App Update Handoff Hotfix",
+  "version": "3.7.4",
+  "base_version": "3.7.3",
+  "release": "Release Hygiene & Publisher Reliability Maintenance",
+  "adapter_version": "3.7.4",
+  "name": "Release Hygiene & Publisher Reliability Maintenance",
   "sab_version": "5.1.2",
   "changes": [
-    "Restores one-click About & Updates orchestration using verified Setup in managed /SILENT update mode.",
-    "Closes the browser-hosted NewzDeck UI before file overlay, then closes/waits for tray and service before installation.",
-    "Restores service/tray state and relaunches NewzDeck after managed silent updates without reviving the Defender-sensitive copied Picker coordinator.",
-    "Hardens the guarded publisher so Pages is evaluated for the final trigger commit rather than a superseded source-commit deployment."
+    "Synchronizes remaining current-version fallbacks in the app HTML shell, tray helper, runtime identities, and release-facing documentation.",
+    "Makes current SABCTools/yEnc integration wording version-neutral while retaining the pinned SABCTools 9.6.3 implementation and decoder behavior.",
+    "Corrects guarded publisher verification to monitor Pages on the source/content commit and accept a newer successful deployment after an older superseded cancellation.",
+    "Verifies the immutable annotated release tag by peeling the tag object to its source commit instead of relying on GitHub Release target_commitish."
   ],
   "regression_guards": [
-    "About & Updates must launch verified Setup with /update /SILENT while retaining CLOSEAPPLICATIONS/FORCECLOSEAPPLICATIONS.",
-    "Managed silent Setup must close the app window before tray/service shutdown and file overlay.",
-    "Managed silent updates must relaunch NewzDeck; CI /VERYSILENT update smoke installs must remain non-relaunching.",
-    "The copied NewzDeckUpdateHandoff/Picker coordinator architecture must remain retired."
+    "The v3.7.3 managed /SILENT Setup update lifecycle and exact launch arguments must remain unchanged.",
+    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 provenance must remain unchanged.",
+    "The retired standalone NewzDeckYenc.exe and copied update-coordinator architectures must remain absent.",
+    "styles.css and themes.css must remain byte-identical to the v3.7.3 production payload."
   ],
   "preserved": [
-    "v3.7.2 runtime identity coherence and source-complete packaging.",
-    "In-process SABCTools 9.6.3, split NNTP fetch/decode pipeline, and Python emergency yEnc fallback.",
-    "Private SABnzbd 5.1.2, Direct Unpack/post-processing, article cache, async disk, Automation, Smart Import, Newsgroup Browser, Backup & Restore, and all twelve themes."
+    "Private SABnzbd 5.1.2, Direct Unpack/post-processing, PAR2/repair, article cache and async disk behavior.",
+    "Automation, Smart Import, Newsgroup Browser performance/concurrency behavior, Backup & Restore, and all twelve themes.",
+    "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain separate unchanged components."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

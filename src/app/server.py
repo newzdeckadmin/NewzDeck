@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.3"
+APP_VERSION = "3.7.4"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -3972,7 +3972,7 @@ def _decode_yenc_data_line(line: bytes) -> bytes:
 def _decode_yenc_blob_python(encoded: bytes) -> tuple[bytes, int]:
     """Bulk Python fallback for one yEnc data region.
 
-    v3.7.1 uses in-process SABCTools for the normal queued-download path. This
+    NewzDeck uses in-process SABCTools for the normal queued-download path. This
     bulk Python implementation remains as a compatibility/emergency fallback if
     the vendored native module cannot be loaded or rejects an article.
     """
@@ -3983,8 +3983,8 @@ def _decode_yenc_blob_python(encoded: bytes) -> tuple[bytes, int]:
     data = bytes(out)
     return data, zlib.crc32(data) & 0xffffffff
 
-# NewzDeck v3.7.1 in-process SABCTools decoder. The standalone NewzDeckYenc.exe
-# helper is no longer shipped; pure Python remains the emergency fallback.
+# NewzDeck in-process SABCTools decoder. The standalone NewzDeckYenc.exe helper
+# is no longer shipped; pure Python remains the emergency fallback.
 _YENC_DECODER_MODULE = None
 try:
     _yenc_module_path = APP_DIR / "yenc_decoder.py"
@@ -3997,8 +3997,8 @@ _SABCTOOLS_YENC_DECODER = None
 _SABCTOOLS_YENC_ERROR = ""
 
 def _requested_yenc_decoder() -> str:
-    # v3.7.1 defaults to the vendored in-process SABCTools decoder. ``python``
-    # remains available as an explicit diagnostic/emergency fallback.
+    # The vendored in-process SABCTools decoder is the default. ``python`` remains
+    # available as an explicit diagnostic/emergency fallback.
     requested = os.environ.get("NEWZDECK_YENC_DECODER", "sabctools").strip().casefold()
     return requested if requested in {"sabctools", "auto", "python"} else "sabctools"
 
