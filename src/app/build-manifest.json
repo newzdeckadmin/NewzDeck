@@ -1,26 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.4",
-  "base_version": "3.7.3",
-  "release": "Release Hygiene & Publisher Reliability Maintenance",
-  "adapter_version": "3.7.4",
-  "name": "Release Hygiene & Publisher Reliability Maintenance",
+  "version": "3.7.5",
+  "base_version": "3.7.4",
+  "release": "Related Media Grouping Reliability",
+  "adapter_version": "3.7.5",
+  "name": "Related Media Grouping Reliability",
   "sab_version": "5.1.2",
   "changes": [
-    "Synchronizes remaining current-version fallbacks in the app HTML shell, tray helper, runtime identities, and release-facing documentation.",
-    "Makes current SABCTools/yEnc integration wording version-neutral while retaining the pinned SABCTools 9.6.3 implementation and decoder behavior.",
-    "Corrects guarded publisher verification to monitor Pages on the source/content commit and accept a newer successful deployment after an older superseded cancellation.",
-    "Verifies the immutable annotated release tag by peeling the tag object to its source commit instead of relying on GitHub Release target_commitish."
+    "Expands Related Media set classification to common bracketed and index/total filename sequence formats while requiring explicit sequence evidence.",
+    "Normalizes punctuation separators and canonical poster email identity so obvious members are not split by cosmetic naming differences.",
+    "Protects bare year-like numeric suffixes from accidental set classification.",
+    "Uses stable article identity during Continuous grouped-gallery promotion instead of removing older cards by a stored array index.",
+    "Updates the guarded publisher to accept a successful Pages deployment on either the reviewed source commit or the trigger-only commit."
   ],
   "regression_guards": [
-    "The v3.7.3 managed /SILENT Setup update lifecycle and exact launch arguments must remain unchanged.",
-    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 provenance must remain unchanged.",
-    "The retired standalone NewzDeckYenc.exe and copied update-coordinator architectures must remain absent.",
-    "styles.css and themes.css must remain byte-identical to the v3.7.3 production payload."
+    "Related Media still requires at least three members and remains isolated by newsgroup, media kind, normalized base, and poster identity.",
+    "Related Media cover probing, thumbnail scheduling, gallery virtualization, viewer behavior, and browsing concurrency remain unchanged.",
+    "The v3.7.3 managed /SILENT Setup lifecycle and exact launch arguments remain unchanged.",
+    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 provenance remain unchanged."
   ],
   "preserved": [
     "Private SABnzbd 5.1.2, Direct Unpack/post-processing, PAR2/repair, article cache and async disk behavior.",
-    "Automation, Smart Import, Newsgroup Browser performance/concurrency behavior, Backup & Restore, and all twelve themes.",
+    "Automation, Smart Import, Backup & Restore, themes, and all non-grouping Newsgroup Browser tuning.",
     "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain separate unchanged components."
   ],
   "sabctools_version": "9.6.3",

@@ -1,11 +1,9 @@
-NewzDeck v3.7.4 update notes
+NewzDeck v3.7.5 update notes
 
-v3.7.4 is a release-hygiene and publisher-reliability maintenance update. It synchronizes the remaining current-version fallbacks and release-facing text while preserving the proven v3.7.3 application behavior.
-
-About & Updates continues to download only the canonical GitHub Release Setup asset, verify its published SHA-256, and launch the verified installer through the existing managed /SILENT update lifecycle.
-
-The Defender-sensitive copied/renamed Picker coordinator remains retired. Setup itself continues to own browser-window close, tray/service handoff, file overlay, restoration, and relaunch.
+v3.7.5 is a focused Related Media grouping correctness update. It broadens conservative image/video set sequence recognition and fixes stable-card promotion during Continuous browsing.
 
 Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
 
-No NNTP connection, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, PAR2/repair, post-processing, Automation, Smart Import, Newsgroup Browser, Backup & Restore, or theme behavior is intentionally changed.
+About & Updates continues to download the canonical GitHub Release Setup asset, verify its published SHA-256, and launch the verified installer through the existing managed /SILENT lifecycle.
+
+No NNTP connection tuning, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, PAR2/repair, post-processing, Automation, Smart Import, Backup & Restore, or theme behavior is intentionally changed.

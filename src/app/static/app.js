@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.4';
+const UI_VERSION = '3.7.5';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const THEME_IDS = Object.freeze(['night','light','midnight','ocean','emerald','amethyst','rosewood','sunset','arctic','graphite','sandstone','aurora']);
@@ -995,7 +995,36 @@ function renderArticles({preserveScroll=true,scrollTop=null,anchor=null,reason="
   if(mode==='gallery'){renderGallery(items);rebuildThumbnailHolderRegistry()}else{state.thumbHolderRegistry.clear();const grouped=(!isAllPostsMode()&&state.groupRelatedMedia)?buildMediaSets(items):null;renderList(grouped?grouped.ungrouped:items);if(!isAllPostsMode())renderRelatedMediaPane(grouped,{incremental:false})}
   updateSelectionBar();restoreBrowsePosition(anchors,keep);perfRecord('render',performance.now()-renderStarted,true,{reason});requestAnimationFrame(()=>{updateSelectionBar();wireContinuousObserver()});
 }
-function mediaSetKey(a){if(!a?.media?.filename||!['image','video'].includes(a.media?.kind))return'';const name=String(a.media.filename),dot=name.lastIndexOf('.'),stem=dot>0?name.slice(0,dot):name;let base=stem.replace(/(?:[._\- ]?(?:img|image|pic|photo|vid|video)?[._\- ]*)?\d{1,6}$/i,'').replace(/[._\- ]+$/,'').trim();if(base.length<3){const m=String(a.subject||'').match(/^(.{3,}?)\s*[\[(]\s*\d{1,6}\s*\/\s*\d{1,6}\s*[\])]/);if(m)base=m[1].replace(/[._\- ]+$/,'').trim()}if(base.length<3||base.toLowerCase()===stem.toLowerCase())return'';return`${articleGroup(a)}|${a.media.kind}|${base.toLocaleLowerCase()}|${String(a.from||'').toLocaleLowerCase()}`}
+function mediaSetNormalizeBase(value){return String(value||'').normalize('NFKC').replace(/[._\-–—]+/g,' ').replace(/\s+/g,' ').trim().toLocaleLowerCase()}
+function mediaSetPosterKey(value){const raw=String(value||'').normalize('NFKC').trim().toLocaleLowerCase(),angle=raw.match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/),email=angle||raw.match(/(?:^|[\s("''])((?:[^<>()\s,;]+)@(?:[^<>()\s,;]+))(?:$|[\s)"',;])/);return String(angle?.[1]||email?.[1]||raw).replace(/\s+/g,' ').trim()}
+function mediaSetSequenceBase(a){
+  if(!a?.media?.filename||!['image','video'].includes(a.media?.kind))return null;
+  // media.filename is already sanitized by the backend for display/download use.
+  // Do not split it again on '/', because a logical Usenet sequence marker such
+  // as [01/25] can legitimately reach this classifier and must remain intact.
+  const name=String(a.media.filename),dot=name.lastIndexOf('.'),stem=(dot>0?name.slice(0,dot):name).trim();
+  if(!stem)return null;
+  let base=stem,matched=false;
+  const trimBase=value=>String(value||'').replace(/[\s._\-–—]+$/g,'').trim();
+  const accept=(m,{yearGuard=false}={})=>{
+    if(!m)return false;
+    if(yearGuard){const token=Number(m[m.length-1]||0);if(token>=1900&&token<=2099)return false}
+    const candidate=trimBase(base.slice(0,m.index));if(candidate.length<3)return false;
+    base=candidate;matched=true;return true
+  };
+  accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})\s*[\])\}]\s*$/i))||
+  accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video)?[\s._\-–—]*(\d{1,6})[\s._\-–—]*(?:of|\/)[\s._\-–—]*(\d{1,6})\s*$/i))||
+  accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*[\])\}]\s*$/i),{yearGuard:true})||
+  accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video)[\s._\-–—]*(\d{1,6})\s*$/i))||
+  accept(base.match(/(\d{1,6})\s*$/i),{yearGuard:true});
+  if(!matched){
+    const subject=String(a.subject||''),m=subject.match(/^(.{3,}?)\s*[\[(\{]\s*\d{1,6}\s*(?:\/|of)\s*\d{1,6}\s*[\])\}]/i);
+    if(m){const candidate=trimBase(m[1]);if(candidate.length>=3){base=candidate;matched=true}}
+  }
+  if(!matched)return null;
+  const normalized=mediaSetNormalizeBase(base);return normalized.length>=3?{base,normalized,stem}:null
+}
+function mediaSetKey(a){const seq=mediaSetSequenceBase(a);if(!seq)return'';return`${articleGroup(a)}|${a.media.kind}|${seq.normalized}|${mediaSetPosterKey(a.from)}`}
 function resetMediaSetIndex(){state.mediaSetIndexBuckets.clear();state.mediaSetIndexSingles.clear();state.mediaSetIndexValid=false}
 function addMediaSetIndexItem(item,changedKeys=null){
   if(!item?.a)return;const key=mediaSetKey(item.a),itemKey=articleKey(item.a);
@@ -1018,7 +1047,7 @@ function appendMediaSetIndex(items){
   if(!state.mediaSetIndexValid)return rebuildMediaSetIndex(filteredArticles(),{includeUngrouped:false});const started=performance.now(),changedKeys=new Set();for(const item of items||[])addMediaSetIndexItem(item,changedKeys);const result=mediaSetIndexSnapshot({includeUngrouped:false,changedKeys});perfRecord('group_index',performance.now()-started);return result
 }
 function buildMediaSets(items){return rebuildMediaSetIndex(items,{includeUngrouped:true})}
-function mediaSetTitle(group){const f=group.members[0]?.a?.media?.filename||'Media set',dot=f.lastIndexOf('.'),stem=dot>0?f.slice(0,dot):f;return stem.replace(/(?:[._\- ]?(?:img|image|pic|photo|vid|video)?[._\- ]*)?\d{1,6}$/i,'').replace(/[._\- ]+$/,'').trim()||'Media set'}
+function mediaSetTitle(group){const a=group.members[0]?.a,seq=mediaSetSequenceBase(a);return seq?.base||a?.media?.filename||'Media set'}
 function liveMediaSetItem(item){
   if(!item?.a)return item;const current=state.articles[Number(item.index)];if(current&&articleKey(current)===articleKey(item.a))return item;const index=state.articles.findIndex(a=>articleKey(a)===articleKey(item.a));return index>=0?{...item,index}:item
 }
@@ -1160,11 +1189,11 @@ function ensureGroupedSummary(grouped){
 function appendContinuousGroupedGallery(previousKeys){
   const grid=els.articlesList?.querySelector('.media-grid');if(!grid)return false;const items=filteredArticles(),newItems=items.filter(({a})=>!previousKeys.has(articleKey(a))),built=appendMediaSetIndex(newItems);
   if(!newItems.length){renderRelatedMediaPane(built,{incremental:true,changedKeys:built.changedKeys});updateArticleSearchUi(items.length);updateSelectionBar();scheduleGalleryVirtualization();return true}
-  const keep=els.articlesList.scrollTop,anchors=captureBrowseAnchors(),template=document.createElement('template'),newCards=[],itemHtml=[];let removedExisting=false;
+  const keep=els.articlesList.scrollTop,anchors=captureBrowseAnchors(),template=document.createElement('template'),newCards=[],itemHtml=[],liveCards=new Map([...grid.querySelectorAll('.media-card[data-article-key]')].map(card=>[card.dataset.articleKey,card]));let removedExisting=false;
   for(const item of newItems){
     const key=mediaSetKey(item.a),group=key?built.groupMap.get(key):null;
     if(group&&group.members.length>=3){
-      for(const member of group.members){if(!previousKeys.has(articleKey(member.a)))continue;const old=grid.querySelector(`.media-card[data-index="${member.index}"]`);if(old){old.remove();removedExisting=true}}
+      for(const member of group.members){const memberKey=articleKey(member.a);if(!previousKeys.has(memberKey))continue;const old=liveCards.get(memberKey);if(old){old.remove();liveCards.delete(memberKey);removedExisting=true}}
       continue;
     }
     itemHtml.push(galleryCard(item.a,item.index));
@@ -1205,7 +1234,7 @@ function galleryCard(a,index){
     else visual=`<div class="video-placeholder"><span>▶</span><small>Incomplete multipart video</small></div>`;
   }else visual=`<div class="post-placeholder"><span>⌁</span><small>No visual preview</small></div>`;
   const partTotal=Number(a.segment_total||a.segment_count||0),partCount=Number(a.segment_count||0);const partBadge=a.media&&partTotal>1?`<span class="card-status ${complete?'complete':'warning'}">${complete?'✓':'⚠'} ${partCount}/${partTotal}</span>`:'';const status=downloaded?'<span class="downloaded-badge">✓ DOWNLOADED</span>':queued?'<span class="queued-badge">⇣ QUEUED</span>':'';
-  return `<article class="media-card ${articleStatusClass(a)} ${a.media&&complete?'selectable':''} ${selected?'selected':''} ${state.selectedArticleKey===key?'active keyboard-active':''}" data-index="${index}" data-download-key="${escapeHtml(dkey)}" aria-selected="${selected?'true':'false'}" title="${a.media&&complete?'Click to select • Ctrl-click toggles • Shift-click selects a range • Double-click images to open viewer':'Click to preview'}">
+  return `<article class="media-card ${articleStatusClass(a)} ${a.media&&complete?'selectable':''} ${selected?'selected':''} ${state.selectedArticleKey===key?'active keyboard-active':''}" data-index="${index}" data-article-key="${escapeHtml(key)}" data-download-key="${escapeHtml(dkey)}" aria-selected="${selected?'true':'false'}" title="${a.media&&complete?'Click to select • Ctrl-click toggles • Shift-click selects a range • Double-click images to open viewer':'Click to preview'}">
     <div class="thumb-stage">${visual}<span class="kind-pill ${kind}">${kind.toUpperCase()}</span>${partBadge}${status}${articleStatusBadge(a)}
       ${a.media&&complete&&selected?'<span class="selection-check" aria-hidden="true">✓</span>':''}
       ${a.media&&complete?`<button class="card-download-btn" data-index="${index}" title="Add to download queue">＋</button>`:''}
