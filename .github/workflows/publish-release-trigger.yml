@@ -89,19 +89,20 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Validate NewzDeck source and v3.7.8 regression guard
+      - name: Validate NewzDeck source and v3.7.9 regression guard
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path variable:PSNativeCommandUseErrorActionPreference)) { throw 'PowerShell native-command failure propagation is unavailable.' }
           $PSNativeCommandUseErrorActionPreference = $true
 
-          if ($env:VERSION -cne '3.7.8') { throw "This source workflow is the v3.7.8 production gate, got $env:VERSION." }
-          python release/windows/validate-v378-regressions.py
-          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v378-regressions.py
+          if ($env:VERSION -cne '3.7.9') { throw "This source workflow is the v3.7.9 production gate, got $env:VERSION." }
+          python release/windows/validate-v379-regressions.py
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v379-regressions.py
           node --check src/app/static/app.js
           node release/windows/validate-media-set-key.js
           node release/windows/validate-image-sets-v378.js
+          node release/windows/validate-v379-preview.js
           node release/windows/validate-groups-pane-resizer.js
 
           $env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
@@ -281,7 +282,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Join-Path (Join-Path $env:RUNNER_TEMP 'newzdeck-release') ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
-          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v378-smoke'
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v379-smoke'
 
           function Run-Setup([bool]$UpdateMode) {
             $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir")
@@ -319,7 +320,7 @@ jobs:
           else {
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Image Sets Detection & Controls"
+            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Preview Recovery & Browser Responsiveness"
             git push origin "refs/tags/$tag"
           }
 

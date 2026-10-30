@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.8** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.9** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.8_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.9_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,13 +34,11 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.8 Image Sets detection and controls
+## v3.7.9 preview recovery and browsing responsiveness
 
-Image Sets can now be turned **ON** or **OFF** directly in Newsgroups or from Settings. When OFF, every image appears individually in the normal gallery/list. When ON, related, numbered images and videos move to Related Media after at least three matching posts are identified.
+Image previews no longer remain indefinitely in the idle-recovery state. Deferred previews are no longer repeatedly requeued while waiting; visible images attempt one time-limited full-image fallback after a bounded grace period, and failed recovery presents an actionable Retry card.
 
-Detection now recognizes leading image numbers and named `page`, `part`, or `scan` sequences, and uses explicitly numbered subject/album context when filenames are generic such as `IMG_0001.jpg`.
-
-The existing grouping preference, its persistence, Continuous browsing, Newsgroups splitter, download engine, and other runtime behavior are preserved. See [v3.7.8 release notes](release/RELEASE_NOTES_v3.7.8.md).
+Image Sets index insertion now uses constant-time stable-article-key deduplication rather than rescanning every prior member, reducing browser main-thread work on larger sets. All v3.7.8 Image Sets detection and ON/OFF controls are preserved. See [v3.7.9 release notes](release/RELEASE_NOTES_v3.7.9.md).
 
 ## Requirements
 
@@ -63,7 +61,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.8_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.9_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

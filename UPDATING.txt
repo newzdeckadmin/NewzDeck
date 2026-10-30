@@ -1,5 +1,5 @@
-NewzDeck v3.7.8 update notes
+NewzDeck v3.7.9 update notes
 
-The optional Image Sets control is clearer and detection is improved for leading filename numbers and explicit subject sequences. The existing group_related_media preference is reused and preserved.
+This release fixes indefinite deferred image-preview recovery and prevents repeated thumbnail attempts while waiting. Large Image Sets now group with lower browser-thread overhead. Existing settings, grouping preferences, downloads and data remain unchanged.
 
-All settings, downloads, providers, queues, libraries, history, and installed background services remain unchanged. No server/runtime tuning.
+No NNTP/downloader, Direct Unpack, PAR2, Automation, Smart Import, Backup & Restore, theme or managed updater changes.

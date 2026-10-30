@@ -1,5 +1,5 @@
-NewzDeck v3.7.8 - Image Sets Detection & Controls
+NewzDeck v3.7.9 - Preview Recovery & Browser Responsiveness
 
-Image Sets can be switched ON or OFF in Newsgroups and Settings. OFF shows every image/video individually, while ON recognizes more numbered series, including subject-album context for generic camera filenames.
+Deferred image previews have a bounded recovery window, fall back to one time-limited full-image preview, and show Retry if recovery fails. Image Sets deduplication is optimized for large sets.
 
-NNTP, private SABnzbd 5.1.2, SABCTools 9.6.3, downloads, Automation, Smart Import, Backups, themes and the updater are preserved.
+Preserves v3.7.8 Image Sets settings and identification, v3.7.7 split-pane resizing, SABnzbd 5.1.2, SABCTools 9.6.3, downloads, Automation, and the updater.

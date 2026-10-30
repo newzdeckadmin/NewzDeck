@@ -1,27 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.8",
-  "base_version": "3.7.7",
-  "release": "Image Sets Detection & Controls",
-  "adapter_version": "3.7.8",
-  "name": "Image Sets Detection & Controls",
+  "version": "3.7.9",
+  "base_version": "3.7.8",
+  "release": "Preview Recovery & Browser Responsiveness",
+  "adapter_version": "3.7.9",
+  "name": "Preview Recovery & Browser Responsiveness",
   "sab_version": "5.1.2",
   "changes": [
-    "Improves numbered Image Set identification using filename leading sequences and series labels.",
-    "Uses explicitly numbered post subjects to identify albums when image filenames are generic.",
-    "Makes Image Sets ON/OFF clear in the Newsgroups toolbar and Settings while reusing the existing persisted setting.",
-    "Switching OFF immediately restores the individual-image gallery/list and resets grouped-index state."
+    "Bounds visible-image deferred recovery time and gives it a timed single-lane fallback even if thumbnails remain active.",
+    "Converts full-image recovery failures into actionable Retry cards rather than infinite loaders.",
+    "Stops deferred thumbnails from being requeued by the demand scanner while their recovery is pending.",
+    "Uses constant-time stable article identity checks when building large Image Sets to reduce browser-thread stalls."
   ],
   "regression_guards": [
-    "Three-member threshold, newsgroup/media-kind/poster isolation, and year guards remain.",
-    "v3.7.5 grouped Continuous-browsing article-key stabilization remains.",
-    "v3.7.7 splitter behavior and CSS are unchanged.",
-    "SABnzbd 5.1.2, SABCTools 9.6.3, managed updates and runtime processing remain unchanged."
+    "v3.7.8 Image Sets recognition, ON/OFF persistence, and Continuous browse state remain unchanged.",
+    "v3.7.7 Newsgroups splitter and UI styling remain unchanged.",
+    "Thumbnail and download concurrency, SABnzbd 5.1.2, SABCTools 9.6.3 and managed updates remain unchanged."
   ],
   "preserved": [
-    "NNTP throughput/connection tuning, thumbnails, viewer, gallery virtualization, Direct Unpack and PAR2/repair.",
-    "Automation, Smart Import, Backup & Restore and all twelve themes.",
-    "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain unchanged."
+    "NNTP, thumbnail format and server processing, Direct Unpack, PAR2 repair, Automation, Smart Import, Backup & Restore and all themes.",
+    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 remain unchanged."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"
