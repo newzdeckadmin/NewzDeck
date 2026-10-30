@@ -1,9 +1,9 @@
-NewzDeck v3.7.5 update notes
+NewzDeck v3.7.6 update notes
 
-v3.7.5 is a focused Related Media grouping correctness update. It broadens conservative image/video set sequence recognition and fixes stable-card promotion during Continuous browsing.
+v3.7.6 is a focused Newsgroups UI usability update. It adds a resizable Newsgroups column with locally remembered width, responsive bounds, keyboard resizing, double-click reset, and full-name hover tooltips.
 
 Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
 
 About & Updates continues to download the canonical GitHub Release Setup asset, verify its published SHA-256, and launch the verified installer through the existing managed /SILENT lifecycle.
 
-No NNTP connection tuning, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, PAR2/repair, post-processing, Automation, Smart Import, Backup & Restore, or theme behavior is intentionally changed.
+No NNTP connection tuning, Related Media grouping, thumbnail scheduling, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, PAR2/repair, post-processing, Automation, Smart Import, Backup & Restore, or theme behavior is intentionally changed.

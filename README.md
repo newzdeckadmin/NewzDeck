@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.5** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.6** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.5_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.6_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,18 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.5 Related Media grouping fix
+## v3.7.6 resizable Newsgroups pane
 
-v3.7.5 fixes cases where obvious image/video series remained as individual Newsgroup items instead of being promoted into Related Media sets.
+v3.7.6 makes the Newsgroups name column manually resizable without changing browsing or download behavior.
 
-- **Broader sequence recognition:** bracketed counters and explicit index/total names such as `(03)`, `[03]`, `03 of 25`, `03-of-25`, and `03/25` are recognized.
-- **Cosmetic naming tolerance:** separator differences such as dots, dashes, underscores, and spaces no longer split an otherwise identical sequenced set.
-- **Stable poster identity:** standard sender email identity is used when available, so harmless display-name differences do not split a set.
-- **Safer grouping:** bare year-like suffixes are not treated as counters, and the existing three-member threshold plus newsgroup/kind/poster isolation remains.
-- **Continuous browsing correctness:** newly formed sets remove existing gallery members by stable article key rather than an older array index.
-- **Runtime preserved:** SABnzbd 5.1.2, SABCTools 9.6.3, download/post-processing behavior, Automation, Smart Import, themes, and the managed updater are unchanged.
+- **Drag to resize:** grab the divider between Newsgroups and Articles and drag it left or right.
+- **Remembered width:** the chosen width is restored on later launches.
+- **Responsive protection:** NewzDeck limits the maximum width based on the available window size so Articles and Related Media remain usable.
+- **Accessible controls:** Left/Right Arrow resize the focused divider, Shift+Arrow uses larger steps, and double-click resets to the default width.
+- **Full-name hover:** truncated newsgroup names show the complete name on hover.
+- **v3.7.5 preserved:** Related Media grouping reliability and its regression coverage remain unchanged.
 
-See [the full v3.7.5 release notes](release/RELEASE_NOTES_v3.7.5.md).
+See [the full v3.7.6 release notes](release/RELEASE_NOTES_v3.7.6.md).
 
 ## Requirements
 
@@ -68,7 +68,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.5_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.6_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

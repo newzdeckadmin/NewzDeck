@@ -2,17 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.5
+## Current release: v3.7.6
 
-**v3.7.5 is the current stable production release.**
+**v3.7.6 is the current stable production release.**
 
-The `v3.7.5` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.6` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
 
-- **v3.7.5 - Related Media Grouping Reliability.** Broadens conservative image/video sequence recognition, normalizes cosmetic separator and sender-display differences, protects year-like suffixes, and uses stable article identity when promoting sets during Continuous browsing while preserving the v3.7.4 runtime baseline.\n\n- **v3.7.4 - Release Hygiene & Publisher Reliability Maintenance.** Synchronizes remaining current-version fallbacks and release-facing text, makes SABCTools/yEnc wording version-neutral, and corrects publisher Pages/tag verification while preserving the v3.7.3 runtime and protected behavior.
+- **v3.7.6 - Resizable Newsgroups Pane.** Adds a persistent, responsive drag/keyboard splitter for the Newsgroups name column plus full-name hover tooltips while preserving v3.7.5 Related Media grouping and the established runtime baseline.\n\n- **v3.7.5 - Related Media Grouping Reliability.** Broadens conservative image/video sequence recognition, normalizes cosmetic separator and sender-display differences, protects year-like suffixes, and uses stable article identity when promoting sets during Continuous browsing while preserving the v3.7.4 runtime baseline.\n\n- **v3.7.4 - Release Hygiene & Publisher Reliability Maintenance.** Synchronizes remaining current-version fallbacks and release-facing text, makes SABCTools/yEnc wording version-neutral, and corrects publisher Pages/tag verification while preserving the v3.7.3 runtime and protected behavior.
 
 - **v3.7.3 - Managed In-App Update Handoff Hotfix.** Restores the seamless About & Updates close/install/restore/relaunch lifecycle using verified Setup itself as the managed coordinator, without restoring the Defender-sensitive copied Picker handoff.
 

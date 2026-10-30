@@ -1,27 +1,26 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.5",
-  "base_version": "3.7.4",
-  "release": "Related Media Grouping Reliability",
-  "adapter_version": "3.7.5",
-  "name": "Related Media Grouping Reliability",
+  "version": "3.7.6",
+  "base_version": "3.7.5",
+  "release": "Resizable Newsgroups Pane",
+  "adapter_version": "3.7.6",
+  "name": "Resizable Newsgroups Pane",
   "sab_version": "5.1.2",
   "changes": [
-    "Expands Related Media set classification to common bracketed and index/total filename sequence formats while requiring explicit sequence evidence.",
-    "Normalizes punctuation separators and canonical poster email identity so obvious members are not split by cosmetic naming differences.",
-    "Protects bare year-like numeric suffixes from accidental set classification.",
-    "Uses stable article identity during Continuous grouped-gallery promotion instead of removing older cards by a stored array index.",
-    "Updates the guarded publisher to accept a successful Pages deployment on either the reviewed source commit or the trigger-only commit."
+    "Adds a draggable Newsgroups/Articles splitter so the Newsgroups name column can be widened or narrowed manually.",
+    "Persists the presentation-only Newsgroups pane width locally and restores it across launches.",
+    "Clamps the pane width responsively to preserve usable Articles and Related Media space.",
+    "Adds keyboard resizing, double-click reset, and full-name hover tooltips for truncated newsgroup names."
   ],
   "regression_guards": [
-    "Related Media still requires at least three members and remains isolated by newsgroup, media kind, normalized base, and poster identity.",
-    "Related Media cover probing, thumbnail scheduling, gallery virtualization, viewer behavior, and browsing concurrency remain unchanged.",
-    "The v3.7.3 managed /SILENT Setup lifecycle and exact launch arguments remain unchanged.",
-    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 provenance remain unchanged."
+    "The v3.7.5 Related Media grouping classifier and stable article-key promotion remain unchanged and keep their behavioral regression test.",
+    "Newsgroup loading, search, sorting, bookmarks, Recent history, tabs, and article browsing behavior remain unchanged.",
+    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 provenance remain unchanged.",
+    "The managed About & Updates Setup lifecycle remains unchanged."
   ],
   "preserved": [
-    "Private SABnzbd 5.1.2, Direct Unpack/post-processing, PAR2/repair, article cache and async disk behavior.",
-    "Automation, Smart Import, Backup & Restore, themes, and all non-grouping Newsgroup Browser tuning.",
+    "NNTP connection/concurrency behavior, thumbnail scheduling, gallery virtualization, Direct Unpack/post-processing and PAR2/repair.",
+    "Automation, Smart Import, Backup & Restore and all twelve themes.",
     "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain separate unchanged components."
   ],
   "sabctools_version": "9.6.3",
