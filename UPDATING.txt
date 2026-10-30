@@ -1,5 +1,5 @@
-NewzDeck v3.7.7 update notes
+NewzDeck v3.7.8 update notes
 
-v3.7.7 is a focused hotfix for the v3.7.6 Newsgroups splitter. It corrects CSS cascade conflicts that moved the divider to the bottom of the Newsgroups pane and prevented --groups-pane-width from controlling the live workspace grid.
+The optional Image Sets control is clearer and detection is improved for leading filename numbers and explicit subject sequences. The existing group_related_media preference is reused and preserved.
 
-Existing application data and the locally saved Newsgroups pane width are preserved. No NNTP, Related Media, download, Automation, Smart Import, Backup & Restore, theme, or managed-updater behavior is intentionally changed.
+All settings, downloads, providers, queues, libraries, history, and installed background services remain unchanged. No server/runtime tuning.

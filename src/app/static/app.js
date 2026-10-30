@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.7';
+const UI_VERSION = '3.7.8';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -242,8 +242,8 @@ function updateBrowseModeControls(){
 function updateGroupRelatedButton(){
   if(!els.groupRelatedBtn)return;const all=isAllPostsMode(),active=state.groupRelatedMedia;
   els.groupRelatedBtn.classList.toggle('hidden',all);els.groupRelatedBtn.classList.toggle('active',!all&&active);els.groupRelatedBtn.setAttribute('aria-pressed',!all&&active?'true':'false');
-  els.groupRelatedBtn.textContent=active?'▦ Media grouped':'▦ Group related';
-  els.groupRelatedBtn.title='Group numbered image/video filename sequences into visual media sets';
+  els.groupRelatedBtn.textContent=active?'▦ Image Sets: ON':'▦ Image Sets: OFF';
+  els.groupRelatedBtn.title=active?'Image Sets are on. Click to display every image and video individually.':'Image Sets are off. Click to group related image and video posts.';
 }
 
 function savedGroupsPaneWidth(){try{const raw=localStorage.getItem(GROUPS_PANE_WIDTH_KEY);if(raw==null||raw==='')return GROUPS_PANE_DEFAULT_WIDTH;const n=Number(raw);return Number.isFinite(n)?n:GROUPS_PANE_DEFAULT_WIDTH}catch(_e){return GROUPS_PANE_DEFAULT_WIDTH}}
@@ -1030,33 +1030,55 @@ function renderArticles({preserveScroll=true,scrollTop=null,anchor=null,reason="
   updateSelectionBar();restoreBrowsePosition(anchors,keep);perfRecord('render',performance.now()-renderStarted,true,{reason});requestAnimationFrame(()=>{updateSelectionBar();wireContinuousObserver()});
 }
 function mediaSetNormalizeBase(value){return String(value||'').normalize('NFKC').replace(/[._\-–—]+/g,' ').replace(/\s+/g,' ').trim().toLocaleLowerCase()}
-function mediaSetPosterKey(value){const raw=String(value||'').normalize('NFKC').trim().toLocaleLowerCase(),angle=raw.match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/),email=angle||raw.match(/(?:^|[\s("''])((?:[^<>()\s,;]+)@(?:[^<>()\s,;]+))(?:$|[\s)"',;])/);return String(angle?.[1]||email?.[1]||raw).replace(/\s+/g,' ').trim()}
+function mediaSetPosterKey(value){const raw=String(value||'').normalize('NFKC').trim().toLocaleLowerCase(),angle=raw.match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/),email=angle||raw.match(/(?:^|[\s("'])((?:[^<>()\s,;]+)@(?:[^<>()\s,;]+))(?:$|[\s)"',;])/);return String(angle?.[1]||email?.[1]||raw).replace(/\s+/g,' ').trim()}
+function mediaSetSubjectSequence(value){
+  // Header subjects give useful album context when the attachment name is generic.
+  // Require an explicit index/total: unrelated subject words alone are never evidence.
+  const subject=String(value||'').normalize('NFKC').trim();if(!subject)return null;
+  const trimBase=s=>String(s||'').replace(/[\s._\-–—:]+$/g,'').replace(/^[\s._\-–—:]+/g,'').trim();
+  const patterns=[
+    /^(.{3,120}?)\s*[\[(\{]\s*(?:part|page|image|img|pic|photo)?\s*#?\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})\s*[\])\}]/i,
+    /^(.{3,120}?)\s*(?:[\-–—:]\s*)?(?:part|page|image|img|pic|photo)?\s*#?\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})(?=\s|$|[\]})"'])/i,
+    /^[\[(\{]\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})\s*[\])\}]\s*(.{3,120}?)(?:\s+"|\s+yEnc\b|$)/i
+  ];
+  for(let i=0;i<patterns.length;i++){
+    const m=subject.match(patterns[i]);if(!m)continue;
+    const index=Number(m[i===2?1:2]),total=Number(m[i===2?2:3]),base=trimBase(m[i===2?3:1]);
+    if(!(index>0&&total>=index&&total<=1000000&&base.length>=3))continue;
+    const normalized=mediaSetNormalizeBase(base);if(normalized.length<3||/^(?:image|img|pic|photo|picture|file|post|part|page|yenc)$/.test(normalized))continue;
+    return{base,normalized,index,total,fromSubject:true}
+  }
+  return null
+}
 function mediaSetSequenceBase(a){
   if(!a?.media?.filename||!['image','video'].includes(a.media?.kind))return null;
-  // media.filename is already sanitized by the backend for display/download use.
-  // Do not split it again on '/', because a logical Usenet sequence marker such
-  // as [01/25] can legitimately reach this classifier and must remain intact.
-  const name=String(a.media.filename),dot=name.lastIndexOf('.'),stem=(dot>0?name.slice(0,dot):name).trim();
-  if(!stem)return null;
-  let base=stem,matched=false;
-  const trimBase=value=>String(value||'').replace(/[\s._\-–—]+$/g,'').trim();
-  const accept=(m,{yearGuard=false}={})=>{
-    if(!m)return false;
-    if(yearGuard){const token=Number(m[m.length-1]||0);if(token>=1900&&token<=2099)return false}
+  // A '/' may be part of [01/25], not a filesystem separator.
+  const name=String(a.media.filename),dot=name.lastIndexOf('.'),stem=(dot>0?name.slice(0,dot):name).trim();if(!stem)return null;
+  const trimBase=s=>String(s||'').replace(/[\s._\-–—:]+$/g,'').replace(/^[\s._\-–—:]+/g,'').trim();
+  let base=stem,index=0,matched=false;
+  const accept=(m,{yearGuard=false,numberGroup=1,totalGroup=0}={})=>{
+    if(!m)return false;const n=Number(m[numberGroup]);if(!(n>0&&n<=999999))return false;
+    if(yearGuard&&n>=1900&&n<=2099)return false;
+    if(totalGroup){const total=Number(m[totalGroup]);if(!(total>=n&&total<=1000000))return false}
     const candidate=trimBase(base.slice(0,m.index));if(candidate.length<3)return false;
-    base=candidate;matched=true;return true
+    base=candidate;index=n;matched=true;return true
   };
-  accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})\s*[\])\}]\s*$/i))||
-  accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video)?[\s._\-–—]*(\d{1,6})[\s._\-–—]*(?:of|\/)[\s._\-–—]*(\d{1,6})\s*$/i))||
+  accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})\s*[\])\}]\s*$/i),{totalGroup:2})||
+  accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video|page|part|scan)?[\s._\-–—#]*(\d{1,6})[\s._\-–—]*(?:of|\/)[\s._\-–—]*(\d{1,6})\s*$/i),{totalGroup:2})||
   accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*[\])\}]\s*$/i),{yearGuard:true})||
-  accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video)[\s._\-–—]*(\d{1,6})\s*$/i))||
+  accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video|page|part|scan)[\s._\-–—#]*(\d{1,6})\s*$/i))||
   accept(base.match(/(\d{1,6})\s*$/i),{yearGuard:true});
   if(!matched){
-    const subject=String(a.subject||''),m=subject.match(/^(.{3,}?)\s*[\[(\{]\s*\d{1,6}\s*(?:\/|of)\s*\d{1,6}\s*[\])\}]/i);
-    if(m){const candidate=trimBase(m[1]);if(candidate.length>=3){base=candidate;matched=true}}
+    // Explicit leading counters: 01 - Vacation.jpg, [02] Vacation.jpg, #03_Vacation.jpg.
+    const m=stem.match(/^\s*[\[(\{#]?\s*(\d{1,6})\s*[\])\}]?[\s._\-–—]+(.{3,})$/i);
+    if(m){const n=Number(m[1]),candidate=trimBase(m[2]);if(n>0&&!(n>=1900&&n<=2099)&&candidate.length>=3){base=candidate;index=n;matched=true}}
   }
+  const subject=mediaSetSubjectSequence(a.subject),generic=/^(?:image|img|pic|photo|picture|frame|shot|scan|dsc|dscn|dcim|pict|vid|video|file|post|page|part)(?:\s*[a-z])?$/i.test(base);
+  // Numeric camera filenames are common across unrelated albums. Prefer a real
+  // indexed subject when its album identity is stronger than the filename stem.
+  if(subject&&(!matched||generic)){base=subject.base;index=subject.index;matched=true}
   if(!matched)return null;
-  const normalized=mediaSetNormalizeBase(base);return normalized.length>=3?{base,normalized,stem}:null
+  const normalized=mediaSetNormalizeBase(base);return normalized.length>=3?{base,normalized,stem,index}:null
 }
 function mediaSetKey(a){const seq=mediaSetSequenceBase(a);if(!seq)return'';return`${articleGroup(a)}|${a.media.kind}|${seq.normalized}|${mediaSetPosterKey(a.from)}`}
 function resetMediaSetIndex(){state.mediaSetIndexBuckets.clear();state.mediaSetIndexSingles.clear();state.mediaSetIndexValid=false}
@@ -1198,10 +1220,10 @@ function renderRelatedMediaPane(built=null,{incremental=false,changedKeys=null}=
   setBrowseSidePaneHeader('GROUPED SETS','Related Media',state.groupRelatedMedia?'LIVE':'OFF',state.groupRelatedMedia);
   els.previewContent.className='preview-content related-sets-content';
   if(!state.selectedGroup){els.previewContent.innerHTML=relatedSetPaneEmpty('▦','Choose a newsgroup','Related image and video sets discovered while browsing will appear here.');return true}
-  if(!state.groupRelatedMedia){els.previewContent.innerHTML=relatedSetPaneEmpty('▦','Group Related Media is off','Turn on Group related to move image/video sets out of the main browser and organize them here.');return true}
+  if(!state.groupRelatedMedia){els.previewContent.innerHTML=relatedSetPaneEmpty('▦','Image Sets are off','Every image and video appears individually in the main browser. Turn on Image Sets to group numbered sequences here.');return true}
   const grouped=built||(state.mediaSetIndexValid?mediaSetIndexSnapshot({includeUngrouped:false}):buildMediaSets(filteredArticles())),groups=[...grouped.groups].sort((a,b)=>mediaSetNewestArticle(b)-mediaSetNewestArticle(a));
   setBrowseSidePaneHeader('GROUPED SETS','Related Media',`${groups.length.toLocaleString()} SET${groups.length===1?'':'S'}`,groups.length>0);
-  if(!groups.length){els.previewContent.innerHTML=relatedSetPaneEmpty('◫','No related sets yet','Keep browsing. Sets appear here automatically after NewzDeck identifies at least three related media posts.');return true}
+  if(!groups.length){els.previewContent.innerHTML=relatedSetPaneEmpty('◫','No Image Sets yet','Keep browsing. Sets appear here after NewzDeck identifies three related, numbered media posts.');return true}
   const oldTop=Number(els.previewContent.scrollTop||0),oldHeight=Number(els.previewContent.scrollHeight||0),canIncrement=incremental&&!!els.previewContent.querySelector('.related-sets-list');
   if(!canIncrement){els.previewContent.innerHTML=relatedSetPaneSummaryMarkup(grouped)+`<div class="related-sets-list">${groups.map(mediaSetCard).join('')}</div>`;rebuildThumbnailHolderRegistry(els.previewContent,{clear:false});wireMediaSetCards(els.previewContent);wireThumbnailImages(els.previewContent);observeRelatedSetCovers(els.previewContent);scheduleRelatedSetCoverActivation();els.previewContent.scrollTop=Math.min(oldTop,Math.max(0,els.previewContent.scrollHeight-els.previewContent.clientHeight));return true}
   const summary=els.previewContent.querySelector('.related-sets-summary'),list=els.previewContent.querySelector('.related-sets-list');if(summary)summary.outerHTML=relatedSetPaneSummaryMarkup(grouped);
@@ -2690,7 +2712,7 @@ function onBrowseScrollPerformance(){
 }
 els.articlesList.addEventListener('scroll',onBrowseScrollPerformance,{passive:true});
 els.previewContent?.addEventListener('scroll',()=>scheduleRelatedSetCoverActivation(40),{passive:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.activeView==='browse')scheduleRelatedSetCoverActivation()});
-els.thumbnailSize.onchange=()=>{state.thumbnailSize=els.thumbnailSize.value;applyThumbnailSize();saveUiSettings();renderArticles()};els.continuousBrowseBtn.onclick=()=>{state.continuousMode=!state.continuousMode;updateContinuousButton();saveUiSettings();updateArticlePaging();renderArticles()};els.groupRelatedBtn.onclick=()=>{state.groupRelatedMedia=!state.groupRelatedMedia;state.activeMediaSetKey='';state.mediaSetStreamAnchors.clear();recalculatePreviewConcurrency();updateGroupRelatedButton();saveUiSettings();renderArticles({preserveScroll:false})};els.binaryPackagesBtn.onclick=()=>{if(state.groupBinarySets)return;state.groupBinarySets=true;state.nameResolutionAutoRemaining=Math.max(state.nameResolutionAutoRemaining,24);state.expandedBinarySets.clear();updateBrowseModeControls();saveUiSettings();renderArticles({preserveScroll:false})};els.rawPostsBtn.onclick=()=>{if(!state.groupBinarySets)return;state.groupBinarySets=false;state.expandedBinarySets.clear();updateBrowseModeControls();saveUiSettings();renderArticles({preserveScroll:false})};els.mutedPostersBtn.onclick=()=>{state.showBlockedPosters=!state.showBlockedPosters;updateMutedPostersButton();renderArticles()};
+els.thumbnailSize.onchange=()=>{state.thumbnailSize=els.thumbnailSize.value;applyThumbnailSize();saveUiSettings();renderArticles()};els.continuousBrowseBtn.onclick=()=>{state.continuousMode=!state.continuousMode;updateContinuousButton();saveUiSettings();updateArticlePaging();renderArticles()};els.groupRelatedBtn.onclick=()=>{state.groupRelatedMedia=!state.groupRelatedMedia;state.activeMediaSetKey='';state.mediaSetStreamAnchors.clear();resetMediaSetIndex();recalculatePreviewConcurrency();updateGroupRelatedButton();saveUiSettings();renderArticles({preserveScroll:false})};els.binaryPackagesBtn.onclick=()=>{if(state.groupBinarySets)return;state.groupBinarySets=true;state.nameResolutionAutoRemaining=Math.max(state.nameResolutionAutoRemaining,24);state.expandedBinarySets.clear();updateBrowseModeControls();saveUiSettings();renderArticles({preserveScroll:false})};els.rawPostsBtn.onclick=()=>{if(!state.groupBinarySets)return;state.groupBinarySets=false;state.expandedBinarySets.clear();updateBrowseModeControls();saveUiSettings();renderArticles({preserveScroll:false})};els.mutedPostersBtn.onclick=()=>{state.showBlockedPosters=!state.showBlockedPosters;updateMutedPostersButton();renderArticles()};
 if(els.articleStatusFilter)els.articleStatusFilter.onchange=()=>{state.articleStatusFilter=els.articleStatusFilter.value;renderArticles({preserveScroll:true});captureCurrentGroupState()};if(els.jumpFirstUnseenBtn)els.jumpFirstUnseenBtn.onclick=jumpToFirstUnseen;if(els.markAllSeenBtn)els.markAllSeenBtn.onclick=markAllCurrentGroupSeen;if(els.markSelectedSeenBtn)els.markSelectedSeenBtn.onclick=()=>markSelectedSeen(true);if(els.markSelectedUnseenBtn)els.markSelectedUnseenBtn.onclick=()=>markSelectedSeen(false);
 els.articleSearch.addEventListener('input',()=>scheduleLocalSearch(els.articleSearch.value));els.articleSearch.addEventListener('focus',showArticleSearchHistory);els.articleSearch.addEventListener('blur',hideArticleSearchHistory);window.addEventListener('resize',()=>{if(!els.articleSearchHistory?.classList.contains('hidden'))positionArticleSearchHistory()});document.querySelector('.media-browser-toolbar')?.addEventListener('scroll',()=>{if(!els.articleSearchHistory?.classList.contains('hidden'))positionArticleSearchHistory()},{passive:true});els.articleSearch.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.articleSearchTerm){e.preventDefault();clearArticleSearch();return}if(e.key==='Enter'){e.preventDefault();clearTimeout(state.articleSearchTimer);applyLocalSearch(els.articleSearch.value,{commit:true});els.articleSearchHistory?.classList.add('hidden')}});els.clearArticleSearchBtn.onclick=clearArticleSearch;
 els.entireGroupSearchBtn.onclick=openEntireGroupSearch;els.closeGroupSearchModalBtn.onclick=closeEntireGroupSearch;els.savedSearchSelect.onchange=()=>{state.activeSavedSearchId=els.savedSearchSelect.value;const x=state.savedSearches.find(v=>v.id===state.activeSavedSearchId);els.deleteSavedSearchBtn.disabled=!x;if(x)applyEntireSearchCriteria(x)};els.saveCurrentSearchBtn.onclick=saveCurrentSearch;els.deleteSavedSearchBtn.onclick=deleteSavedSearch;els.groupSearchModal.addEventListener('click',e=>{if(e.target===els.groupSearchModal)closeEntireGroupSearch()});els.startEntireGroupSearchBtn.onclick=startEntireGroupSearch;els.cancelEntireGroupSearchBtn.onclick=cancelEntireGroupSearch;els.viewEntireGroupSearchResultsBtn.onclick=viewEntireGroupSearchResults;els.entireGroupSearchInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();startEntireGroupSearch()}});els.exitGroupSearchBtn.onclick=exitEntireGroupSearch;

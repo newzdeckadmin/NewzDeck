@@ -2,15 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.7
+## Current release: v3.7.8
 
-**v3.7.7 is the current stable production release.**
+**v3.7.8 is the current stable production release.**
 
-The `v3.7.7` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.8` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.8 - Image Sets Detection & Controls.** Adds a clear persistent ON/OFF switch for Image Sets and recognizes leading filename counters and explicit subject-album sequences for generic media filenames, while preserving browsing and download performance.
 
 - **v3.7.7 - Newsgroups Splitter Cascade Hotfix.** Corrects the v3.7.6 CSS cascade so the splitter remains on the Newsgroups/Articles boundary and the live grid follows the persistent variable Newsgroups width.
 

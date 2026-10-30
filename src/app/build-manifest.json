@@ -1,24 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.7",
-  "base_version": "3.7.6",
-  "release": "Newsgroups Splitter Cascade Hotfix",
-  "adapter_version": "3.7.7",
-  "name": "Newsgroups Splitter Cascade Hotfix",
+  "version": "3.7.8",
+  "base_version": "3.7.7",
+  "release": "Image Sets Detection & Controls",
+  "adapter_version": "3.7.8",
+  "name": "Image Sets Detection & Controls",
   "sab_version": "5.1.2",
   "changes": [
-    "Fixes final CSS cascade so the splitter remains absolutely positioned on the Newsgroups/Articles boundary.",
-    "Fixes final workspace grid cascade so --groups-pane-width controls the visible Newsgroups track.",
-    "Adds final responsive variable-width grid rules and cascade-order regression coverage."
+    "Improves numbered Image Set identification using filename leading sequences and series labels.",
+    "Uses explicitly numbered post subjects to identify albums when image filenames are generic.",
+    "Makes Image Sets ON/OFF clear in the Newsgroups toolbar and Settings while reusing the existing persisted setting.",
+    "Switching OFF immediately restores the individual-image gallery/list and resets grouped-index state."
   ],
   "regression_guards": [
-    "v3.7.6 splitter JS/persistence/keyboard/reset behavior remains unchanged.",
-    "v3.7.5 Related Media grouping remains unchanged.",
-    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 remain unchanged."
+    "Three-member threshold, newsgroup/media-kind/poster isolation, and year guards remain.",
+    "v3.7.5 grouped Continuous-browsing article-key stabilization remains.",
+    "v3.7.7 splitter behavior and CSS are unchanged.",
+    "SABnzbd 5.1.2, SABCTools 9.6.3, managed updates and runtime processing remain unchanged."
   ],
   "preserved": [
-    "NNTP/download/thumbnail behavior, Automation, Smart Import, Backup & Restore, themes and updater lifecycle remain unchanged.",
-    "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain separate unchanged components."
+    "NNTP throughput/connection tuning, thumbnails, viewer, gallery virtualization, Direct Unpack and PAR2/repair.",
+    "Automation, Smart Import, Backup & Restore and all twelve themes.",
+    "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain unchanged."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

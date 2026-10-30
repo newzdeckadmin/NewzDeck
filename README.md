@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.7** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.8** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.7_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.8_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,16 +34,13 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.7 splitter placement hotfix
+## v3.7.8 Image Sets detection and controls
 
-v3.7.7 fixes the v3.7.6 Newsgroups divider so it stays between Newsgroups and Articles and actually controls the visible Newsgroups column width.
+Image Sets can now be turned **ON** or **OFF** directly in Newsgroups or from Settings. When OFF, every image appears individually in the normal gallery/list. When ON, related, numbered images and videos move to Related Media after at least three matching posts are identified.
 
-- **Correct placement:** final CSS keeps the splitter absolutely positioned on the full-height right edge of the Newsgroups pane.
-- **Real resizing:** the final workspace grid uses `--groups-pane-width`, so drag and keyboard resizing change the live column.
-- **Responsive:** compact layouts keep a variable Newsgroups width while narrow/mobile layouts keep the established single-pane behavior.
-- **Regression protected:** the release gate validates CSS cascade order so legacy panel/grid rules cannot silently override the splitter again.
+Detection now recognizes leading image numbers and named `page`, `part`, or `scan` sequences, and uses explicitly numbered subject/album context when filenames are generic such as `IMG_0001.jpg`.
 
-See [the full v3.7.7 release notes](release/RELEASE_NOTES_v3.7.7.md).
+The existing grouping preference, its persistence, Continuous browsing, Newsgroups splitter, download engine, and other runtime behavior are preserved. See [v3.7.8 release notes](release/RELEASE_NOTES_v3.7.8.md).
 
 ## Requirements
 
@@ -66,7 +63,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.7_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.8_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
