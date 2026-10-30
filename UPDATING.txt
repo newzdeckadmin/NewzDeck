@@ -1,9 +1,5 @@
-NewzDeck v3.7.6 update notes
+NewzDeck v3.7.7 update notes
 
-v3.7.6 is a focused Newsgroups UI usability update. It adds a resizable Newsgroups column with locally remembered width, responsive bounds, keyboard resizing, double-click reset, and full-name hover tooltips.
+v3.7.7 is a focused hotfix for the v3.7.6 Newsgroups splitter. It corrects CSS cascade conflicts that moved the divider to the bottom of the Newsgroups pane and prevented --groups-pane-width from controlling the live workspace grid.
 
-Existing settings, history, Automation data, queue state, provider configuration, backups, and other persistent data under %LOCALAPPDATA%\NewzDeck are preserved.
-
-About & Updates continues to download the canonical GitHub Release Setup asset, verify its published SHA-256, and launch the verified installer through the existing managed /SILENT lifecycle.
-
-No NNTP connection tuning, Related Media grouping, thumbnail scheduling, SABCTools 9.6.3, SABnzbd 5.1.2, Direct Unpack, PAR2/repair, post-processing, Automation, Smart Import, Backup & Restore, or theme behavior is intentionally changed.
+Existing application data and the locally saved Newsgroups pane width are preserved. No NNTP, Related Media, download, Automation, Smart Import, Backup & Restore, theme, or managed-updater behavior is intentionally changed.

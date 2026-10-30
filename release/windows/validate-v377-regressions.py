@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import json
+ROOT=Path(__file__).resolve().parents[2]; APP=ROOT/'src'/'app'
+def check(v,m):
+    if not v: raise SystemExit(m)
+server=(APP/'server.py').read_text(encoding='utf-8'); sab=(APP/'sab_engine.py').read_text(encoding='utf-8'); auto=(APP/'automation_engine.py').read_text(encoding='utf-8'); ui=(APP/'static/app.js').read_text(encoding='utf-8'); html=(APP/'static/index.html').read_text(encoding='utf-8'); css=(APP/'static/styles.css').read_text(encoding='utf-8'); man=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8')); tray=(ROOT/'src/windows/NewzDeckTray.go').read_text(encoding='utf-8'); wf=(ROOT/'.github/workflows/publish-release-trigger.yml').read_text(encoding='utf-8'); readme=(ROOT/'README.md').read_text(encoding='utf-8'); hist=(ROOT/'docs/SOURCE_RELEASES.md').read_text(encoding='utf-8'); website=(ROOT/'index.html').read_text(encoding='utf-8'); installer=(ROOT/'release/windows/NewzDeck.iss').read_text(encoding='utf-8')
+check((APP/'version.txt').read_text(encoding='utf-8').strip()=='3.7.7','version.txt stale')
+check('APP_VERSION = "3.7.7"' in server,'server version stale'); check('ADAPTER_VERSION = "3.7.7"' in sab,'adapter version stale'); check("const UI_VERSION = '3.7.7';" in ui,'UI version stale'); check("version='3.7.7'" in auto,'Automation fallback stale'); check('argValue("--version", "3.7.7")' in tray,'tray fallback stale')
+check(man.get('version')=='3.7.7' and man.get('base_version')=='3.7.6','manifest identity mismatch'); check(man.get('sab_version')=='5.1.2' and man.get('sabctools_version')=='9.6.3','download engine baseline changed')
+check(html.count('3.7.7-splitter-cascade-hotfix')==3 and '<span>v3.7.7</span>' in html,'app HTML identity stale')
+for m in ["const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';",'function groupsPaneWidthBounds(','function applyGroupsPaneWidth(','function initGroupsPaneResizer()','function mediaSetSequenceBase','liveCards.get(memberKey)']: check(m in ui,'preserved UI marker missing: '+m)
+hotfix=css.rfind('/* v3.7.7 - Newsgroups splitter cascade hotfix */'); check(hotfix>=0,'hotfix CSS missing'); check(css.rfind('.panel>*')<hotfix,'generic panel child rule after hotfix'); tail=css[hotfix:]
+for m in ['.workspace{grid-template-columns:var(--groups-pane-width) minmax(540px,1fr) minmax(300px,380px)}','.panel>.groups-pane-resizer{position:absolute;top:0;right:0;bottom:0;left:auto;width:10px;height:auto;z-index:40;display:block;flex:none;cursor:col-resize;touch-action:none;pointer-events:auto}','@media(max-width:1150px){.workspace{grid-template-columns:var(--groups-pane-width) minmax(0,1fr)}.preview-pane{display:none}}']: check(m in tail,'final CSS marker missing: '+m)
+check('SAB_VERSION = "5.1.2"' in sab,'SAB baseline changed'); check('ManagedSilentUpdate' in installer,'managed updater marker missing')
+check('Validate NewzDeck source and v3.7.7 regression guard' in wf and "if ($env:VERSION -cne '3.7.7')" in wf,'workflow gate stale'); check('validate-v377-regressions.py' in wf and 'node release/windows/validate-media-set-key.js' in wf and 'node release/windows/validate-groups-pane-resizer.js' in wf,'workflow tests missing'); check('NewzDeck-v377-smoke' in wf,'smoke dir stale')
+check('current stable release is **NewzDeck v3.7.7**' in readme and 'NewzDeck_v3.7.7_Setup.exe' in readme,'README stale'); check('## Current release: v3.7.7' in hist,'history stale'); check('\\n\\n' not in hist,'history contains literal escaped newlines'); check(website.count('v3.7.7')>=4,'website fallback stale'); check((ROOT/'release/RELEASE_NOTES_v3.7.7.md').is_file(),'release notes missing')
+print('validate-v377-regressions.py: PASS')

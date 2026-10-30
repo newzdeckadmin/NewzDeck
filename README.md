@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.6** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.7** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.6_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.7_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,18 +34,16 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.6 resizable Newsgroups pane
+## v3.7.7 splitter placement hotfix
 
-v3.7.6 makes the Newsgroups name column manually resizable without changing browsing or download behavior.
+v3.7.7 fixes the v3.7.6 Newsgroups divider so it stays between Newsgroups and Articles and actually controls the visible Newsgroups column width.
 
-- **Drag to resize:** grab the divider between Newsgroups and Articles and drag it left or right.
-- **Remembered width:** the chosen width is restored on later launches.
-- **Responsive protection:** NewzDeck limits the maximum width based on the available window size so Articles and Related Media remain usable.
-- **Accessible controls:** Left/Right Arrow resize the focused divider, Shift+Arrow uses larger steps, and double-click resets to the default width.
-- **Full-name hover:** truncated newsgroup names show the complete name on hover.
-- **v3.7.5 preserved:** Related Media grouping reliability and its regression coverage remain unchanged.
+- **Correct placement:** final CSS keeps the splitter absolutely positioned on the full-height right edge of the Newsgroups pane.
+- **Real resizing:** the final workspace grid uses `--groups-pane-width`, so drag and keyboard resizing change the live column.
+- **Responsive:** compact layouts keep a variable Newsgroups width while narrow/mobile layouts keep the established single-pane behavior.
+- **Regression protected:** the release gate validates CSS cascade order so legacy panel/grid rules cannot silently override the splitter again.
 
-See [the full v3.7.6 release notes](release/RELEASE_NOTES_v3.7.6.md).
+See [the full v3.7.7 release notes](release/RELEASE_NOTES_v3.7.7.md).
 
 ## Requirements
 
@@ -68,7 +66,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.6_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.7_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

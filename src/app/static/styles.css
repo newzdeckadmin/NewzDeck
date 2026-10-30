@@ -2324,3 +2324,13 @@ button.is-busy{cursor:progress;box-shadow:0 0 0 1px var(--nz-accent-a160,rgba(82
   .quality-builder-top,.quality-policy-grid,.quality-policy-grid-three{grid-template-columns:1fr}.quality-builder-section{padding:15px}.quality-ladder-row{grid-template-columns:30px minmax(0,1fr)}.quality-ladder-actions{grid-column:2;justify-self:start}
   .quality-profile-actions{flex-wrap:wrap}.quality-profile-actions .quality-profile-footer-note{order:3;width:100%}.quality-profile-footer-spacer{display:none}.quality-profile-actions .primary-btn{margin-left:auto}
 }
+
+/* v3.7.7 - Newsgroups splitter cascade hotfix */
+/* Final-cascade rules: legacy visual polish above must not override these. */
+.workspace{grid-template-columns:var(--groups-pane-width) minmax(540px,1fr) minmax(300px,380px)}
+.panel>.groups-pane-resizer{position:absolute;top:0;right:0;bottom:0;left:auto;width:10px;height:auto;z-index:40;display:block;flex:none;cursor:col-resize;touch-action:none;pointer-events:auto}
+.panel>.groups-pane-resizer:before{left:auto;right:1px;top:50%;width:3px;height:52px}
+.panel>.groups-pane-resizer:hover,.panel>.groups-pane-resizer:focus-visible,body.groups-pane-resizing .panel>.groups-pane-resizer{background:linear-gradient(90deg,transparent,var(--nz-accent-2-a080,rgba(109,167,255,.08)))}
+@media(max-width:1280px){.workspace{grid-template-columns:var(--groups-pane-width) minmax(500px,1fr) minmax(275px,330px)}}
+@media(max-width:1150px){.workspace{grid-template-columns:var(--groups-pane-width) minmax(0,1fr)}.preview-pane{display:none}}
+@media(max-width:760px){.workspace{grid-template-columns:1fr}.groups-pane{display:none}.panel>.groups-pane-resizer{display:none}}

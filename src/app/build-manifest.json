@@ -1,26 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.6",
-  "base_version": "3.7.5",
-  "release": "Resizable Newsgroups Pane",
-  "adapter_version": "3.7.6",
-  "name": "Resizable Newsgroups Pane",
+  "version": "3.7.7",
+  "base_version": "3.7.6",
+  "release": "Newsgroups Splitter Cascade Hotfix",
+  "adapter_version": "3.7.7",
+  "name": "Newsgroups Splitter Cascade Hotfix",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds a draggable Newsgroups/Articles splitter so the Newsgroups name column can be widened or narrowed manually.",
-    "Persists the presentation-only Newsgroups pane width locally and restores it across launches.",
-    "Clamps the pane width responsively to preserve usable Articles and Related Media space.",
-    "Adds keyboard resizing, double-click reset, and full-name hover tooltips for truncated newsgroup names."
+    "Fixes final CSS cascade so the splitter remains absolutely positioned on the Newsgroups/Articles boundary.",
+    "Fixes final workspace grid cascade so --groups-pane-width controls the visible Newsgroups track.",
+    "Adds final responsive variable-width grid rules and cascade-order regression coverage."
   ],
   "regression_guards": [
-    "The v3.7.5 Related Media grouping classifier and stable article-key promotion remain unchanged and keep their behavioral regression test.",
-    "Newsgroup loading, search, sorting, bookmarks, Recent history, tabs, and article browsing behavior remain unchanged.",
-    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 provenance remain unchanged.",
-    "The managed About & Updates Setup lifecycle remains unchanged."
+    "v3.7.6 splitter JS/persistence/keyboard/reset behavior remains unchanged.",
+    "v3.7.5 Related Media grouping remains unchanged.",
+    "Private SABnzbd 5.1.2 and SABCTools 9.6.3 remain unchanged."
   ],
   "preserved": [
-    "NNTP connection/concurrency behavior, thumbnail scheduling, gallery virtualization, Direct Unpack/post-processing and PAR2/repair.",
-    "Automation, Smart Import, Backup & Restore and all twelve themes.",
+    "NNTP/download/thumbnail behavior, Automation, Smart Import, Backup & Restore, themes and updater lifecycle remain unchanged.",
     "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 remain separate unchanged components."
   ],
   "sabctools_version": "9.6.3",
