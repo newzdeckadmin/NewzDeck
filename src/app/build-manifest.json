@@ -1,26 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.11",
-  "base_version": "3.7.10",
-  "release": "Image Integrity & Corrupt Preview Removal",
-  "adapter_version": "3.7.11",
-  "name": "Image Integrity & Corrupt Preview Removal",
+  "version": "3.7.12",
+  "base_version": "3.7.11",
+  "release": "Gallery Image Lifecycle & Viewer Hotfix",
+  "adapter_version": "3.7.12",
+  "name": "Gallery Image Lifecycle & Viewer Hotfix",
   "sab_version": "5.1.2",
   "changes": [
-    "Detects near-black noisy and partial gray/neutral decoder-fill previews on all four edges.",
-    "Ensures already loaded image checks and pending hide operations survive Continuous-browsing generation changes when article identity stays the same.",
-    "Verifies the exact article identity before removing a broken image card.",
-    "Keeps image-quality checks paced and uses 64x64 sampling with row/column fast-path statistics."
+    "Repairs stale article indices in gallery actions using stable article identity.",
+    "Adds a bounded 15-second loading watchdog for image elements missing load/error events.",
+    "Detects visible image cards with no image or loader after a grace period and removes them from browsing.",
+    "Registers viewer full-image error handling before URL assignment and suppresses verified decoder-failed images.",
+    "Runs integrity sweeps when Continuous browsing appends cards."
   ],
   "regression_guards": [
-    "v3.7.10 broken-image suppression and original image-quality tests are retained.",
-    "v3.7.9 bounded preview recovery and thumbnail admission remain unchanged.",
-    "v3.7.8 Image Sets ON/OFF and grouping remain unchanged.",
-    "v3.7.7 Newsgroups splitter and stable runtime remain unchanged."
+    "Preserves v3.7.11 visual corruption detection and its test.",
+    "Preserves v3.7.9 bounded preview recovery and v3.7.8 Image Sets ON/OFF settings.",
+    "Preserves NNTP, native thumbnail decoder, downloads, Automation and updater."
   ],
   "preserved": [
-    "NNTP, thumbnail transport/native decoder, Direct Unpack, PAR2 repair, Automation, Smart Import, Backup & Restore.",
-    "SABnzbd 5.1.2, SABCTools 9.6.3, Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 remain unchanged."
+    "SABnzbd 5.1.2 and SABCTools 9.6.3; no downloads or Usenet posts are deleted."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

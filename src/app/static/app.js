@@ -3,12 +3,12 @@ const state = {
   selectedGroup: '', articles: [], selectedArticleKey: '', selectedItems: new Map(), selectionAnchorKey: '', articlePage: 1, articlePaging: null, articleSearchTerm: '',
   loadedPages: new Set(), continuousMode: true, continuousLoading: false, thumbnailSize: 'medium', browseScrollTop: 0, browseSessionToken:'', browseAbortController:null, headerPrefetch:null, progressiveBinaryTimer:null, smartBinaryPending:false, browseScrollVelocity:0, browseScrollDirection:1, lastBrowseScrollTop:0, lastBrowseScrollTs:0, lastBrowseScrollPerfTs:0, thumbReleaseTimer:null, thumbCacheTrimTimer:null, continuousJumpHoldUntil:0, continuousJumpTimer:null, thumbGeometry:new Map(), thumbGeometryTs:0, thumbHolderRegistry:new Map(), thumbHolderRegistryStats:{hits:0,fallbacks:0}, speculativeThumbStats:{started:0,completed:0,cancelled:0},
   viewMode: 'gallery', previewCache: new Map(), previewPromises: new Map(), imageThumbCache: new Map(), imageThumbPromises: new Map(), setCoverImagePromises: new Map(), videoThumbCache: new Map(), videoThumbPromises: new Map(), thumbQueued: new Set(), thumbQueue: [],
-  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbHttpActive: 0, thumbHttpQueue: [], thumbHttpSeq: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbQualityQueue:[], thumbQualityTimer:null, thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, thumbDeferredRecoveryTimers:new Map(), unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(), mediaSetBrokenKeys:new Set(), mediaSetProbePromises:new Map(), mediaSetStreamAnchors:new Map(), mediaSetIndexBuckets:new Map(), mediaSetIndexSingles:new Map(), mediaSetIndexSeenKeys:new Map(), mediaSetIndexValid:false, relatedSetPaneKey:'', relatedCoverResumeTimer:null, relatedCoverStats:{started:0,completed:0,failed:0,totalQueueWaitMs:0,maxQueueWaitMs:0,totalRunMs:0,maxRunMs:0,domTargetMisses:0,orphanRepairs:0,activationPasses:0,cachePaints:0,activationQueues:0,queuePromotions:0,crossGenerationPaints:0,staleSessionDrops:0}, lastRelatedCoverSnapshot:'', galleryVirtualTopBatches:[], galleryVirtualTopHeight:0, galleryVirtualTimer:null, galleryVirtualBusy:false, unavailableHideQueue: new Map(), unavailableHideTimer: null,
+  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbHttpActive: 0, thumbHttpQueue: [], thumbHttpSeq: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbQualityQueue:[], thumbQualityTimer:null, emptyImageSweepTimer:null, thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, thumbDeferredRecoveryTimers:new Map(), unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(), mediaSetBrokenKeys:new Set(), mediaSetProbePromises:new Map(), mediaSetStreamAnchors:new Map(), mediaSetIndexBuckets:new Map(), mediaSetIndexSingles:new Map(), mediaSetIndexSeenKeys:new Map(), mediaSetIndexValid:false, relatedSetPaneKey:'', relatedCoverResumeTimer:null, relatedCoverStats:{started:0,completed:0,failed:0,totalQueueWaitMs:0,maxQueueWaitMs:0,totalRunMs:0,maxRunMs:0,domTargetMisses:0,orphanRepairs:0,activationPasses:0,cachePaints:0,activationQueues:0,queuePromotions:0,crossGenerationPaints:0,staleSessionDrops:0}, lastRelatedCoverSnapshot:'', galleryVirtualTopBatches:[], galleryVirtualTopHeight:0, galleryVirtualTimer:null, galleryVirtualBusy:false, unavailableHideQueue: new Map(), unavailableHideTimer: null,
   downloadSnapshot: {paused:false,jobs:[],collections:[],counts:{},folder:''}, downloadedIndex: new Set(), queuedIndex: new Set(), downloadIndexSignature:'', downloadFilter:'active', downloadHistoryLimit:50, downloadHistoryOffset:0, downloadHistoryLoaded:[], downloadHistorySearchTerm:'', downloadSearchTerm:'', selectedDownloads:new Set(), downloadSelectionAnchor:'', expandedDownloads:new Set(), expandedCollections:new Set(), postProgressMemory:new Map(), activeView:'browse', downloadOrganization:'flat',
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.11';
+const UI_VERSION = '3.7.12';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -642,7 +642,7 @@ function appendContinuousGallery(previousKeys){
     const template=document.createElement('template');template.innerHTML=additions.map(({a,index})=>galleryCard(a,index)).join('');const added=[...template.content.children];
     const sentinel=$('continuousSentinel');if(sentinel&&sentinel.parentElement===grid)grid.insertBefore(template.content,sentinel);else grid.appendChild(template.content);
     for(const card of added){rebuildThumbnailHolderRegistry(card,{clear:false});wireGalleryCards(card);wireThumbnailImages(card);observeThumbnails({reuse:true,root:card})}
-    updateNewContentBoundaryDom();scheduleBrowsingMemoryTrim();scheduleGalleryVirtualization();
+    updateNewContentBoundaryDom();scheduleBrowsingMemoryTrim();scheduleGalleryVirtualization();scheduleEmptyGalleryImageSweep();
   }
   updateArticleSearchUi(filteredArticles().length);updateSelectionBar();return true;
 }
@@ -1257,20 +1257,82 @@ function appendContinuousGroupedGallery(previousKeys){
   }
   if(itemHtml.length){template.innerHTML=itemHtml.join('');const sentinel=$('continuousSentinel');const added=[...template.content.children];if(sentinel&&sentinel.parentElement===grid)grid.insertBefore(template.content,sentinel);else grid.appendChild(template.content);newCards.push(...added)}
   for(const card of newCards){rebuildThumbnailHolderRegistry(card,{clear:false});wireGalleryCards(card);wireThumbnailImages(card);observeThumbnails({reuse:true,root:card})}
-  renderRelatedMediaPane(built,{incremental:true,changedKeys:built.changedKeys});if(removedExisting)restoreBrowsePosition(anchors,keep);updateNewContentBoundaryDom();scheduleBrowsingMemoryTrim();scheduleGalleryVirtualization();updateArticleSearchUi(items.length);updateSelectionBar();return true
+  renderRelatedMediaPane(built,{incremental:true,changedKeys:built.changedKeys});if(removedExisting)restoreBrowsePosition(anchors,keep);updateNewContentBoundaryDom();scheduleBrowsingMemoryTrim();scheduleGalleryVirtualization();scheduleEmptyGalleryImageSweep();updateArticleSearchUi(items.length);updateSelectionBar();return true
 }
 function renderGroupedGallery(items){
   const built=buildMediaSets(items),visible=built.ungrouped;
   const main=visible.length?visible.map(({a,index})=>galleryCard(a,index)).join(''):`<div class="grouped-main-empty"><span>▦</span><strong>Grouped media moved to Related Media</strong><small>Continue scrolling to discover individual posts and more sets.</small></div>`;
   els.articlesList.innerHTML=`<div class="media-grid">${main}${continuousSentinelMarkup()}</div>`;
-  wireGalleryCards();wireThumbnailImages();observeThumbnails();renderRelatedMediaPane(built,{incremental:false});updateNewContentBoundaryDom();scheduleGalleryVirtualization(260);return true
+  wireGalleryCards();wireThumbnailImages();observeThumbnails();scheduleEmptyGalleryImageSweep();renderRelatedMediaPane(built,{incremental:false});updateNewContentBoundaryDom();scheduleGalleryVirtualization(260);return true
 }
 function renderGallery(items){
   if(state.groupRelatedMedia){renderGroupedGallery(items);return}
   els.articlesList.innerHTML=`<div class="media-grid">${items.map(({a,index})=>galleryCard(a,index)).join('')}${continuousSentinelMarkup()}</div>`;
-  wireGalleryCards();wireThumbnailImages();observeThumbnails();renderRelatedMediaPane(null,{incremental:false});updateNewContentBoundaryDom();scheduleGalleryVirtualization(260);
+  wireGalleryCards();wireThumbnailImages();observeThumbnails();scheduleEmptyGalleryImageSweep();renderRelatedMediaPane(null,{incremental:false});updateNewContentBoundaryDom();scheduleGalleryVirtualization(260);
 }
-function wireGalleryCards(root=els.articlesList){const cards=root?.matches?.('.media-card')?[root]:[...(root?.querySelectorAll?.('.media-card')||[])];cards.forEach(card=>{if(card.dataset.galleryWired==='1')return;card.dataset.galleryWired='1';card.addEventListener('click',e=>{if(e.target.closest('.card-download-btn,.thumb-retry'))return;handleMediaSelectionClick(Number(card.dataset.index),e)});card.addEventListener('dblclick',e=>{if(e.target.closest('.card-download-btn,.thumb-retry'))return;const a=state.articles[Number(card.dataset.index)];if(['image','video'].includes(a?.media?.kind)&&a.complete){e.preventDefault();state.activeMediaSetKey='';openMediaViewer(a)}});card.addEventListener('contextmenu',e=>{e.preventDefault();const a=state.articles[Number(card.dataset.index)];if(!a)return;showContextMenu(e.clientX,e.clientY,[{label:'Open viewer',action:()=>{state.activeMediaSetKey='';openMediaViewer(a)}},{label:'Add to download queue',disabled:!isSelectableMedia(a),action:()=>downloadItems([a])},{separator:true},{label:isArticleSeen(a)?'Mark post unseen':'Mark post seen',action:()=>setArticlesSeen([a],!isArticleSeen(a),{toastResult:true})},{separator:true},{label:'Copy filename',action:()=>copyText(a.media?.filename||a.subject)},{label:'Copy subject',action:()=>copyText(a.subject||'')},{label:'Copy Message-ID',action:()=>copyText(a.message_id||'')},{separator:true},{label:isPosterBlocked(a)?'Unmute this poster':'Mute this poster',action:()=>mutePoster(a.from)},{label:'Filter to this poster',action:()=>{state.articleSearchTerm=`from:${a.from}`;els.articleSearch.value=state.articleSearchTerm;renderArticles()}},{label:'Select item',action:()=>{state.selectedArticleKey=articleKey(a);updateActiveArticleDomInPlace()}}])})});els.articlesList.querySelectorAll('.card-download-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();downloadItems([state.articles[Number(btn.dataset.index)]],btn)});els.articlesList.querySelectorAll('[data-retry-thumb]').forEach(btn=>btn.onclick=e=>{e.stopPropagation();const index=Number(btn.dataset.retryThumb),a=state.articles[index];if(a)state.thumbFailureCache.delete(previewKey(a));renderArticles()})}
+// v3.7.12: never use a stale numeric card index to open a different article.
+function stableGalleryCardIndex(card){
+  if(!card)return -1;
+  const stable=String(card.dataset.articleKey||'');
+  let index=Number(card.dataset.index);
+  if(!Number.isInteger(index)||index<0)index=-1;
+  const current=index>=0?state.articles[index]:null;
+  if(stable&&articleKey(current)!==stable){
+    index=state.articles.findIndex(a=>a&&articleKey(a)===stable);
+    if(index>=0){card.dataset.index=String(index);const button=card.querySelector('.card-download-btn');if(button)button.dataset.index=String(index);card.querySelectorAll('[data-thumb-image-index]').forEach(n=>n.dataset.thumbImageIndex=String(index));card.querySelectorAll('[data-thumb-index]').forEach(n=>n.dataset.thumbIndex=String(index));}
+  }
+  return index>=0&&state.articles[index]&&(!stable||articleKey(state.articles[index])===stable)?index:-1;
+}
+function stableGalleryCardArticle(card){const index=stableGalleryCardIndex(card);return index>=0?state.articles[index]:null}
+// Only a confirmed browser decoder stall is escalated; normal delayed images
+// remain eligible for the pre-existing thumbnail/fallback recovery path.
+function armGalleryImageLoadWatchdog(img){
+  if(!img||img.dataset.thumbWatchdogArmed==='1')return;
+  img.dataset.thumbWatchdogArmed='1';
+  const stableCard=img.closest('.media-card'),stable=String(stableCard?.dataset.articleKey||''),role=img.dataset.thumbRole||'item',group=state.selectedGroup,provider=state.providerId;
+  if(role!=='item'||!stableCard||!stable)return;
+  setTimeout(()=>{
+    if(!img.isConnected||group!==state.selectedGroup||provider!==state.providerId)return;
+    const card=img.closest('.media-card');if(card!==stableCard||card.dataset.articleKey!==stable)return;
+    const index=stableGalleryCardIndex(card),a=index>=0?state.articles[index]:null;
+    if(!a||a.media?.kind!=='image'||articleKey(a)!==stable)return;
+    if(img.complete&&img.naturalWidth>0&&img.naturalHeight>0){handleThumbnailImageLoaded(img);return}
+    // A card with an image element that has made no decoding progress for
+    // 15 seconds must not remain an uninspectable dark rectangle indefinitely.
+    if(!img.complete||!img.naturalWidth||!img.naturalHeight)recoverBrokenThumbnail(img);
+  },15000);
+}
+// Rendering or virtualization may leave an empty thumbnail stage with no
+// spinner and no image. Inspect only visible finished-image cards and never
+// classify a normal loading/error holder or an offscreen card as corrupt.
+function sweepEmptyGalleryImageStages(){
+  let needsRescan=false;
+  if(state.activeView!=='browse'||!els.articlesList||isAllPostsMode())return;
+  const root=els.articlesList.getBoundingClientRect();
+  for(const card of els.articlesList.querySelectorAll('.media-grid > .media-card[data-article-key]')){
+    const rect=card.getBoundingClientRect();if(rect.bottom<root.top||rect.top>root.bottom)continue;
+    const index=stableGalleryCardIndex(card),a=index>=0?state.articles[index]:null;
+    if(!a||a.media?.kind!=='image'||!a.complete||state.unpreviewableMediaKeys.has(previewKey(a)))continue;
+    const stage=card.querySelector('.thumb-stage');if(!stage)continue;
+    const img=stage.querySelector('img.thumb-img');if(img){
+      if(img.complete&&img.naturalWidth>0&&img.naturalHeight>0&&img.dataset.thumbLoadHandled!=='1')handleThumbnailImageLoaded(img);
+      else if(!img.complete||!img.naturalWidth||!img.naturalHeight)armGalleryImageLoadWatchdog(img);
+      continue;
+    }
+    if(stage.querySelector('.thumb-loader,.thumb-error,.post-placeholder,.video-placeholder'))continue;
+    const since=Number(card.dataset.emptyImageStageSince||0);
+    if(!since){card.dataset.emptyImageStageSince=String(Date.now());needsRescan=true;continue}
+    if(Date.now()-since<5000){needsRescan=true;continue}
+    const info={code:'missing_image_visual',label:'Unavailable image',message:'No thumbnail or image was rendered for this post.',retryable:false};
+    rememberPreviewUnavailable(a,info);queueUnavailableMediaHide(a,index,'item');
+  }
+  if(needsRescan)scheduleEmptyGalleryImageSweep();
+}
+function scheduleEmptyGalleryImageSweep(){
+  if(state.emptyImageSweepTimer)return;
+  state.emptyImageSweepTimer=setTimeout(()=>{state.emptyImageSweepTimer=null;sweepEmptyGalleryImageStages();},6500);
+}
+function wireGalleryCards(root=els.articlesList){const cards=root?.matches?.('.media-card')?[root]:[...(root?.querySelectorAll?.('.media-card')||[])];cards.forEach(card=>{if(card.dataset.galleryWired==='1')return;card.dataset.galleryWired='1';card.addEventListener('click',e=>{if(e.target.closest('.card-download-btn,.thumb-retry'))return;{const index=stableGalleryCardIndex(card);if(index>=0)handleMediaSelectionClick(index,e)}});card.addEventListener('dblclick',e=>{if(e.target.closest('.card-download-btn,.thumb-retry'))return;const a=stableGalleryCardArticle(card);if(['image','video'].includes(a?.media?.kind)&&a.complete){e.preventDefault();state.activeMediaSetKey='';openMediaViewer(a)}});card.addEventListener('contextmenu',e=>{e.preventDefault();const a=stableGalleryCardArticle(card);if(!a)return;showContextMenu(e.clientX,e.clientY,[{label:'Open viewer',action:()=>{state.activeMediaSetKey='';openMediaViewer(a)}},{label:'Add to download queue',disabled:!isSelectableMedia(a),action:()=>downloadItems([a])},{separator:true},{label:isArticleSeen(a)?'Mark post unseen':'Mark post seen',action:()=>setArticlesSeen([a],!isArticleSeen(a),{toastResult:true})},{separator:true},{label:'Copy filename',action:()=>copyText(a.media?.filename||a.subject)},{label:'Copy subject',action:()=>copyText(a.subject||'')},{label:'Copy Message-ID',action:()=>copyText(a.message_id||'')},{separator:true},{label:isPosterBlocked(a)?'Unmute this poster':'Mute this poster',action:()=>mutePoster(a.from)},{label:'Filter to this poster',action:()=>{state.articleSearchTerm=`from:${a.from}`;els.articleSearch.value=state.articleSearchTerm;renderArticles()}},{label:'Select item',action:()=>{state.selectedArticleKey=articleKey(a);updateActiveArticleDomInPlace()}}])})});els.articlesList.querySelectorAll('.card-download-btn').forEach(btn=>btn.onclick=e=>{e.stopPropagation();{const card=btn.closest('.media-card'),a=stableGalleryCardArticle(card);if(a)downloadItems([a],btn)}});els.articlesList.querySelectorAll('[data-retry-thumb]').forEach(btn=>btn.onclick=e=>{e.stopPropagation();const card=btn.closest('.media-card'),index=stableGalleryCardIndex(card),a=index>=0?state.articles[index]:null;if(a)state.thumbFailureCache.delete(previewKey(a));renderArticles()})}
 function activeThumbFailure(a){const key=previewKey(a),f=state.thumbFailureCache.get(key);if(!f)return null;if(Date.now()>Number(f.expires||0)){state.thumbFailureCache.delete(key);return null}return f}
 function thumbFailureMarkup(f,kind,index){const retry=f.info?.retryable===false?'':`<button type="button" class="thumb-retry" data-retry-thumb="${index}">Retry</button>`;return `<div class="thumb-error cached-thumb-error"><span>!</span><small>${kind==='video'?'Video thumbnail unavailable':'Preview unavailable'}</small><em class="error-label">${escapeHtml(f.info?.label||'Preview unavailable')}</em>${retry}</div>`}
 function updateNewContentBoundaryDom(){
@@ -2023,7 +2085,7 @@ function handleThumbnailImageLoaded(img){
 function wireThumbnailImages(root=els.articlesList){
   root?.querySelectorAll('img.thumb-img[data-thumb-image-index]:not([data-thumb-image-wired])').forEach(img=>{
     img.dataset.thumbImageWired='1';img.addEventListener('load',()=>handleThumbnailImageLoaded(img),{once:true});img.addEventListener('error',()=>recoverBrokenThumbnail(img),{once:true});
-    if(img.complete)queueMicrotask(()=>{if(!img.isConnected)return;if(img.naturalWidth&&img.naturalHeight)handleThumbnailImageLoaded(img);else recoverBrokenThumbnail(img)});
+    armGalleryImageLoadWatchdog(img);if(img.complete)queueMicrotask(()=>{if(!img.isConnected)return;if(img.naturalWidth&&img.naturalHeight)handleThumbnailImageLoaded(img);else recoverBrokenThumbnail(img)});
   });
 }
 async function recoverBrokenThumbnail(img){
@@ -2043,7 +2105,7 @@ function replaceThumbnailHolderWithImage(holder,index,url,role='item',{isVideo=f
   img.addEventListener('error',()=>recoverBrokenThumbnail(img),{once:true});
   holder.replaceWith(img);registerThumbnailHolderNode(img,index,role);
   if(isVideo)img.insertAdjacentHTML('afterend','<div class="video-play-overlay"><span>▶</span></div>');
-  img.src=url;return img;
+  img.src=url;armGalleryImageLoadWatchdog(img);return img;
 }
 function updateMediaSetCoverDom(task,sourceIndex,data,sourceArticleKey=''){
   const setKey=String(task?.setKey||''),card=relatedSetCardByKey(setKey),stableKey=String(sourceArticleKey||task?.sourceArticleKey||'');let liveIndex=Number(sourceIndex),a=state.articles[liveIndex];if(stableKey&&(!a||articleKey(a)!==stableKey)){const found=state.articles.findIndex(x=>articleKey(x)===stableKey);if(found>=0){liveIndex=found;a=state.articles[found]}}if(!a||!data?.url)return false;if(card?.querySelector('.media-set-cover .thumb-img'))return true;let holder=card?.querySelector('.media-set-cover .thumb-loader,.media-set-cover .thumb-error')||thumbnailHolder(Number(task?.index),'set-cover');if(!holder){state.relatedCoverStats.domTargetMisses++;scheduleRelatedSetCoverActivation();return false}
@@ -2206,7 +2268,15 @@ async function renderMediaViewer(a,{keepMode=false}={}){
   try{
     const data=await fetchPrepared(a);if(!state.viewerOpen||state.viewerKey!==key)return;
     if(isVideo){els.viewerStage.innerHTML=`<video class="viewer-video" controls autoplay preload="metadata" src="${data.url}"></video>`;const video=els.viewerStage.querySelector('video');video?.addEventListener('loadedmetadata',()=>{if(!state.viewerOpen||state.viewerKey!==key)return;const dims=video.videoWidth&&video.videoHeight?` • ${video.videoWidth.toLocaleString()}×${video.videoHeight.toLocaleString()}`:'';els.viewerMeta.textContent=`${a.from||'Unknown poster'} • ${formatBytes(data.size||a.bytes)}${dims}${Number.isFinite(video.duration)?' • '+formatDuration(video.duration):''} • ${shortDate(a.date)}`;updateViewerInfo(a,{...data,width:video.videoWidth,height:video.videoHeight})},{once:true})}
-    else{const img=document.createElement('img');img.alt=data.filename||a.media.filename||'';img.draggable=false;img.src=data.url;els.viewerStage.replaceChildren(img);const loaded=()=>{if(!state.viewerOpen||state.viewerKey!==key)return;const dims=img.naturalWidth&&img.naturalHeight?` • ${img.naturalWidth.toLocaleString()}×${img.naturalHeight.toLocaleString()}`:'';els.viewerMeta.textContent=`${a.from||'Unknown poster'} • ${formatBytes(data.size||a.bytes)}${dims} • ${shortDate(a.date)}`;updateViewerInfo(a,{...data,width:img.naturalWidth,height:img.naturalHeight});applyViewerZoom()};if(img.complete&&img.naturalWidth)loaded();else img.addEventListener('load',loaded,{once:true})}
+    else{const img=document.createElement('img');img.alt=data.filename||a.media.filename||'';img.draggable=false;els.viewerStage.replaceChildren(img);const loaded=()=>{if(!state.viewerOpen||state.viewerKey!==key)return;const dims=img.naturalWidth&&img.naturalHeight?` • ${img.naturalWidth.toLocaleString()}×${img.naturalHeight.toLocaleString()}`:'';els.viewerMeta.textContent=`${a.from||'Unknown poster'} • ${formatBytes(data.size||a.bytes)}${dims} • ${shortDate(a.date)}`;updateViewerInfo(a,{...data,width:img.naturalWidth,height:img.naturalHeight});applyViewerZoom()};img.addEventListener('load',loaded,{once:true});
+      img.addEventListener('error',()=>{
+        if(!state.viewerOpen||state.viewerKey!==key)return;
+        const index=state.articles.findIndex(x=>articleKey(x)===key);
+        const info={code:'viewer_image_decode_failed',label:'Broken image',message:'The full image could not be decoded in the viewer.',retryable:false};
+        if(index>=0){rememberPreviewUnavailable(a,info);queueUnavailableMediaHide(a,index,'item');toast('Removed an image that could not open in the viewer.');}
+        else els.viewerStage.innerHTML='<div class=\"viewer-error\">Image unavailable</div>';
+      },{once:true});
+      img.src=data.url;if(img.complete&&img.naturalWidth)loaded();else if(img.complete&&!img.naturalWidth)img.dispatchEvent(new Event('error'));}
     applyViewerZoom();scheduleViewerPreload();
   }catch(e){if(state.viewerOpen&&state.viewerKey===key)els.viewerStage.innerHTML=`<div class="viewer-error"><strong>Could not load ${isVideo?'video':'image'}</strong><span>${escapeHtml(e.message)}</span></div>`}
 }

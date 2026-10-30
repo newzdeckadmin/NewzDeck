@@ -1,5 +1,3 @@
-NewzDeck v3.7.11 - Image Integrity & Corrupt Preview Removal
+NewzDeck v3.7.12 - Gallery Image Lifecycle & Viewer Hotfix
 
-More reliable filtering of blank and partially corrupted image previews in Images/Media browsing, including noisy near-black and half-gray decoded images. The quality-check and hide queues now preserve same-article work across Continuous browsing.
-
-NNTP, SABnzbd 5.1.2, SABCTools 9.6.3, native thumbnail decoder, downloads, Automation, image-set settings, and managed updates are unchanged.
+Fixes unresponsive gallery viewer actions when card indices become stale, bounded image load/error watchdog, empty image-stage cleanup, and full-image viewer decode error handling. All existing preview, image-set and download settings are preserved.

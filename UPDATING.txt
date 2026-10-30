@@ -1,3 +1,3 @@
-NewzDeck v3.7.11 update notes
+NewzDeck v3.7.12 update notes
 
-Visual checks more reliably suppress blank, partially loaded, gray-filled or corrupted image previews. Existing image settings, persistent thumbnail cache, downloads, history, provider configuration and all other persistent user data remain unchanged. Only unusable preview cards are filtered out in this browsing session; no downloaded files or Usenet posts are deleted.
+This UI-only gallery lifecycle fix prevents empty preview cards and stale viewer actions. Images are hidden only from the current browser session. Downloads, cached sources, provider settings, and persistent user data remain unchanged.
