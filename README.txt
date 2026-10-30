@@ -1,3 +1,3 @@
-NewzDeck v3.7.12 - Gallery Image Lifecycle & Viewer Hotfix
+NewzDeck v3.7.13 - Deferred Preview Terminal Cleanup
 
-Fixes unresponsive gallery viewer actions when card indices become stale, bounded image load/error watchdog, empty image-stage cleanup, and full-image viewer decode error handling. All existing preview, image-set and download settings are preserved.
+Deferred image recovery now has a stable end-to-end deadline across scrolling and redraws. Images that cannot recover are removed from the browsing view. No Usenet posts, downloaded files, or personal settings are deleted.

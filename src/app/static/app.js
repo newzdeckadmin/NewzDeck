@@ -3,12 +3,12 @@ const state = {
   selectedGroup: '', articles: [], selectedArticleKey: '', selectedItems: new Map(), selectionAnchorKey: '', articlePage: 1, articlePaging: null, articleSearchTerm: '',
   loadedPages: new Set(), continuousMode: true, continuousLoading: false, thumbnailSize: 'medium', browseScrollTop: 0, browseSessionToken:'', browseAbortController:null, headerPrefetch:null, progressiveBinaryTimer:null, smartBinaryPending:false, browseScrollVelocity:0, browseScrollDirection:1, lastBrowseScrollTop:0, lastBrowseScrollTs:0, lastBrowseScrollPerfTs:0, thumbReleaseTimer:null, thumbCacheTrimTimer:null, continuousJumpHoldUntil:0, continuousJumpTimer:null, thumbGeometry:new Map(), thumbGeometryTs:0, thumbHolderRegistry:new Map(), thumbHolderRegistryStats:{hits:0,fallbacks:0}, speculativeThumbStats:{started:0,completed:0,cancelled:0},
   viewMode: 'gallery', previewCache: new Map(), previewPromises: new Map(), imageThumbCache: new Map(), imageThumbPromises: new Map(), setCoverImagePromises: new Map(), videoThumbCache: new Map(), videoThumbPromises: new Map(), thumbQueued: new Set(), thumbQueue: [],
-  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbHttpActive: 0, thumbHttpQueue: [], thumbHttpSeq: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbQualityQueue:[], thumbQualityTimer:null, emptyImageSweepTimer:null, thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, thumbDeferredRecoveryTimers:new Map(), unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(), mediaSetBrokenKeys:new Set(), mediaSetProbePromises:new Map(), mediaSetStreamAnchors:new Map(), mediaSetIndexBuckets:new Map(), mediaSetIndexSingles:new Map(), mediaSetIndexSeenKeys:new Map(), mediaSetIndexValid:false, relatedSetPaneKey:'', relatedCoverResumeTimer:null, relatedCoverStats:{started:0,completed:0,failed:0,totalQueueWaitMs:0,maxQueueWaitMs:0,totalRunMs:0,maxRunMs:0,domTargetMisses:0,orphanRepairs:0,activationPasses:0,cachePaints:0,activationQueues:0,queuePromotions:0,crossGenerationPaints:0,staleSessionDrops:0}, lastRelatedCoverSnapshot:'', galleryVirtualTopBatches:[], galleryVirtualTopHeight:0, galleryVirtualTimer:null, galleryVirtualBusy:false, unavailableHideQueue: new Map(), unavailableHideTimer: null,
+  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbHttpActive: 0, thumbHttpQueue: [], thumbHttpSeq: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbQualityQueue:[], thumbQualityTimer:null, emptyImageSweepTimer:null, thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, thumbDeferredRecoveryTimers:new Map(), thumbDeferredRecoveryStarted:new Map(), unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(), mediaSetBrokenKeys:new Set(), mediaSetProbePromises:new Map(), mediaSetStreamAnchors:new Map(), mediaSetIndexBuckets:new Map(), mediaSetIndexSingles:new Map(), mediaSetIndexSeenKeys:new Map(), mediaSetIndexValid:false, relatedSetPaneKey:'', relatedCoverResumeTimer:null, relatedCoverStats:{started:0,completed:0,failed:0,totalQueueWaitMs:0,maxQueueWaitMs:0,totalRunMs:0,maxRunMs:0,domTargetMisses:0,orphanRepairs:0,activationPasses:0,cachePaints:0,activationQueues:0,queuePromotions:0,crossGenerationPaints:0,staleSessionDrops:0}, lastRelatedCoverSnapshot:'', galleryVirtualTopBatches:[], galleryVirtualTopHeight:0, galleryVirtualTimer:null, galleryVirtualBusy:false, unavailableHideQueue: new Map(), unavailableHideTimer: null,
   downloadSnapshot: {paused:false,jobs:[],collections:[],counts:{},folder:''}, downloadedIndex: new Set(), queuedIndex: new Set(), downloadIndexSignature:'', downloadFilter:'active', downloadHistoryLimit:50, downloadHistoryOffset:0, downloadHistoryLoaded:[], downloadHistorySearchTerm:'', downloadSearchTerm:'', selectedDownloads:new Set(), downloadSelectionAnchor:'', expandedDownloads:new Set(), expandedCollections:new Set(), postProgressMemory:new Map(), activeView:'browse', downloadOrganization:'flat',
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.12';
+const UI_VERSION = '3.7.13';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -2071,7 +2071,7 @@ function runLoadedImageQualityChecks(){
   if(img.isConnected&&a?.media?.kind==='image'&&articleKey(a)===stable&&group===state.selectedGroup&&provider===state.providerId){
     const reason=inspectLoadedImagePreview(img);
     if(reason)suppressBrokenPreview(img,reason);
-    else state.thumbImageRecovery.delete(previewKey(a));
+    else {state.thumbImageRecovery.delete(previewKey(a));state.thumbDeferredRecoveryStarted.delete(previewKey(a));}
   }
   if(state.thumbQualityQueue.length)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,16);
 }
@@ -2128,7 +2128,7 @@ function thumbnailFailureSkipsFullFallback(error){
 function isDefinitiveUnsupportedMedia(info){return info?.retryable===false&&['decode_failed','browser-decode-failed','ffmpeg-required'].includes(info.code)}
 function rememberPreviewUnavailable(a,info){
   if(!a)return false;
-  const key=previewKey(a);state.unpreviewableMediaKeys.add(key);if(state.groupRelatedMedia)state.mediaSetIndexValid=false;
+  const key=previewKey(a);state.thumbDeferredRecoveryStarted.delete(key);state.unpreviewableMediaKeys.add(key);if(state.groupRelatedMedia)state.mediaSetIndexValid=false;
   if(isDefinitiveUnsupportedMedia(info))state.unsupportedMediaKeys.add(key);
   state.thumbFailureCache.set(key,{info,expires:isDefinitiveUnsupportedMedia(info)?Number.MAX_SAFE_INTEGER:Date.now()+(info.retryable?120000:1800000)});
   const articleId=articleKey(a);state.selectedItems.delete(articleId);if(state.selectedArticleKey===articleId){state.selectedArticleKey='';resetPreview()}if(state.viewerKey===articleId)closeMediaViewer();
@@ -2164,29 +2164,60 @@ function queueUnavailableMediaHide(a,index,role='item'){
 function hideUnavailableArticleByKey(a){const index=state.articles.findIndex(x=>articleKey(x)===articleKey(a));return index>=0?hideUnavailableMediaInPlace(a,index,'item'):false}
 function scheduleDeferredFullPreviewRecovery(index,role='item'){
   const a=state.articles[index];if(!a?.media||a.media.kind!=='image')return;
-  const generation=state.galleryGeneration,group=state.selectedGroup,provider=state.providerId,stable=articleKey(a),pkey=previewKey(a),timerKey=`${generation}|${index}|${role}|${pkey}`;
+  const group=state.selectedGroup,provider=state.providerId,stable=articleKey(a),pkey=previewKey(a),timerKey=`${provider}|${group}|${stable}|${role}`;
   if(state.thumbDeferredRecoveryTimers.has(timerKey))return;
+  const starts=state.thumbDeferredRecoveryStarted||(state.thumbDeferredRecoveryStarted=new Map());
+  const initial=thumbnailHolder(index,role),saved=Number(starts.get(pkey)||0),element=Number(initial?.dataset?.thumbDeferredSince||0),started=saved||element||Date.now();
+  if(!saved)starts.set(pkey,started);
+  if(initial?.dataset?.thumbDeferredRecovery==='1')initial.dataset.thumbDeferredSince=String(started);
   const clear=()=>state.thumbDeferredRecoveryTimers.delete(timerKey);
   const tick=()=>{
-    if(generation!==state.galleryGeneration||group!==state.selectedGroup||provider!==state.providerId||articleKey(state.articles[index])!==stable){clear();return}
-    const holder=thumbnailHolder(index,role);if(!holder?.isConnected||holder.dataset.thumbDeferredRecovery!=='1'){clear();return}
-    const root=els.articlesList.getBoundingClientRect(),r=holder.getBoundingClientRect(),visible=r.bottom>root.top&&r.top<root.bottom;
-    if(!visible){clear();return}
-    const elapsed=Math.max(0,Date.now()-Number(holder.dataset.thumbDeferredSince||Date.now()));
-    if(elapsed>=THUMB_DEFER_MAX_MS){
-      // A full-preview lane that never frees must not leave a permanent loading card.
-      clear();markThumbnailError(index,new Error('Preview recovery is busy. Use Retry to try again.'),'image',role);return;
+    if(group!==state.selectedGroup||provider!==state.providerId){clear();return}
+    const liveIndex=state.articles.findIndex(item=>item&&articleKey(item)===stable);
+    if(liveIndex<0||state.unpreviewableMediaKeys?.has(pkey)){clear();return}
+    const holder=thumbnailHolder(liveIndex,role),elapsed=Math.max(0,Date.now()-started);
+    const active=!!state.thumbEscalations.get(pkey)||holder?.dataset?.thumbDeferredRecovery==='running';
+    if(elapsed>=THUMB_DEFER_MAX_MS&&!active){
+      // Terminal failure is based on stable article identity, not the current
+      // loader DOM node. Offscreen/virtualized cards still reach this deadline.
+      clear();const error=new Error('Deferred image recovery exceeded its deadline.');error.deferredRecoveryExpired=true;
+      markThumbnailError(liveIndex,error,'image',role);return;
     }
-    if(state.thumbEscalationActive<1&&thumbnailDeferredRecoveryReady(elapsed)){
-      clear();if(escalateVisibleImageThumbnail(index,role,{force:true}))return;
+    if(active){
+      // An actual full-image recovery owns its separate 12-second request timeout.
+      // Keep the timer alive as a safety net for a failed/missing completion.
+      if(elapsed>=THUMB_DEFER_MAX_MS+THUMB_RECOVERY_TIMEOUT_MS+1200){clear();const error=new Error('Full-image recovery did not finish.');error.deferredRecoveryExpired=true;markThumbnailError(liveIndex,error,'image',role);return}
+      state.thumbDeferredRecoveryTimers.set(timerKey,setTimeout(tick,THUMB_DEFER_RETRY_MS));return;
     }
+    if(holder?.isConnected&&holder.dataset.thumbDeferredRecovery==='1'){
+      const root=els.articlesList.getBoundingClientRect(),r=holder.getBoundingClientRect(),visible=r.bottom>root.top&&r.top<root.bottom;
+      if(visible&&state.thumbEscalationActive<1&&thumbnailDeferredRecoveryReady(elapsed)){
+        clear();if(escalateVisibleImageThumbnail(liveIndex,role,{force:true}))return;
+      }
+    }
+    // Even if the holder is offscreen, removed during virtualization, or
+    // replaced by another loader, continue until it recovers or expires.
     state.thumbDeferredRecoveryTimers.set(timerKey,setTimeout(tick,THUMB_DEFER_RETRY_MS));
   };
   state.thumbDeferredRecoveryTimers.set(timerKey,setTimeout(tick,THUMB_DEFER_RETRY_MS));
 }
 function markThumbnailError(index,error,kind='image',role='item',setKey=''){
-  const info=friendlyPreviewError(error),a=state.articles[index];
-  if(error?.deferFullPreview&&a&&role==='item'){const holder=thumbnailHolder(index,role);if(holder){holder.className='thumb-loader';holder.setAttribute('data-thumb-index',String(index));holder.dataset.thumbRole=role;holder.dataset.thumbDeferredRecovery='1';if(!holder.dataset.thumbDeferredSince)holder.dataset.thumbDeferredSince=String(Date.now());registerThumbnailHolderNode(holder,index,role);holder.innerHTML='<span></span><small>Waiting briefly for preview recovery…</small>'}scheduleDeferredFullPreviewRecovery(index,role);return}
+  const info=friendlyPreviewError(error),a=state.articles[index],pkey=a?previewKey(a):'';
+  if(a&&role==='item'&&kind==='image'&&state.unpreviewableMediaKeys.has(pkey))return;
+  // v3.7.13: a deferred preview must conclude in an image or a gallery removal,
+  // never an indefinitely renewed loader or a permanent Retry card.
+  if(a&&role==='item'&&kind==='image'&&(error?.deferredRecoveryExpired||(!error?.deferFullPreview&&state.thumbDeferredRecoveryStarted.has(pkey)))){
+    const terminal={code:'deferred_preview_exhausted',label:'Image unavailable',message:'The image could not be recovered within the preview limit.',retryable:false};
+    state.imageThumbCache.delete(pkey);state.previewCache.delete(pkey);rememberPreviewUnavailable(a,terminal);
+    if(!queueUnavailableMediaHide(a,index,role))renderArticles({preserveScroll:true});return;
+  }
+  if(error?.deferFullPreview&&a&&role==='item'){
+    const starts=state.thumbDeferredRecoveryStarted,prior=Number(starts.get(pkey)||0),started=prior||Date.now();
+    if(!prior){starts.set(pkey,started);if(starts.size>2048)starts.delete(starts.keys().next().value)}
+    if(Date.now()-started>=THUMB_DEFER_MAX_MS){const terminal=new Error('Deferred image recovery exceeded its deadline.');terminal.deferredRecoveryExpired=true;markThumbnailError(index,terminal,kind,role);return}
+    const holder=thumbnailHolder(index,role);if(holder){holder.className='thumb-loader';holder.setAttribute('data-thumb-index',String(index));holder.dataset.thumbRole=role;holder.dataset.thumbDeferredRecovery='1';holder.dataset.thumbDeferredSince=String(started);registerThumbnailHolderNode(holder,index,role);holder.innerHTML='<span></span><small>Waiting briefly for preview recovery…</small>'}
+    scheduleDeferredFullPreviewRecovery(index,role);return;
+  }
   if(role==='set-cover'&&info.code==='media_set_unavailable'){const card=relatedSetCardByKey(setKey);if(setKey)state.mediaSetBrokenKeys.add(setKey);if(card)card.remove();renderRelatedMediaPane(null,{incremental:true});return}
   if(role==='set-cover'){
     if(a&&isDefinitiveUnsupportedMedia(info))rememberPreviewUnavailable(a,info);
