@@ -1,5 +1,5 @@
-NewzDeck v3.7.9 - Preview Recovery & Browser Responsiveness
+NewzDeck v3.7.10 - Broken Image Suppression
 
-Deferred image previews have a bounded recovery window, fall back to one time-limited full-image preview, and show Retry if recovery fails. Image Sets deduplication is optimized for large sets.
+Blank and strongly partial-decode image previews are removed from Images/Media browsing, including cached thumbnails and full-image fallbacks. Pacing avoids a burst of main-thread pixel inspection. Maintains v3.7.9 preview recovery, v3.7.8 Image Sets and v3.7.7 split pane behavior.
 
-Preserves v3.7.8 Image Sets settings and identification, v3.7.7 split-pane resizing, SABnzbd 5.1.2, SABCTools 9.6.3, downloads, Automation, and the updater.
+No changes to NNTP, SABnzbd 5.1.2, SABCTools 9.6.3, native thumbnail decoder, downloads, Automation or managed updates.

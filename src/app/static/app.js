@@ -3,12 +3,12 @@ const state = {
   selectedGroup: '', articles: [], selectedArticleKey: '', selectedItems: new Map(), selectionAnchorKey: '', articlePage: 1, articlePaging: null, articleSearchTerm: '',
   loadedPages: new Set(), continuousMode: true, continuousLoading: false, thumbnailSize: 'medium', browseScrollTop: 0, browseSessionToken:'', browseAbortController:null, headerPrefetch:null, progressiveBinaryTimer:null, smartBinaryPending:false, browseScrollVelocity:0, browseScrollDirection:1, lastBrowseScrollTop:0, lastBrowseScrollTs:0, lastBrowseScrollPerfTs:0, thumbReleaseTimer:null, thumbCacheTrimTimer:null, continuousJumpHoldUntil:0, continuousJumpTimer:null, thumbGeometry:new Map(), thumbGeometryTs:0, thumbHolderRegistry:new Map(), thumbHolderRegistryStats:{hits:0,fallbacks:0}, speculativeThumbStats:{started:0,completed:0,cancelled:0},
   viewMode: 'gallery', previewCache: new Map(), previewPromises: new Map(), imageThumbCache: new Map(), imageThumbPromises: new Map(), setCoverImagePromises: new Map(), videoThumbCache: new Map(), videoThumbPromises: new Map(), thumbQueued: new Set(), thumbQueue: [],
-  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbHttpActive: 0, thumbHttpQueue: [], thumbHttpSeq: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, thumbDeferredRecoveryTimers:new Map(), unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(), mediaSetBrokenKeys:new Set(), mediaSetProbePromises:new Map(), mediaSetStreamAnchors:new Map(), mediaSetIndexBuckets:new Map(), mediaSetIndexSingles:new Map(), mediaSetIndexSeenKeys:new Map(), mediaSetIndexValid:false, relatedSetPaneKey:'', relatedCoverResumeTimer:null, relatedCoverStats:{started:0,completed:0,failed:0,totalQueueWaitMs:0,maxQueueWaitMs:0,totalRunMs:0,maxRunMs:0,domTargetMisses:0,orphanRepairs:0,activationPasses:0,cachePaints:0,activationQueues:0,queuePromotions:0,crossGenerationPaints:0,staleSessionDrops:0}, lastRelatedCoverSnapshot:'', galleryVirtualTopBatches:[], galleryVirtualTopHeight:0, galleryVirtualTimer:null, galleryVirtualBusy:false, unavailableHideQueue: new Map(), unavailableHideTimer: null,
+  thumbActive: 0, thumbVideoActive: 0, thumbSetActive: 0, thumbHttpActive: 0, thumbHttpQueue: [], thumbHttpSeq: 0, thumbConcurrency: 7, videoThumbConcurrency: 1, setCoverConcurrency: 3, galleryGeneration: 0, previewConcurrencyMode:'idle', previewRamp:null, thumbFailureCache: new Map(), thumbImageRecovery: new Map(), thumbQualityQueue:[], thumbQualityTimer:null, thumbActiveTasks: new Map(), thumbEscalations: new Map(), thumbEscalationActive: 0, thumbDeferredRecoveryTimers:new Map(), unsupportedMediaKeys: new Set(), unpreviewableMediaKeys: new Set(), mediaSetBrokenKeys:new Set(), mediaSetProbePromises:new Map(), mediaSetStreamAnchors:new Map(), mediaSetIndexBuckets:new Map(), mediaSetIndexSingles:new Map(), mediaSetIndexSeenKeys:new Map(), mediaSetIndexValid:false, relatedSetPaneKey:'', relatedCoverResumeTimer:null, relatedCoverStats:{started:0,completed:0,failed:0,totalQueueWaitMs:0,maxQueueWaitMs:0,totalRunMs:0,maxRunMs:0,domTargetMisses:0,orphanRepairs:0,activationPasses:0,cachePaints:0,activationQueues:0,queuePromotions:0,crossGenerationPaints:0,staleSessionDrops:0}, lastRelatedCoverSnapshot:'', galleryVirtualTopBatches:[], galleryVirtualTopHeight:0, galleryVirtualTimer:null, galleryVirtualBusy:false, unavailableHideQueue: new Map(), unavailableHideTimer: null,
   downloadSnapshot: {paused:false,jobs:[],collections:[],counts:{},folder:''}, downloadedIndex: new Set(), queuedIndex: new Set(), downloadIndexSignature:'', downloadFilter:'active', downloadHistoryLimit:50, downloadHistoryOffset:0, downloadHistoryLoaded:[], downloadHistorySearchTerm:'', downloadSearchTerm:'', selectedDownloads:new Set(), downloadSelectionAnchor:'', expandedDownloads:new Set(), expandedCollections:new Set(), postProgressMemory:new Map(), activeView:'browse', downloadOrganization:'flat',
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.9';
+const UI_VERSION = '3.7.10';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -106,7 +106,7 @@ async function beginBrowseSession(group=state.selectedGroup,{preserveProgressive
   if(state.browseAbortController){if(state.thumbVideoActive>0)perfRecord('video_thumbnail_client_cancel',0,true,{reason:`session-rotate-active-${Math.min(99,Number(state.thumbVideoActive||0))}`});state.browseAbortController.abort();}
   if(state.progressiveBinaryTimer){clearTimeout(state.progressiveBinaryTimer);state.progressiveBinaryTimer=null}
   state.headerPrefetch=null;if(!preserveProgressive)state.smartBinaryPending=false;state.browseAbortController=new AbortController();state.browseSessionToken=makeBrowseSessionToken();
-  state.thumbQueue=[];state.thumbQueued.clear();state.thumbGeometry.clear();state.thumbGeometryTs=0;state.thumbHolderRegistry.clear();state.previewPromises.clear();state.imageThumbPromises.clear();state.setCoverImagePromises.clear();state.videoThumbPromises.clear();if(state.unavailableHideTimer){clearTimeout(state.unavailableHideTimer);state.unavailableHideTimer=null}state.unavailableHideQueue.clear();
+  state.thumbQueue=[];state.thumbQueued.clear();state.thumbGeometry.clear();state.thumbGeometryTs=0;state.thumbHolderRegistry.clear();state.previewPromises.clear();state.imageThumbPromises.clear();state.setCoverImagePromises.clear();state.videoThumbPromises.clear();if(state.unavailableHideTimer){clearTimeout(state.unavailableHideTimer);state.unavailableHideTimer=null}state.unavailableHideQueue.clear();if(state.thumbQualityTimer){clearTimeout(state.thumbQualityTimer);state.thumbQualityTimer=null}state.thumbQualityQueue.length=0;
   try{await api('/api/browse/session',{provider_id:state.providerId,group,browse_session:state.browseSessionToken},{timeoutMs:4000})}
   catch(e){if(e?.code!=='browse-cancelled'){state.browseSessionToken='';console.warn('Could not register browsing session',e)}}
 }
@@ -1897,11 +1897,90 @@ function forceThumbnailPaintRefresh(img){
   const repaint=()=>{if(!img.isConnected)return;img.classList.add('thumb-paint-refresh');void img.offsetHeight;requestAnimationFrame(()=>{if(!img.isConnected)return;img.classList.remove('thumb-paint-refresh');void img.offsetHeight;requestAnimationFrame(()=>{if(img.isConnected)delete img.dataset.thumbPaintRefresh;});});};
   if(typeof img.decode==='function'){Promise.resolve().then(()=>img.decode()).catch(()=>{}).finally(repaint);}else requestAnimationFrame(repaint);
 }
+// Browser-paint validation: only obvious blank or decoder-fill images are hidden.
+// Every canvas inspection is queued, so loading many previews cannot freeze the UI.
+function imagePreviewPixelDefect(pixels,width,height){
+  if(!pixels||width<8||height<8||pixels.length<width*height*4)return '';
+  let minR=255,minG=255,minB=255,maxR=0,maxG=0,maxB=0,sum=0,sum2=0,opaque=0;
+  const get=(x,y)=>((y*width+x)*4);
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const i=get(x,y),r=pixels[i],g=pixels[i+1],b=pixels[i+2],a=pixels[i+3];
+    if(a<8)continue;opaque++;
+    minR=Math.min(minR,r);maxR=Math.max(maxR,r);minG=Math.min(minG,g);maxG=Math.max(maxG,g);minB=Math.min(minB,b);maxB=Math.max(maxB,b);
+    const l=.2126*r+.7152*g+.0722*b;sum+=l;sum2+=l*l;
+  }
+  if(opaque<width*height*.05)return 'blank';
+  if(!opaque)return 'blank';
+  const spread=Math.max(maxR-minR,maxG-minG,maxB-minB),variance=Math.max(0,sum2/opaque-(sum/opaque)**2);
+  if(spread<=6&&variance<=4)return 'blank';
+  // A partial JPEG decode often paints a uniform dark/neutral rectangle where
+  // the lower (or right) MCUs could not be reconstructed. Require an unusually
+  // large neutral fill and richly detailed *other* half; a normal letterbox or
+  // intentional two-tone graphic is not grounds to remove an image.
+  const tail=(horizontal)=>{
+    const start=Math.ceil((horizontal?width:height)*.42),length=horizontal?width:height;
+    if(length-start<8)return false;
+    let tr=255,tg=255,tb=255,hr=0,hg=0,hb=0,filled=0,mean=0,mean2=0,headMin=255,headMax=0,headSum=0,headSum2=0,headCount=0;
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      const pos=horizontal?x:y,i=get(x,y),r=pixels[i],g=pixels[i+1],b=pixels[i+2],lum=.2126*r+.7152*g+.0722*b;
+      if(pos>=start){tr=Math.min(tr,r);tg=Math.min(tg,g);tb=Math.min(tb,b);hr=Math.max(hr,r);hg=Math.max(hg,g);hb=Math.max(hb,b);filled++;mean+=lum;mean2+=lum*lum}
+      else{headMin=Math.min(headMin,lum);headMax=Math.max(headMax,lum);headSum+=lum;headSum2+=lum*lum;headCount++}
+    }
+    if(!filled||!headCount)return false;
+    const avg=mean/filled,neutral=Math.abs((tr+hr)/2-(tg+hg)/2)<=5&&Math.abs((tr+hr)/2-(tb+hb)/2)<=5;
+    const neutralFill=avg<=22||avg>=233||(neutral&&Math.abs(avg-128)<=28);
+    const headVar=Math.max(0,headSum2/headCount-(headSum/headCount)**2);
+    return neutralFill&&Math.max(hr-tr,hg-tg,hb-tb)<=5&&Math.max(0,mean2/filled-avg*avg)<=4&&headMax-headMin>=65&&headVar>=280;
+  };
+  if(tail(false)||tail(true))return 'partial';
+  return '';
+}
+function inspectLoadedImagePreview(img){
+  if(!img?.naturalWidth||!img?.naturalHeight)return 'decode';
+  try{
+    const size=48,canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;
+    const context=canvas.getContext('2d',{willReadFrequently:true});if(!context)return '';
+    context.drawImage(img,0,0,size,size);
+    return imagePreviewPixelDefect(context.getImageData(0,0,size,size).data,size,size);
+  }catch(_e){return ''} // Unsupported/tainted canvas is not evidence of corruption.
+}
+function suppressBrokenPreview(img,reason){
+  if(!img?.isConnected)return false;
+  const index=Number(img.dataset.thumbImageIndex),role=img.dataset.thumbRole||'item',a=state.articles[index];
+  if(!a||a.media?.kind!=='image')return false;
+  const card=img.closest('.media-card');if(card?.dataset.articleKey&&card.dataset.articleKey!==articleKey(a))return false;
+  if(role==='set-cover'&&img.dataset.thumbSetKey&&mediaSetKey(a)!==img.dataset.thumbSetKey)return false;
+  const info={code:'image_visual_invalid',label:'Broken image',message:reason==='blank'?'The image rendered blank.':'The image preview was incomplete or could not be decoded.',retryable:false};
+  const key=previewKey(a),token=thumbnailTokenFromUrl(img.getAttribute('src')||img.src);
+  state.imageThumbCache.delete(key);state.previewCache.delete(key);state.thumbImageRecovery.delete(key);
+  rememberPreviewUnavailable(a,info);
+  if(token)void api('/api/thumbnail/invalidate',{token,visual_blank:true}).catch(()=>{});
+  queueUnavailableMediaHide(a,index,role);return true;
+}
+function queueLoadedImageQualityCheck(img){
+  if(!img||img.dataset.thumbQualityQueued==='1')return;
+  img.dataset.thumbQualityQueued='1';
+  const index=Number(img.dataset.thumbImageIndex),a=state.articles[index];if(!a)return;
+  state.thumbQualityQueue.push({img,index,stable:articleKey(a),generation:state.galleryGeneration,group:state.selectedGroup,provider:state.providerId});
+  if(!state.thumbQualityTimer)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,24);
+}
+function runLoadedImageQualityChecks(){
+  state.thumbQualityTimer=null;
+  const task=state.thumbQualityQueue.shift();if(!task)return;
+  const {img,index,stable,generation,group,provider}=task,a=state.articles[index];
+  if(img.isConnected&&a?.media?.kind==='image'&&articleKey(a)===stable&&generation===state.galleryGeneration&&group===state.selectedGroup&&provider===state.providerId){
+    const reason=inspectLoadedImagePreview(img);
+    if(reason)suppressBrokenPreview(img,reason);
+    else state.thumbImageRecovery.delete(previewKey(a));
+  }
+  if(state.thumbQualityQueue.length)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,24);
+}
 function handleThumbnailImageLoaded(img){
-  if(!img||img.dataset.thumbLoadHandled==='1')return;img.dataset.thumbLoadHandled='1';const a=state.articles[Number(img.dataset.thumbImageIndex)];if(a)state.thumbImageRecovery.delete(previewKey(a));
-  // r6: normal successful thumbnails stay on Chromium's asynchronous paint path.
-  // New native thumbnails are blank-validated before caching, so canvas readback and
-  // forced offsetHeight reflows are reserved for exceptional/manual recovery only.
+  if(!img||img.dataset.thumbLoadHandled==='1')return;
+  img.dataset.thumbLoadHandled='1';
+  const a=state.articles[Number(img.dataset.thumbImageIndex)];
+  if(a?.media?.kind==='image')queueLoadedImageQualityCheck(img);
+  else if(a)state.thumbImageRecovery.delete(previewKey(a));
 }
 function wireThumbnailImages(root=els.articlesList){
   root?.querySelectorAll('img.thumb-img[data-thumb-image-index]:not([data-thumb-image-wired])').forEach(img=>{
@@ -1913,11 +1992,11 @@ async function recoverBrokenThumbnail(img){
   if(!img||img.dataset.thumbRecovering==='1')return;img.dataset.thumbRecovering='1';const index=Number(img.dataset.thumbImageIndex),role=img.dataset.thumbRole||'item',a=state.articles[index];if(!a?.media)return;
   const key=previewKey(a),kind=a.media.kind,attempt=Number(state.thumbImageRecovery.get(key)||0)+1;state.thumbImageRecovery.set(key,attempt);state.thumbFailureCache.delete(key);if(kind==='image')state.imageThumbCache.delete(key);else state.videoThumbCache.delete(key);
   const token=thumbnailTokenFromUrl(img.getAttribute('src')||img.src);if(token)api('/api/thumbnail/invalidate',{token}).catch(()=>{});
-  if(role==='set-cover'){const card=img.closest('.media-set-card'),setKey=String(img.dataset.thumbSetKey||card?.dataset?.setKey||''),group=mediaSetGroupByKey(setKey),rep=group?mediaSetRepresentative(group):null;if(!card||!rep?.a)return;const loader=document.createElement('div');loader.className=`thumb-loader ${rep.a.media?.kind==='video'?'video-thumb-loader':''}`;loader.dataset.thumbIndex=String(rep.index);loader.dataset.thumbRole='set-cover';loader.dataset.thumbSetKey=setKey;loader.innerHTML='<span></span><small>Recovering cover…</small>';img.replaceWith(loader);registerThumbnailHolderNode(loader,rep.index,'set-cover');card.dataset.setCoverIndex=String(rep.index);card.dataset.setCoverState='pending';queueThumbnail(rep.index,0,0,'set-cover',{setKey});return}
+  if(role==='set-cover'){if(kind==='image'&&attempt>=2){suppressBrokenPreview(img,'decode');return}const card=img.closest('.media-set-card'),setKey=String(img.dataset.thumbSetKey||card?.dataset?.setKey||''),group=mediaSetGroupByKey(setKey),rep=group?mediaSetRepresentative(group):null;if(!card||!rep?.a)return;const loader=document.createElement('div');loader.className=`thumb-loader ${rep.a.media?.kind==='video'?'video-thumb-loader':''}`;loader.dataset.thumbIndex=String(rep.index);loader.dataset.thumbRole='set-cover';loader.dataset.thumbSetKey=setKey;loader.innerHTML='<span></span><small>Recovering cover…</small>';img.replaceWith(loader);registerThumbnailHolderNode(loader,rep.index,'set-cover');card.dataset.setCoverIndex=String(rep.index);card.dataset.setCoverState='pending';queueThumbnail(rep.index,0,0,'set-cover',{setKey});return}
   const parent=img.parentElement;parent?.querySelector('.video-play-overlay')?.remove();const loader=document.createElement('div');loader.className=`thumb-loader ${kind==='video'?'video-thumb-loader':''}`;loader.dataset.thumbIndex=String(index);loader.dataset.thumbRole=role;loader.innerHTML=`<span></span><small>${attempt===1?'Recovering thumbnail…':'Loading full preview fallback…'}</small>`;img.replaceWith(loader);registerThumbnailHolderNode(loader,index,role);
   if(attempt===1){queueThumbnail(index,0,0,role);return}
   try{const data=await fetchPrepared(a);if(!data?.url)throw new Error('Full preview did not provide an image URL.');const holder=thumbnailHolder(index,role);if(!holder)return;if(kind!=='image')throw new Error('Full-image fallback is only available for image posts.');replaceThumbnailHolderWithImage(holder,index,data.url,role,{fallback:true});}
-  catch(e){const holder=thumbnailHolder(index,role);if(!holder)return;unregisterThumbnailHolder(index,role);holder.className='thumb-error';holder.removeAttribute('data-thumb-index');holder.innerHTML=`<span>!</span><small>Thumbnail unavailable</small><em>${escapeHtml(String(e?.message||e||'Preview unavailable').slice(0,140))}</em><button type="button" class="thumb-retry">Retry</button>`;holder.querySelector('.thumb-retry')?.addEventListener('click',ev=>{ev.stopPropagation();state.thumbImageRecovery.delete(key);holder.className=`thumb-loader ${kind==='video'?'video-thumb-loader':''}`;holder.setAttribute('data-thumb-index',String(index));holder.dataset.thumbRole=role;registerThumbnailHolderNode(holder,index,role);holder.innerHTML='<span></span><small>Retrying preview…</small>';queueThumbnail(index,0,0,role)})}
+  catch(e){if(thumbnailHolder(index,role))markThumbnailError(index,e,kind,role)}
 }
 function replaceThumbnailHolderWithImage(holder,index,url,role='item',{isVideo=false,fallback=false}={}){
   const a=state.articles[index];if(!holder||!a||!url)return null;

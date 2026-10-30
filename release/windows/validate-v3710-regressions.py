@@ -1,49 +1,42 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-import hashlib, json
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
-APP = ROOT / 'src' / 'app'
-
-def check(value, message):
-    if not value: raise SystemExit(message)
-
-def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
-
-check((APP/'version.txt').read_text().strip() == '3.7.1', 'version.txt != 3.7.1')
-server=(APP/'server.py').read_text(encoding='utf-8')
-yenc=(APP/'yenc_decoder.py').read_text(encoding='utf-8')
-ui=(APP/'static/app.js').read_text(encoding='utf-8')
-manifest=json.loads((APP/'build-manifest.json').read_text(encoding='utf-8'))
-builder=(ROOT/'release/windows/build-portable.py').read_text(encoding='utf-8')
-build_release=(ROOT/'release/windows/build-release.ps1').read_text(encoding='utf-8')
-workflow=(ROOT/'.github/workflows/publish-release-trigger.yml').read_text(encoding='utf-8')
-sab_engine=(APP/'sab_engine.py').read_text(encoding='utf-8')
-
-check('APP_VERSION = "3.7.0"' in server, 'frozen server baseline identity changed')
-check("const UI_VERSION = '3.7.0';" in ui, 'frozen app.js baseline identity changed')
-check(sha(APP/'server.py') == 'c6a77e46e4abeafe8c460944828d69efc9c49c3e33aafeb7819e04a9fc697990', 'server.py v3.7.0 baseline changed')
-check(sha(APP/'static/app.js') == '3df087fa5aca176db8c84e6f3a9e962600114b1bb9e83470131365ae1d64fc94', 'app.js v3.7.0 baseline changed')
-check(manifest.get('version') == '3.7.1' and manifest.get('base_version') == '3.7.0', 'manifest lineage mismatch')
-check(manifest.get('sabctools_version') == '9.6.3', 'manifest SABCTools version mismatch')
-check(manifest.get('sabctools_upstream_commit') == '54d7663b9e8f527b5ab196d43f0d5c561a87c1ac', 'manifest SABCTools commit mismatch')
-check('EXPECTED_SABCTOOLS_VERSION = "9.6.3"' in yenc, 'decoder exact SABCTools pin missing')
-check('SabctoolsDecoder' in yenc and 'build_synthetic_nntp_response' in yenc, 'decoder adapter missing')
-transform=(ROOT/'release/windows/apply-v371-runtime.py').read_text(encoding='utf-8')
-check('GENERATED_SERVER_SHA256 = "f49793f2a65554a6fe4e8e4a4f823d15b6e47ac338dcd8a73ed40815f72f9061"' in transform, 'generated server pin missing')
-check('GENERATED_APP_JS_SHA256 = "7ffda814018feae44da79af862af4e2b1b1f45d9b19e466bfe9c08fdbfc90f6a"' in transform, 'generated UI pin missing')
-check('NEWZDECK_YENC_DECODER", "sabctools"' in transform, 'SABCTools default transform missing')
-check('DOWNLOAD_DECODE_EXECUTOR' in server and 'ThreadPoolExecutor' in server, 'split decode executor baseline missing')
-check('"NewzDeckYenc.exe": "NewzDeckYenc.go"' not in builder, 'Portable builder still builds yEnc helper')
-check('--sabctools-package' in builder and 'sabctools.cp312-win_amd64.pyd' in builder, 'Portable SABCTools packaging missing')
-check('NewzDeckYenc.exe' in build_release and 'retiredYencDelete' in build_release, 'installed-upgrade yEnc cleanup missing')
-check('SABCTOOLS_VERSION: \'9.6.3\'' in workflow, 'workflow SABCTools version pin missing')
-check('54d7663b9e8f527b5ab196d43f0d5c561a87c1ac' in workflow, 'workflow SABCTools commit pin missing')
-check('yenc-helper:' not in workflow and 'newzdeck-yenc-defender-lf' not in workflow, 'old yEnc helper job remains')
-check('validate-sabctools-runtime.py' in workflow, 'exact SABCTools runtime gate missing')
-check('SAB_VERSION = "5.1.2"' in sab_engine, 'private SABnzbd baseline changed')
-check(sha(APP/'static/styles.css') == 'ab31b3abb9de549ac90df980bdfce437a98c1c1cb5a5d0852b252ddcb670a75d', 'styles.css changed')
-check(sha(APP/'static/themes.css') == '2a44223d165b8e1caa8bc5a52842ce76cf396557e6af59b9ecd2aee8bf6a1721', 'themes.css changed')
-check((ROOT/'release/RELEASE_NOTES_v3.7.1.md').is_file(), 'v3.7.1 release notes missing')
+import json
+R=Path(__file__).resolve().parents[2]
+A=R/'src/app'
+def rd(p):return p.read_text(encoding='utf-8')
+def check(x,msg):
+  if not x:raise SystemExit('v3.7.10 REGRESSION FAILED: '+msg)
+js=rd(A/'static/app.js'); html=rd(A/'static/index.html'); css=rd(A/'static/styles.css'); m=json.loads(rd(A/'build-manifest.json'))
+server=rd(A/'server.py');sab=rd(A/'sab_engine.py');automation=rd(A/'automation_engine.py');tray=rd(R/'src/windows/NewzDeckTray.go');workflow=rd(R/'.github/workflows/publish-release-trigger.yml')
+check(rd(A/'version.txt').strip()=='3.7.10','version')
+check('APP_VERSION = "3.7.10"' in server,'server version')
+check('ADAPTER_VERSION = "3.7.10"' in sab and 'SAB_VERSION = "5.1.2"' in sab,'SAB adapter baseline')
+check("const UI_VERSION = '3.7.10';" in js,'JS version')
+check("version='3.7.10'" in automation,'Automation fallback')
+check('argValue("--version", "3.7.10")' in tray,'tray fallback')
+check(m.get('version')=='3.7.10' and m.get('base_version')=='3.7.9' and m.get('adapter_version')=='3.7.10','manifest version')
+check(m.get('sab_version')=='5.1.2' and m.get('sabctools_version')=='9.6.3' and m.get('sabctools_upstream_commit')=='54d7663b9e8f527b5ab196d43f0d5c561a87c1ac','bundle provenance')
+check(html.count('3.7.10-broken-image-suppression')==3 and '<span>v3.7.10</span>' in html,'app HTML version')
+# Original v3.7.8 functionality and update path remain.
+for marker in ('function mediaSetSubjectSequence(','function mediaSetSequenceBase(','function mediaSetKey(','function initGroupsPaneResizer()','liveCards.get(memberKey)',"if(state.groupRelatedMedia){renderGroupedGallery(items);return}","state.groupRelatedMedia?appendContinuousGroupedGallery(previousKeys):appendContinuousGallery(previousKeys)","group_related_media:state.groupRelatedMedia","if(state.groupRelatedMedia){renderGroupedGallery(items);return}"):
+  check(marker in js, 'v3.7.8 feature regressed: '+marker)
+check('/* v3.7.7 - Newsgroups splitter cascade hotfix */' in css,'splitter CSS changed')
+check('args = ["/update", "/SILENT", "/SP-", "/NORESTART", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS"]' in server,'managed Setup handoff changed')
+# The specific regression fixes.
+for marker in ('mediaSetIndexSeenKeys:new Map()', 'state.mediaSetIndexSeenKeys.clear()', 'seen.has(itemKey)', 'THUMB_DEFER_FORCE_MS=8000','THUMB_DEFER_MAX_MS=12000','THUMB_RECOVERY_TIMEOUT_MS=12000','function thumbnailDeferredRecoveryReady(','function withThumbnailRecoveryTimeout(',"holder.dataset.thumbDeferredRecovery='1'", "if(role==='item'&&['1','running'].includes(holder?.dataset.thumbDeferredRecovery))return false;", 'delete holder.dataset.thumbDeferredRecovery;delete holder.dataset.thumbDeferredSince;',"markThumbnailError(index,error,'image',role)"):
+  check(marker in js,'missing preview fix: '+marker)
+check('Waiting for idle preview recovery' not in js,'old unbounded recovery label returned')
+check('members.some(x=>articleKey(x.a)===itemKey)' not in js,'old quadratic set lookup returned')
+check('Validate NewzDeck source and v3.7.10 regression guard' in workflow and "if ($env:VERSION -cne '3.7.10')" in workflow,'workflow version')
+for t in ('validate-v3710-regressions.py','validate-v379-preview.js','validate-v3710-image-quality.js','validate-image-sets-v378.js','validate-media-set-key.js','validate-groups-pane-resizer.js'):
+  check(t in workflow,'workflow missing test '+t)
+check('NewzDeck-v3710-smoke' in workflow,'workflow smoke dir')
+check('current stable release is **NewzDeck v3.7.10**' in rd(R/'README.md'),'README version')
+check('NewzDeck_v3.7.10_Setup.exe' in rd(R/'README.md'),'README installer')
+check('## Current release: v3.7.10' in rd(R/'docs/SOURCE_RELEASES.md'),'history')
+# New visual and invalid-removal checks cannot be bypassed by a successful img.onload.
+for marker in ('function imagePreviewPixelDefect(', 'function inspectLoadedImagePreview(', 'function queueLoadedImageQualityCheck(', 'function suppressBrokenPreview(', 'function runLoadedImageQualityChecks(', 'queueUnavailableMediaHide(a,index,role)', "if(a?.media?.kind==='image')queueLoadedImageQualityCheck(img)"):
+  check(marker in js,'missing broken-image suppression: '+marker)
+check('img.onload=null' not in js[:100], 'unexpected JavaScript header')
+check(rd(R/'index.html').count('v3.7.10')>=4,'website')
 print('validate-v3710-regressions.py: PASS')

@@ -1,5 +1,3 @@
-NewzDeck v3.7.9 update notes
+NewzDeck v3.7.10 update notes
 
-This release fixes indefinite deferred image-preview recovery and prevents repeated thumbnail attempts while waiting. Large Image Sets now group with lower browser-thread overhead. Existing settings, grouping preferences, downloads and data remain unchanged.
-
-No NNTP/downloader, Direct Unpack, PAR2, Automation, Smart Import, Backup & Restore, theme or managed updater changes.
+Unusable blank/partially decoded images are excluded from the Images/Media gallery and Image Sets for the current browsing session. Both cached and newly loaded image previews are checked. Other settings, downloads, history and persistent user data remain unchanged. No NNTP, native decoder, PAR2, Automation, Smart Import, Backup & Restore or update-lifecycle changes.
