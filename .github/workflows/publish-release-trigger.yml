@@ -89,21 +89,22 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Validate NewzDeck source and v3.7.10 regression guard
+      - name: Validate NewzDeck source and v3.7.11 regression guard
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path variable:PSNativeCommandUseErrorActionPreference)) { throw 'PowerShell native-command failure propagation is unavailable.' }
           $PSNativeCommandUseErrorActionPreference = $true
 
-          if ($env:VERSION -cne '3.7.10') { throw "This source workflow is the v3.7.10 production gate, got $env:VERSION." }
-          python release/windows/validate-v3710-regressions.py
-          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3710-regressions.py
+          if ($env:VERSION -cne '3.7.11') { throw "This source workflow is the v3.7.11 production gate, got $env:VERSION." }
+          python release/windows/validate-v3711-regressions.py
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3711-regressions.py
           node --check src/app/static/app.js
           node release/windows/validate-media-set-key.js
           node release/windows/validate-image-sets-v378.js
           node release/windows/validate-v379-preview.js
           node release/windows/validate-v3710-image-quality.js
+          node release/windows/validate-v3711-image-integrity.js
           node release/windows/validate-groups-pane-resizer.js
 
           $env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
@@ -283,7 +284,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Join-Path (Join-Path $env:RUNNER_TEMP 'newzdeck-release') ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
-          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v3710-smoke'
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v3711-smoke'
 
           function Run-Setup([bool]$UpdateMode) {
             $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir")
@@ -321,7 +322,7 @@ jobs:
           else {
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Broken Image Suppression"
+            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Image Integrity & Corrupt Preview Removal"
             git push origin "refs/tags/$tag"
           }
 

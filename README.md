@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.10** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.11** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.10_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.11_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,9 +34,9 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.10 broken-image suppression
+## v3.7.11 image integrity and corrupt-preview removal
 
-Blank and visibly damaged image previews no longer remain in the Images/Media browsing view after successful browser decoding. NewzDeck inspects decoded pixels through a paced validation queue, conservatively rejects flat/blank and strong partial decoder-fill artifacts, and removes these cards through the existing unavailable-media suppression path. Full-image recovery failures now also use that suppression path. Valid images, browsing concurrency, v3.7.9 recovery, v3.7.8 Image Sets controls and v3.7.7 splitter behavior are preserved. See [v3.7.10 release notes](release/RELEASE_NOTES_v3.7.10.md).
+v3.7.11 detects near-black image placeholders, noisy gray blanks, and strong partial-decode artifacts on every edge, then removes confirmed unusable preview cards from Images/Media browsing. Its checks survive Continuous-browsing generation changes when the same article remains visible and protect against removing reordered articles. Normal images, v3.7.10 quality suppression, v3.7.9 recovery, Image Sets options, and the resizable Newsgroups pane are preserved. See [v3.7.11 release notes](release/RELEASE_NOTES_v3.7.11.md).
 
 ## Requirements
 
@@ -59,7 +59,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.10_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.11_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.10';
+const UI_VERSION = '3.7.11';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -1899,50 +1899,88 @@ function forceThumbnailPaintRefresh(img){
 }
 // Browser-paint validation: only obvious blank or decoder-fill images are hidden.
 // Every canvas inspection is queued, so loading many previews cannot freeze the UI.
+// v3.7.11: inspect decoded pixels at two-dimensional coverage, including
+// near-black cards and gray partial JPEG decoder fills. Deliberately do not
+// infer corruption from merely low contrast or a photographic border.
 function imagePreviewPixelDefect(pixels,width,height){
-  if(!pixels||width<8||height<8||pixels.length<width*height*4)return '';
-  let minR=255,minG=255,minB=255,maxR=0,maxG=0,maxB=0,sum=0,sum2=0,opaque=0;
-  const get=(x,y)=>((y*width+x)*4);
+  if(!pixels||width<24||height<24||pixels.length<width*height*4)return '';
+  const count=width*height,point=(x,y)=>(y*width+x)*4;
+  const make=()=>({n:0,rs:0,gs:0,bs:0,ls:0,l2:0,neutrals:0,min:255,max:0});
+  const rows=Array.from({length:height},make),cols=Array.from({length:width},make);
+  let opaque=0,min=255,max=0,sum=0,sumSq=0,nearBlack=0,nearWhite=0,gray=0;
+  let minR=255,minG=255,minB=255,maxR=0,maxG=0,maxB=0;
   for(let y=0;y<height;y++)for(let x=0;x<width;x++){
-    const i=get(x,y),r=pixels[i],g=pixels[i+1],b=pixels[i+2],a=pixels[i+3];
+    const i=point(x,y),r=pixels[i],g=pixels[i+1],b=pixels[i+2],a=pixels[i+3];
     if(a<8)continue;opaque++;
-    minR=Math.min(minR,r);maxR=Math.max(maxR,r);minG=Math.min(minG,g);maxG=Math.max(maxG,g);minB=Math.min(minB,b);maxB=Math.max(maxB,b);
-    const l=.2126*r+.7152*g+.0722*b;sum+=l;sum2+=l*l;
+    const lum=.2126*r+.7152*g+.0722*b,neutral=Math.max(r,g,b)-Math.min(r,g,b)<=14;
+    min=Math.min(min,lum);max=Math.max(max,lum);sum+=lum;sumSq+=lum*lum;
+    minR=Math.min(minR,r);minG=Math.min(minG,g);minB=Math.min(minB,b);
+    maxR=Math.max(maxR,r);maxG=Math.max(maxG,g);maxB=Math.max(maxB,b);
+    if(r<=24&&g<=24&&b<=29)nearBlack++;
+    if(r>=241&&g>=241&&b>=241)nearWhite++;
+    if(Math.max(r,g,b)-Math.min(r,g,b)<=10)gray++;
+    const row=rows[y],col=cols[x];
+    row.n++;col.n++;row.rs+=r;col.rs+=r;row.gs+=g;col.gs+=g;row.bs+=b;col.bs+=b;
+    row.ls+=lum;col.ls+=lum;row.l2+=lum*lum;col.l2+=lum*lum;
+    if(neutral){row.neutrals++;col.neutrals++}
+    row.min=Math.min(row.min,lum);col.min=Math.min(col.min,lum);
+    row.max=Math.max(row.max,lum);col.max=Math.max(col.max,lum);
   }
-  if(opaque<width*height*.05)return 'blank';
-  if(!opaque)return 'blank';
-  const spread=Math.max(maxR-minR,maxG-minG,maxB-minB),variance=Math.max(0,sum2/opaque-(sum/opaque)**2);
-  if(spread<=6&&variance<=4)return 'blank';
-  // A partial JPEG decode often paints a uniform dark/neutral rectangle where
-  // the lower (or right) MCUs could not be reconstructed. Require an unusually
-  // large neutral fill and richly detailed *other* half; a normal letterbox or
-  // intentional two-tone graphic is not grounds to remove an image.
-  const tail=(horizontal)=>{
-    const start=Math.ceil((horizontal?width:height)*.42),length=horizontal?width:height;
-    if(length-start<8)return false;
-    let tr=255,tg=255,tb=255,hr=0,hg=0,hb=0,filled=0,mean=0,mean2=0,headMin=255,headMax=0,headSum=0,headSum2=0,headCount=0;
-    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
-      const pos=horizontal?x:y,i=get(x,y),r=pixels[i],g=pixels[i+1],b=pixels[i+2],lum=.2126*r+.7152*g+.0722*b;
-      if(pos>=start){tr=Math.min(tr,r);tg=Math.min(tg,g);tb=Math.min(tb,b);hr=Math.max(hr,r);hg=Math.max(hg,g);hb=Math.max(hb,b);filled++;mean+=lum;mean2+=lum*lum}
-      else{headMin=Math.min(headMin,lum);headMax=Math.max(headMax,lum);headSum+=lum;headSum2+=lum*lum;headCount++}
+  if(opaque<count*.05)return 'blank';
+  const variance=Math.max(0,sumSq/opaque-(sum/opaque)**2);
+  if(Math.max(maxR-minR,maxG-minG,maxB-minB)<=8&&variance<=8)return 'blank';
+  if((nearBlack/opaque>=.975||nearWhite/opaque>=.985)&&variance<=140)return 'blank';
+  if(gray/opaque>=.995&&variance<=25&&max-min<=40)return 'blank';
+  const sumRange=(strips,from,to)=>{
+    const result=make();
+    for(let i=from;i<to;i++){
+      const v=strips[i];result.n+=v.n;result.rs+=v.rs;result.gs+=v.gs;result.bs+=v.bs;result.ls+=v.ls;result.l2+=v.l2;
+      result.neutrals+=v.neutrals;result.min=Math.min(result.min,v.min);result.max=Math.max(result.max,v.max);
     }
-    if(!filled||!headCount)return false;
-    const avg=mean/filled,neutral=Math.abs((tr+hr)/2-(tg+hg)/2)<=5&&Math.abs((tr+hr)/2-(tb+hb)/2)<=5;
-    const neutralFill=avg<=22||avg>=233||(neutral&&Math.abs(avg-128)<=28);
-    const headVar=Math.max(0,headSum2/headCount-(headSum/headCount)**2);
-    return neutralFill&&Math.max(hr-tr,hg-tg,hb-tb)<=5&&Math.max(0,mean2/filled-avg*avg)<=4&&headMax-headMin>=65&&headVar>=280;
+    return result;
   };
-  if(tail(false)||tail(true))return 'partial';
-  return '';
+  const side=(axis,fromStart)=>{
+    const strips=axis==='x'?cols:rows,length=strips.length,other=axis==='x'?height:width;
+    for(const fraction of [.30,.34,.38,.42,.46,.50,.54,.58,.62,.66,.70]){
+      const edge=Math.round(length*fraction),tailLen=fromStart?edge:length-edge;
+      if(tailLen<length*.29||tailLen>length*.72)continue;
+      const tail=fromStart?sumRange(strips,0,edge):sumRange(strips,edge,length);
+      const head=fromStart?sumRange(strips,edge,length):sumRange(strips,0,edge);
+      if(tail.n<length*other*.27||!head.n)continue;
+      const r=tail.rs/tail.n,g=tail.gs/tail.n,b=tail.bs/tail.n,l=tail.ls/tail.n;
+      const spread=Math.max(r,g,b)-Math.min(r,g,b),v=Math.max(0,tail.l2/tail.n-l*l);
+      const hv=Math.max(0,head.l2/head.n-(head.ls/head.n)**2);
+      if(spread>13||tail.neutrals/tail.n<.95||hv<250||head.max-head.min<55||v>60)continue;
+      let close=0;
+      for(let pos=fromStart?0:edge;pos<(fromStart?edge:length);pos++)for(let cross=0;cross<other;cross++){
+        const x=axis==='x'?pos:cross,y=axis==='x'?cross:pos,i=point(x,y);
+        if(pixels[i+3]>=8&&Math.abs(pixels[i]-r)<=17&&Math.abs(pixels[i+1]-g)<=17&&Math.abs(pixels[i+2]-b)<=17)close++;
+      }
+      if(close/tail.n<.96)continue;
+      let strongestSeam=0;
+      for(let at=Math.max(1,edge-5);at<=Math.min(length-1,edge+5);at++){
+        let seam=0,seamN=0;
+        for(let cross=0;cross<other;cross++){
+          const x0=axis==='x'?at-1:cross,y0=axis==='x'?cross:at-1,x1=axis==='x'?at:cross,y1=axis==='x'?cross:at;
+          const a=point(x0,y0),bidx=point(x1,y1);
+          seam+=Math.abs(pixels[a]-pixels[bidx])+Math.abs(pixels[a+1]-pixels[bidx+1])+Math.abs(pixels[a+2]-pixels[bidx+2]);seamN++;
+        }
+        if(seamN)strongestSeam=Math.max(strongestSeam,seam/seamN);
+      }
+      if(strongestSeam>=26)return 'partial';
+    }
+    return '';
+  };
+  return side('y',false)||side('y',true)||side('x',false)||side('x',true)||'';
 }
 function inspectLoadedImagePreview(img){
   if(!img?.naturalWidth||!img?.naturalHeight)return 'decode';
   try{
-    const size=48,canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;
-    const context=canvas.getContext('2d',{willReadFrequently:true});if(!context)return '';
-    context.drawImage(img,0,0,size,size);
-    return imagePreviewPixelDefect(context.getImageData(0,0,size,size).data,size,size);
-  }catch(_e){return ''} // Unsupported/tainted canvas is not evidence of corruption.
+    const size=64,canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)return '';
+    ctx.drawImage(img,0,0,size,size);
+    return imagePreviewPixelDefect(ctx.getImageData(0,0,size,size).data,size,size);
+  }catch(_e){return ''} // Canvas restrictions alone are not proof of a broken image.
 }
 function suppressBrokenPreview(img,reason){
   if(!img?.isConnected)return false;
@@ -1959,21 +1997,21 @@ function suppressBrokenPreview(img,reason){
 }
 function queueLoadedImageQualityCheck(img){
   if(!img||img.dataset.thumbQualityQueued==='1')return;
+  const index=Number(img.dataset.thumbImageIndex),a=state.articles[index];if(!a||a.media?.kind!=='image')return;
   img.dataset.thumbQualityQueued='1';
-  const index=Number(img.dataset.thumbImageIndex),a=state.articles[index];if(!a)return;
-  state.thumbQualityQueue.push({img,index,stable:articleKey(a),generation:state.galleryGeneration,group:state.selectedGroup,provider:state.providerId});
-  if(!state.thumbQualityTimer)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,24);
+  state.thumbQualityQueue.push({img,index,stable:articleKey(a),group:state.selectedGroup,provider:state.providerId});
+  if(!state.thumbQualityTimer)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,16);
 }
 function runLoadedImageQualityChecks(){
   state.thumbQualityTimer=null;
   const task=state.thumbQualityQueue.shift();if(!task)return;
-  const {img,index,stable,generation,group,provider}=task,a=state.articles[index];
-  if(img.isConnected&&a?.media?.kind==='image'&&articleKey(a)===stable&&generation===state.galleryGeneration&&group===state.selectedGroup&&provider===state.providerId){
+  const {img,index,stable,group,provider}=task,a=state.articles[index];
+  if(img.isConnected&&a?.media?.kind==='image'&&articleKey(a)===stable&&group===state.selectedGroup&&provider===state.providerId){
     const reason=inspectLoadedImagePreview(img);
     if(reason)suppressBrokenPreview(img,reason);
     else state.thumbImageRecovery.delete(previewKey(a));
   }
-  if(state.thumbQualityQueue.length)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,24);
+  if(state.thumbQualityQueue.length)state.thumbQualityTimer=setTimeout(runLoadedImageQualityChecks,16);
 }
 function handleThumbnailImageLoaded(img){
   if(!img||img.dataset.thumbLoadHandled==='1')return;
@@ -2046,14 +2084,14 @@ function hideUnavailableMediaDom(a,index,role='item'){
     if(rep){const cover=card.querySelector('.media-set-cover');cover?.querySelectorAll('.thumb-img,.thumb-loader,.thumb-error,.video-play-overlay').forEach(n=>n.remove());if(cover){const k=rep.a.media?.kind||'image';cover.insertAdjacentHTML('afterbegin',`<div class="thumb-loader ${k==='video'?'video-thumb-loader':''}" data-thumb-index="${rep.index}" data-thumb-role="set-cover"><span></span><small>Loading set cover…</small></div>`);registerThumbnailHolderNode(cover.querySelector('[data-thumb-index]'),rep.index,'set-cover');queueThumbnail(rep.index,0,0,'set-cover',{setKey})}}else card.remove();
     return true;
   }
-  const card=els.articlesList.querySelector(`.media-card[data-index="${index}"]`);if(!card)return false;card.remove();return true;
+  const card=els.articlesList.querySelector(`.media-card[data-index="${index}"]`);if(!card||card.dataset.articleKey!==articleKey(a))return false;card.remove();return true;
 }
 function hideUnavailableMediaInPlace(a,index,role='item'){
   if(!a||els.contentFilter.value==='all')return false;const keep=els.articlesList.scrollTop,anchors=captureBrowseAnchors();if(!hideUnavailableMediaDom(a,index,role))return false;restoreAfterGalleryMutation(anchors,keep);return true;
 }
 function flushUnavailableMediaHides(){
   state.unavailableHideTimer=null;if(!state.unavailableHideQueue.size||els.contentFilter.value==='all'){state.unavailableHideQueue.clear();return}
-  const batch=[...state.unavailableHideQueue.values()];state.unavailableHideQueue.clear();const generation=state.galleryGeneration,group=state.selectedGroup,provider=state.providerId;const live=batch.filter(x=>x.generation===generation&&x.group===group&&x.provider===provider);if(!live.length)return;
+  const batch=[...state.unavailableHideQueue.values()];state.unavailableHideQueue.clear();const generation=state.galleryGeneration,group=state.selectedGroup,provider=state.providerId;const live=batch.filter(x=>x.group===group&&x.provider===provider&&articleKey(state.articles[x.index])===articleKey(x.a));if(!live.length)return;
   const keep=els.articlesList.scrollTop,anchors=captureBrowseAnchors();let mainChanged=false,setChanged=false;for(const x of live){const changed=hideUnavailableMediaDom(x.a,x.index,x.role);if(changed){if(x.role==='set-cover')setChanged=true;else mainChanged=true}}
   if(mainChanged)restoreAfterGalleryMutation(anchors,keep);if(setChanged)renderRelatedMediaPane(null,{incremental:true});scheduleThumbnailDemandScan()
 }

@@ -1,26 +1,26 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.10",
-  "base_version": "3.7.9",
-  "release": "Broken Image Suppression",
-  "adapter_version": "3.7.10",
-  "name": "Broken Image Suppression",
+  "version": "3.7.11",
+  "base_version": "3.7.10",
+  "release": "Image Integrity & Corrupt Preview Removal",
+  "adapter_version": "3.7.11",
+  "name": "Image Integrity & Corrupt Preview Removal",
   "sab_version": "5.1.2",
   "changes": [
-    "Performs paced browser-pixel validation on successful image loads to detect blank and strong partial-decode artifacts.",
-    "Removes confirmed broken image cards from Images/Media browse views and excludes those members from Image Sets for the browsing session.",
-    "Validates both cached thumbnails and v3.7.9 recovered full-image previews.",
-    "Routes repeated browser image-decoding errors through the existing unavailable-media suppression path."
+    "Detects near-black noisy and partial gray/neutral decoder-fill previews on all four edges.",
+    "Ensures already loaded image checks and pending hide operations survive Continuous-browsing generation changes when article identity stays the same.",
+    "Verifies the exact article identity before removing a broken image card.",
+    "Keeps image-quality checks paced and uses 64x64 sampling with row/column fast-path statistics."
   ],
   "regression_guards": [
-    "v3.7.9 bounded recovery and thumbnail queue admission are unchanged.",
-    "v3.7.8 Image Sets detection, ON/OFF persistence, and Continuous browsing remain unchanged.",
-    "v3.7.7 resizable Newsgroups splitter and all themes are unchanged.",
-    "SABnzbd 5.1.2, SABCTools 9.6.3, managed updates and Automation remain unchanged."
+    "v3.7.10 broken-image suppression and original image-quality tests are retained.",
+    "v3.7.9 bounded preview recovery and thumbnail admission remain unchanged.",
+    "v3.7.8 Image Sets ON/OFF and grouping remain unchanged.",
+    "v3.7.7 Newsgroups splitter and stable runtime remain unchanged."
   ],
   "preserved": [
-    "NNTP, thumbnail transport and native decoder, Direct Unpack, PAR2 repair, Automation, Smart Import and Backup & Restore.",
-    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 remain unchanged."
+    "NNTP, thumbnail transport/native decoder, Direct Unpack, PAR2 repair, Automation, Smart Import, Backup & Restore.",
+    "SABnzbd 5.1.2, SABCTools 9.6.3, Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 remain unchanged."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

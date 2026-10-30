@@ -1,3 +1,3 @@
-NewzDeck v3.7.10 update notes
+NewzDeck v3.7.11 update notes
 
-Unusable blank/partially decoded images are excluded from the Images/Media gallery and Image Sets for the current browsing session. Both cached and newly loaded image previews are checked. Other settings, downloads, history and persistent user data remain unchanged. No NNTP, native decoder, PAR2, Automation, Smart Import, Backup & Restore or update-lifecycle changes.
+Visual checks more reliably suppress blank, partially loaded, gray-filled or corrupted image previews. Existing image settings, persistent thumbnail cache, downloads, history, provider configuration and all other persistent user data remain unchanged. Only unusable preview cards are filtered out in this browsing session; no downloaded files or Usenet posts are deleted.
