@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.13** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.14** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.13_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.14_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,9 +34,9 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.13 deferred preview terminal cleanup
+## v3.7.14 Completed downloads Remove All
 
-Prevents image cards from remaining stuck in **Waiting briefly for preview recovery** across scrolling or gallery redraws. Deferred recovery uses an article-stable deadline and removes images from the browsing view when the bounded recovery expires or full-image recovery fails. Valid previews, Image Sets ON/OFF, viewer behavior, NNTP and downloads remain unchanged. See [the release notes](release/RELEASE_NOTES_v3.7.13.md).
+Downloads → Completed now provides a confirmed **Remove all completed** action. It clears all Completed history pages and leaves downloaded/imported files, lifetime statistics, unfinished jobs and Failed downloads intact. The v3.7.13 deferred preview reliability fixes and existing download/Automation behavior remain unchanged. See [the release notes](release/RELEASE_NOTES_v3.7.14.md).
 
 ## Requirements
 
@@ -59,7 +59,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.13_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.14_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

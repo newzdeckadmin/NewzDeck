@@ -1,3 +1,3 @@
-NewzDeck v3.7.13 - Deferred Preview Terminal Cleanup
+NewzDeck v3.7.14 - Completed Downloads Remove All
 
-Deferred image recovery now has a stable end-to-end deadline across scrolling and redraws. Images that cannot recover are removed from the browsing view. No Usenet posts, downloaded files, or personal settings are deleted.
+Downloads > Completed adds a confirmed Remove all completed action that clears history only, across every page, without deleting downloaded files or imported media. Preserves v3.7.13 gallery reliability.

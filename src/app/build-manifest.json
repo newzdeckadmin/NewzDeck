@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.13",
-  "base_version": "3.7.12",
-  "release": "Deferred Preview Terminal Cleanup",
-  "adapter_version": "3.7.13",
-  "name": "Deferred Preview Terminal Cleanup",
+  "version": "3.7.14",
+  "base_version": "3.7.13",
+  "release": "Completed Downloads Remove All",
+  "adapter_version": "3.7.14",
+  "name": "Completed Downloads Remove All",
   "sab_version": "5.1.2",
   "changes": [
-    "Tracks deferred thumbnail recovery deadlines by stable article identity rather than a temporary loader element.",
-    "Keeps deferred deadlines active during offscreen scrolling, virtualization, and gallery redraws.",
-    "Removes unrecoverable image cards after the bounded preview deadline or failed full-image recovery instead of retaining Retry placeholders.",
-    "Clears deferred recovery tracking after verified successful preview rendering and preserves Image Sets filtering."
+    "Adds a Remove all completed button in Downloads > Completed with total-count confirmation across every history page.",
+    "Clears finalized completed history from NewzDeck durable terminal index and the SAB history-only API without deleting downloaded/imported files.",
+    "Preserves active, queued, post-processing and failed downloads, download statistics, and application settings."
   ],
   "regression_guards": [
-    "Preserves v3.7.12 gallery stable-identity actions, image watchdogs, and viewer errors.",
-    "Preserves v3.7.11 visual image corruption checks and v3.7.9 preview scheduling concurrency.",
-    "No NNTP, SABnzbd 5.1.2, SABCTools 9.6.3, Automation, download or managed-update changes."
+    "Preserves v3.7.13 deferred-preview timeout and image integrity fixes.",
+    "Verifies completion cleanup never calls SAB queue delete or del_files=1.",
+    "Preserves SABnzbd 5.1.2, SABCTools 9.6.3, Automation, Smart Import, and managed updates."
   ],
   "preserved": [
-    "Image Sets ON/OFF control, gallery virtualization, themes, browser tabs and Newsgroups splitter."
+    "Newsgroup gallery/Image Sets/v3.7.13 deferred recovery, 12 themes, downloader engine and library storage unchanged."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

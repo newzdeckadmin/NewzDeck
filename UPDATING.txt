@@ -1,3 +1,3 @@
-NewzDeck v3.7.13 update notes
+NewzDeck v3.7.14 update notes
 
-Corrects persistent waiting-for-recovery image placeholders and makes deferred-image failures terminal in browsing. Existing settings, downloads, Automation, native decoder, image grouping and managed updater are unchanged.
+Adds safe, confirmation-guarded removal of Completed download history (not downloaded/imported files). Existing settings, active/queued/failed jobs, Automation, SAB engine, native decoder and managed updates remain unchanged.

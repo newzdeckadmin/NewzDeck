@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.7.13"
+ADAPTER_VERSION = "3.7.14"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -2013,7 +2013,7 @@ class SabDownloadManager:
             reasons = {str(k): str(v or "") for k, v in (self.state.get("removed_job_reasons") or {}).items()}
         candidates = [
             nzo for nzo in live_ids
-            if nzo in removed and reasons.get(nzo) and now - self._removed_cleanup_attempt_ts.get(nzo, 0.0) >= 4.0
+            if nzo in removed and reasons.get(nzo) and reasons.get(nzo) != 'completed_history_clear' and now - self._removed_cleanup_attempt_ts.get(nzo, 0.0) >= 4.0
         ]
         attempted: list[str] = []
         for nzo in candidates:
@@ -6529,7 +6529,7 @@ class SabDownloadManager:
                 # and for an automatic 12-second missing-slot prune. New reasoned
                 # tombstones preserve explicit user intent; legacy reasonless tombstones
                 # may be recovered when SAB proves the job is still in its live queue.
-                if removed_reasons.get(nzo_id):
+                if removed_reasons.get(nzo_id) and removed_reasons.get(nzo_id) != 'completed_history_clear':
                     continue
                 legacy_recovered.add(nzo_id)
             if nzo_id in known:
@@ -7950,7 +7950,7 @@ class SabDownloadManager:
                 "automation_context": self._recover_automation_context_for_slot(orphan_id, raw_slot),
             }
             orphan_job = self._job_from_slot(orphan_id, synthetic_meta, raw_slot, history=False)
-            tombstoned = bool(removed_reason_snapshot.get(orphan_id))
+            tombstoned = bool(removed_reason_snapshot.get(orphan_id) and removed_reason_snapshot.get(orphan_id) != 'completed_history_clear')
             orphan_age, in_handoff_grace, emit_orphan_warning = self._untracked_queue_handoff_state(
                 orphan_id, tombstoned=tombstoned, now=now,
             )
@@ -8229,6 +8229,56 @@ class SabDownloadManager:
     def control(self, action: str, job_id: str = "", value: Any = None, job_ids: list[str] | None = None) -> dict[str, Any]:
         self._refresh_shared_state()
         ids = self._ids(job_id, job_ids)
+
+        if action == "clear_completed":
+            # v3.7.14: this is history cleanup, NEVER generic Remove. In particular,
+            # do not call SAB queue deletion or pass del_files=1 to SAB History.
+            # The index spans every Completed page; the browser need not load IDs.
+            active_post = {"queued", "waiting", "verifying", "repairing", "extracting", "importing", "needs_password", "needs_tool", "needs_attention", "blocked", "failed", "cancelled"}
+            with self._terminal_history_lock:
+                completed_ids = list(self._terminal_history_index.get("completed") or [])
+                rows = self._terminal_history.get("rows") or {}
+                candidates = [nzo for nzo in completed_ids
+                              if isinstance(rows.get(nzo), dict)
+                              and str(rows[nzo].get("status") or "").casefold() == "completed"
+                              and str(rows[nzo].get("post_status") or "").casefold() not in active_post]
+            if not candidates:
+                self._last_snapshot_ts = 0
+                return {**self.snapshot(), "cleared_completed_count": 0, "retained_completed_count": len(completed_ids)}
+            # A completed transfer can still have active Smart Import/cleanup. Never
+            # erase its operational record or historical card while work is pending.
+            with self.lock:
+                safe_ids = [nzo for nzo in candidates if not isinstance(self._tracked().get(nzo), dict)
+                            or self._job_is_retirable_from_operational_ledger(self._tracked()[nzo])]
+                if safe_ids:
+                    for nzo in safe_ids:
+                        self._tracked().pop(nzo, None)
+                        self._mark_removed_locked(nzo, reason="completed_history_clear")
+                        self._job_last_view.pop(nzo, None)
+                        self._job_last_seen_ts.pop(nzo, None)
+                    self._save_state()
+            if safe_ids:
+                # Commit the local durable terminal ledger. Statistics and actual
+                # downloaded/imported media remain untouched. The history-only
+                # tombstone prevents stale SAB History from repopulating the cards.
+                self._remove_terminal_history_ids(safe_ids)
+                # Best-effort SAB *history only* cleanup; do not depend on SAB being
+                # online to clear local history. Limit each query's URL length.
+                for start in range(0, len(safe_ids), 100):
+                    batch = safe_ids[start:start + 100]
+                    try:
+                        result = self._api("history", name="delete", value=",".join(batch), archive=0, del_files=0, timeout=3)
+                        if not self._sab_mutation_accepted(result):
+                            self._event("warning", "Completed SAB history-only cleanup rejected", count=len(batch))
+                            break
+                    except Exception as exc:
+                        self._event("warning", "Completed SAB history-only cleanup deferred", error=str(exc)[:240])
+                        break
+                self._event("info", "Cleared completed download history without deleting media", count=len(safe_ids))
+            self._last_snapshot = None
+            self._last_snapshot_ts = 0
+            return {**self.snapshot(), "cleared_completed_count": len(safe_ids),
+                    "retained_completed_count": len(completed_ids) - len(safe_ids)}
 
         # r3: Remove is authoritative stop+delete, not a best-effort local hide.
         # Do not create a tombstone until SAB queue absence proves the transfer ended.
