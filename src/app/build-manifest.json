@@ -1,23 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.14",
-  "base_version": "3.7.13",
-  "release": "Completed Downloads Remove All",
-  "adapter_version": "3.7.14",
-  "name": "Completed Downloads Remove All",
+  "version": "3.7.15",
+  "base_version": "3.7.14",
+  "release": "Newsgroup Media Filters & Bulk Queue Reliability",
+  "adapter_version": "3.7.15",
+  "name": "Newsgroup Media Filters & Bulk Queue Reliability",
   "sab_version": "5.1.2",
   "changes": [
-    "Adds a Remove all completed button in Downloads > Completed with total-count confirmation across every history page.",
-    "Clears finalized completed history from NewzDeck durable terminal index and the SAB history-only API without deleting downloaded/imported files.",
-    "Preserves active, queued, post-processing and failed downloads, download statistics, and application settings."
+    "Uses the same multipart/header reconstruction for Images, Video, Images + Video, and All Posts; probes obfuscated filenames with a bounded budget in media views.",
+    "Makes All Posts ordinary row clicks additive/toggle selections, with Shift-click ranges.",
+    "Submits unrelated selected files as individual SABnzbd jobs, preserving true release packages as single jobs.",
+    "Handles partial queue failures without silently dropping selected files."
   ],
   "regression_guards": [
-    "Preserves v3.7.13 deferred-preview timeout and image integrity fixes.",
-    "Verifies completion cleanup never calls SAB queue delete or del_files=1.",
-    "Preserves SABnzbd 5.1.2, SABCTools 9.6.3, Automation, Smart Import, and managed updates."
+    "Preserves v3.7.13 deferred-preview terminal cleanup and image-integrity suppression.",
+    "Preserves v3.7.14 history-only Remove all completed.",
+    "Preserves SABnzbd 5.1.2, SABCTools 9.6.3, Automation, and managed updates."
   ],
   "preserved": [
-    "Newsgroup gallery/Image Sets/v3.7.13 deferred recovery, 12 themes, downloader engine and library storage unchanged."
+    "v3.7.14 Completed Remove All, existing user data, non-media downloads, native helper, all themes and published installers unchanged."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

@@ -1,3 +1,3 @@
-NewzDeck v3.7.14 - Completed Downloads Remove All
+NewzDeck v3.7.15 — Newsgroup Media Filters and Bulk Queue Reliability
 
-Downloads > Completed adds a confirmed Remove all completed action that clears history only, across every page, without deleting downloaded files or imported media. Preserves v3.7.13 gallery reliability.
+Aligns media views with All Posts reconstruction and filename resolution. Adds additive All Posts selection and separate loose-file SABnzbd queue jobs. Preserves v3.7.14 Completed Remove All and v3.7.13 preview recovery.

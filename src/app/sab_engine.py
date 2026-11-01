@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.7.14"
+ADAPTER_VERSION = "3.7.15"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -6140,30 +6140,68 @@ class SabDownloadManager:
                                 password=str(passwords[0]) if passwords else "")
 
     def add(self, provider_id: str, group: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-        if not items:
+        """Submit loose browser files as *individual* SAB jobs, not one NZB.
+
+        Only explicitly identified browser_set collections remain bundled; this
+        preserves PAR2/package post-processing, while unrelated selected images,
+        videos and files appear as distinct queue items. Accepted submissions are
+        returned even when a later item fails, so the UI can retain those failed
+        selections for manual retry rather than lying about partial success.
+        """
+        if not group:
+            raise ValueError("Newsgroup is required")
+        if not isinstance(items, list) or not items:
             raise ValueError("Select at least one media item")
-        name = _safe_name(str((items[0].get("media") or {}).get("filename") or items[0].get("subject") or "NewzDeck Download"))
-        raw = build_nzb_bytes(name, items)
-        expected = sum(max(0, int(x.get("bytes", 0) or sum(int(s.get("bytes", 0) or 0) for s in (x.get("segments") or [])))) for x in items if isinstance(x, dict))
-        loose_browser = bool(items) and all(
-            isinstance(x, dict)
-            and str(x.get("source") or "").casefold() == "browser_loose"
-            and not str(x.get("collection_id") or "").strip()
-            for x in items
-        )
-        flat_filenames = []
-        if loose_browser:
-            for index, x in enumerate(items):
-                media = x.get("media") if isinstance(x.get("media"), dict) else {}
-                candidate = str(media.get("filename") or x.get("raw_yenc_name") or f"file-{index+1}.bin")
-                flat_filenames.append(Path(candidate.replace("\\", "/")).name or f"file-{index+1}.bin")
-        if loose_browser and items:
-            first = items[0] if isinstance(items[0], dict) else {}
+        if len(items) > 500:
+            raise ValueError("Add up to 500 files to the queue at a time")
+        batches: list[list[dict[str, Any]]] = []
+        by_collection: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            if not isinstance(item, dict) or not item.get("segments"):
+                raise ValueError("Selected item has no downloadable segments")
+            collection_id = str(item.get("collection_id") or "").strip()
+            if str(item.get("source") or "") == "browser_set" and collection_id:
+                if collection_id not in by_collection:
+                    by_collection[collection_id] = []
+                    batches.append(by_collection[collection_id])
+                by_collection[collection_id].append(item)
+            else:
+                batches.append([item])
+
+        added: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        failed: list[dict[str, Any]] = []
+        for batch in batches:
+            first = batch[0]
             first_media = first.get("media") if isinstance(first.get("media"), dict) else {}
-            name = _safe_name(str(first_media.get("filename") or first.get("raw_yenc_name") or name))
-        return self._submit_nzb(provider_id, name + ".nzb", raw, name=name, expected_bytes=expected,
-                                file_count=len(items), automation_context=None,
-                                browser_flat_images=loose_browser, browser_flat_filenames=flat_filenames, browser_group=group)
+            name = _safe_name(str(first_media.get("filename") or first.get("raw_yenc_name") or first.get("subject") or "NewzDeck Download"))
+            loose = len(batch) == 1 and str(first.get("source") or "").casefold() == "browser_loose"
+            # Media without a recoverable filename keeps its existing generated
+            # fallback. The caller already supplies that same bounded fallback.
+            filename = Path(str(first_media.get("filename") or first.get("raw_yenc_name") or "file.bin").replace("\\", "/")).name or "file.bin"
+            expected = sum(max(0, int(x.get("bytes", 0) or sum(int(s.get("bytes", 0) or 0) for s in (x.get("segments") or [])))) for x in batch)
+            try:
+                result = self._submit_nzb(provider_id, name + ".nzb", build_nzb_bytes(name, batch), name=name,
+                                          expected_bytes=expected, file_count=len(batch), automation_context=None,
+                                          browser_flat_images=loose, browser_flat_filenames=[filename] if loose else None,
+                                          browser_group=group)
+            except Exception as exc:
+                for item in batch:
+                    failed.append({"client_key": str(item.get("client_key") or ""), "filename": str((item.get("media") or {}).get("filename") or item.get("subject") or "")})
+                warnings.append(f"Could not queue {name}: {exc}")
+                continue
+            ids = result.get("added") or []
+            # Return one successful selection identity for each file in a grouped
+            # NZB; SAB itself intentionally reports one job ID for that package.
+            for item in batch:
+                added.append({"id": str(ids[0].get("id") or "") if ids else "",
+                              "filename": str((item.get("media") or {}).get("filename") or item.get("subject") or name),
+                              "client_key": str(item.get("client_key") or ""),
+                              "generated_name": bool((item.get("media") or {}).get("generated_name"))})
+        if not added:
+            raise RuntimeError(warnings[0] if warnings else "No selected files could be queued")
+        return {"ok": not failed, "added": added, "duplicates": [], "failed": failed,
+                "warnings": warnings, "engine": "SABnzbd", "engine_version": SAB_VERSION}
 
     def _publish_queue_sample(self, queue_data: dict[str, Any], history_data: dict[str, Any]) -> None:
         with self._queue_sample_lock:

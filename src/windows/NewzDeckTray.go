@@ -718,7 +718,7 @@ func main() {
 		a.appDir = filepath.Dir(executable)
 	}
 	a.userRoot = argValue("--user-root", filepath.Join(os.Getenv("LOCALAPPDATA"), "NewzDeck"))
-	a.version = argValue("--version", "3.7.14")
+	a.version = argValue("--version", "3.7.15")
 	_ = os.MkdirAll(replyDir(), 0755)
 
 	mutex, ok := acquireMutex()
