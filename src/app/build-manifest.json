@@ -1,21 +1,20 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.15",
-  "base_version": "3.7.14",
-  "release": "Newsgroup Media Filters & Bulk Queue Reliability",
-  "adapter_version": "3.7.15",
-  "name": "Newsgroup Media Filters & Bulk Queue Reliability",
+  "version": "3.7.16",
+  "base_version": "3.7.15",
+  "release": "Silent Windows Video Thumbnail Helpers",
+  "adapter_version": "3.7.16",
+  "name": "Silent Windows Video Thumbnail Helpers",
   "sab_version": "5.1.2",
   "changes": [
-    "Uses the same multipart/header reconstruction for Images, Video, Images + Video, and All Posts; probes obfuscated filenames with a bounded budget in media views.",
-    "Makes All Posts ordinary row clicks additive/toggle selections, with Shift-click ranges.",
-    "Submits unrelated selected files as individual SABnzbd jobs, preserving true release packages as single jobs.",
-    "Handles partial queue failures without silently dropping selected files."
+    "Run FFmpeg video-preview frame extraction without creating transient Windows console windows.",
+    "Run FFprobe metadata inspections without creating transient Windows console windows.",
+    "Preserve ffmpeg/ffprobe arguments, captured output, exit-code handling, timeouts, and video-thumbnail fallback behavior."
   ],
   "regression_guards": [
-    "Preserves v3.7.13 deferred-preview terminal cleanup and image-integrity suppression.",
-    "Preserves v3.7.14 history-only Remove all completed.",
-    "Preserves SABnzbd 5.1.2, SABCTools 9.6.3, Automation, and managed updates."
+    "Keep v3.7.15 media filters and individual loose-file download queue jobs.",
+    "Keep v3.7.14 history-only Completed Remove All and v3.7.13 preview terminal cleanup.",
+    "Retain video thumbnail concurrency limits and existing fallback behavior."
   ],
   "preserved": [
     "v3.7.14 Completed Remove All, existing user data, non-media downloads, native helper, all themes and published installers unchanged."

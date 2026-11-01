@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.15"
+APP_VERSION = "3.7.16"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -5477,7 +5477,8 @@ def _try_ffmpeg_frame(source: Path, thumb_token: str) -> str | None:
         subprocess.run([
             ffmpeg, "-y", "-loglevel", "error", "-ss", "0.35", "-i", str(source),
             "-frames:v", "1", "-vf", "scale='min(480,iw)':-2", "-q:v", "4", str(temp_path),
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0)
     except Exception:
         temp_path.unlink(missing_ok=True)
         return None
@@ -11766,7 +11767,8 @@ def video_metadata(path: Path) -> dict[str, Any]:
             ffprobe, "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=width,height,codec_name,avg_frame_rate:format=duration",
             "-of", "json", str(path)
-        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=12, check=False)
+        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=12, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0)
         data = json.loads(proc.stdout or "{}")
         stream = (data.get("streams") or [{}])[0]
         fmt = data.get("format") or {}

@@ -1,3 +1,3 @@
-NewzDeck v3.7.15 update notes
+NewzDeck v3.7.16 update notes
 
-Improves Newsgroup media filter consistency and multi-file queueing. Preserves settings, downloaded and imported files, active/failed/completed jobs, native decoder, Automation and managed updates.
+Hides Windows FFmpeg/FFprobe console windows during video browsing, preserving thumbnails, downloads, user data, Automation, and managed updates.
