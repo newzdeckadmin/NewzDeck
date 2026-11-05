@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.17** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.18** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.17_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.18_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,9 +34,9 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.17 Original Image Set Filenames
+## v3.7.18 Windows CI path recovery / original Image Set filenames
 
-Newsgroups Image Set downloads now restore the known image filename when SABnzbd uses NewzDeck's own temporary `NewzDeck Loose <token>` staging name. Only exact, single-file, same-extension matches are renamed. Collisions receive numbered filenames; other files and packages remain untouched. See [release notes](release/RELEASE_NOTES_v3.7.17.md).
+Repairs the v3.7.17 Windows CI test's false failure for 8.3 short versus long `%TEMP%` paths. This release includes the original Image Set filename restoration from the failed v3.7.17 build without changing its runtime behavior. See [release notes](release/RELEASE_NOTES_v3.7.18.md).
 
 ## Requirements
 
@@ -59,7 +59,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.17_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.18_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

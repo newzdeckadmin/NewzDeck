@@ -2,15 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.17
+## Current release: v3.7.18
 
-**v3.7.17 is the current stable production release.**
+**v3.7.18 is the current stable production release.**
 
-The `v3.7.17` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.18` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.18 - Windows CI Path Identity Recovery.** Fixes a false Windows 8.3 temporary-path assertion, allowing the v3.7.17 original Image Set filename fix to ship. The v3.7.17 tag remains immutable and its binary build was not published.
 
 - **v3.7.17 - Original Image Set Filenames.** Restores browser-resolved names after SAB loose-image token filenames, with exact-match and collision safeguards and correct Completed display names.
 

@@ -48,7 +48,7 @@ def case(name, originals, expected, stage_name=BASE, *, root_file=False, existin
         eq(result_files,sorted((want or originals)+list(existing)),name+' names')
         for x in existing: eq((root/x).read_bytes(),b'untouched original',name+' collision untouched')
         eq(sorted(meta['browser_flattened_files']),sorted(want or originals),name+' history tracked')
-        eq(slot['storage'],str(root),name+' history storage')
+        eq(pathlib.Path(slot['storage']).samefile(root),True,name+' history storage identity')
 
 f=sab.SabDownloadManager._browser_final_loose_name
 assert f(BASE+'.jpg',[PREFERRED],BASE)==PREFERRED

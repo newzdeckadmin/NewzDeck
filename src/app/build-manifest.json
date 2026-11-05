@@ -1,23 +1,22 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.17",
-  "base_version": "3.7.16",
-  "release": "Original Image Set Filenames",
-  "adapter_version": "3.7.17",
-  "name": "Original Image Set Filenames",
+  "version": "3.7.18",
+  "base_version": "3.7.17",
+  "release": "Windows CI Path Identity Recovery",
+  "adapter_version": "3.7.18",
+  "name": "Windows CI Path Identity Recovery",
   "sab_version": "5.1.2",
   "changes": [
-    "Restore the original browser filename when SABnzbd assigns its own NewzDeck Loose <token> staging basename to a completed image.",
-    "Protect existing downloads with collision-safe numbered names and require a matching exact staging token, one known expected filename, and the same image extension.",
-    "Keep Completed display name aligned with the actual saved single image filename after flattening."
+    "Fix the v3.7.17 GitHub Windows CI regression assertion by comparing directory filesystem identity rather than Windows 8.3 versus long-name spellings.",
+    "Ship the original v3.7.17 Image Set filename restoration code unchanged, with all prior safeguards."
   ],
   "regression_guards": [
-    "Do not rename actual decoded filenames, unknown or opaque names, other jobs, non-images, or multi-file packages.",
-    "Preserve v3.7.16 silent video helpers, v3.7.15 media filtering and queue grouping, v3.7.14 Completed Remove All, and v3.7.13 preview recovery.",
-    "Keep SABnzbd 5.1.2, SABCTools 9.6.3, NNTP, PAR2, Smart Import, user configuration, and install/update lifecycle unchanged."
+    "Preserve the v3.7.17 original Image Set filename restoration and all previous SABnzbd semantics.",
+    "Preserve v3.7.16 video helper console suppression, v3.7.15 media and queue fixes, v3.7.14 Completed cleanup and v3.7.13 gallery.",
+    "Do not replace or move the existing annotated v3.7.17 source tag."
   ],
   "preserved": [
-    "Existing downloaded files are not scanned or renamed retroactively; filename restoration applies as new jobs complete."
+    "No changes to application behavior beyond v3.7.17; only test reliability, release metadata and version coherence."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"
