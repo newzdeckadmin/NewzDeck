@@ -1,23 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.16",
-  "base_version": "3.7.15",
-  "release": "Silent Windows Video Thumbnail Helpers",
-  "adapter_version": "3.7.16",
-  "name": "Silent Windows Video Thumbnail Helpers",
+  "version": "3.7.17",
+  "base_version": "3.7.16",
+  "release": "Original Image Set Filenames",
+  "adapter_version": "3.7.17",
+  "name": "Original Image Set Filenames",
   "sab_version": "5.1.2",
   "changes": [
-    "Run FFmpeg video-preview frame extraction without creating transient Windows console windows.",
-    "Run FFprobe metadata inspections without creating transient Windows console windows.",
-    "Preserve ffmpeg/ffprobe arguments, captured output, exit-code handling, timeouts, and video-thumbnail fallback behavior."
+    "Restore the original browser filename when SABnzbd assigns its own NewzDeck Loose <token> staging basename to a completed image.",
+    "Protect existing downloads with collision-safe numbered names and require a matching exact staging token, one known expected filename, and the same image extension.",
+    "Keep Completed display name aligned with the actual saved single image filename after flattening."
   ],
   "regression_guards": [
-    "Keep v3.7.15 media filters and individual loose-file download queue jobs.",
-    "Keep v3.7.14 history-only Completed Remove All and v3.7.13 preview terminal cleanup.",
-    "Retain video thumbnail concurrency limits and existing fallback behavior."
+    "Do not rename actual decoded filenames, unknown or opaque names, other jobs, non-images, or multi-file packages.",
+    "Preserve v3.7.16 silent video helpers, v3.7.15 media filtering and queue grouping, v3.7.14 Completed Remove All, and v3.7.13 preview recovery.",
+    "Keep SABnzbd 5.1.2, SABCTools 9.6.3, NNTP, PAR2, Smart Import, user configuration, and install/update lifecycle unchanged."
   ],
   "preserved": [
-    "v3.7.14 Completed Remove All, existing user data, non-media downloads, native helper, all themes and published installers unchanged."
+    "Existing downloaded files are not scanned or renamed retroactively; filename restoration applies as new jobs complete."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

@@ -1,3 +1,3 @@
-NewzDeck v3.7.16 update notes
+NewzDeck v3.7.17 update notes
 
-Hides Windows FFmpeg/FFprobe console windows during video browsing, preserving thumbnails, downloads, user data, Automation, and managed updates.
+Restores original names on newly completed loose Image Set downloads when SABnzbd uses a temporary staging token. Existing downloads, settings and service lifecycle are preserved.

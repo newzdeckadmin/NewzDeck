@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.7.16"
+ADAPTER_VERSION = "3.7.17"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -5338,6 +5338,32 @@ class SabDownloadManager:
         reserved.add(str(candidate).casefold())
         return candidate
 
+    @staticmethod
+    def _browser_final_loose_name(actual: str, expected: list[str], staging_name: str) -> str:
+        """Replace only our exact SAB staging-token basename with a known image name.
+
+        Some SAB versions use the internal NZB name as the decoded filename when
+        yEnc headers lack a filename. A normal image filename must never be
+        overwritten by a subject-only guess, and a different job's staged file
+        must never be renamed. Keep filename recovery conservative.
+        """
+        actual_name = Path(str(actual or "").replace("\\", "/")).name
+        staging = str(staging_name or "").strip()
+        if len(expected) != 1 or not re.fullmatch(r"NewzDeck Loose [0-9a-f]{12}", staging, flags=re.I):
+            return actual_name
+        if not re.fullmatch(re.escape(staging) + r"(?: \(\d+\))?", Path(actual_name).stem, flags=re.I):
+            return actual_name
+        proposed = Path(str(expected[0] or "").replace("\\", "/")).name
+        proposed = _safe_name(proposed, "")
+        if not proposed or _browser_opaque_filename(proposed) or proposed.casefold() in {"file.bin", "download.bin"}:
+            return actual_name
+        image_exts = {".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".heif", ".jxl"}
+        if Path(actual_name).suffix.casefold() not in image_exts:
+            return actual_name
+        if Path(proposed).suffix.casefold() != Path(actual_name).suffix.casefold():
+            return actual_name
+        return proposed
+
     def _flatten_completed_browser_images(self, nzo_id: str, meta: dict[str, Any], slot: dict[str, Any]) -> bool:
         """Finalize a direct Newsgroups image job with no per-job output folder.
 
@@ -5411,6 +5437,15 @@ class SabDownloadManager:
         if source.is_file() and source.parent == root:
             if source.name.casefold() not in expected_folded and source.suffix.casefold() not in image_suffixes and not (str(meta.get("browser_group") or "") and len(expected) == 1):
                 return False
+            preferred = self._browser_final_loose_name(source.name, expected, staging_name)
+            if preferred != source.name:
+                target = self._browser_flat_destination(root, preferred, set())
+                try:
+                    source.rename(target)
+                    self._event("info", "Restored original loose-image filename", nzo_id=nzo_id, filename=target.name)
+                    source = target
+                except OSError as exc:
+                    self._event("warning", "Could not restore original loose-image filename", nzo_id=nzo_id, error=str(exc))
             moved_names = [source.name]
         else:
             if not source.is_dir():
@@ -5504,7 +5539,10 @@ class SabDownloadManager:
             reserved: set[str] = set()
             final_plan: list[tuple[Path, Path, Path]] = []
             for original, temp in staged:
-                final_plan.append((original, temp, self._browser_flat_destination(root, original.name, reserved)))
+                # Only a single verified synthetic SAB basename can be replaced.
+                # All ordinary decoded names and multi-file packages remain intact.
+                preferred = self._browser_final_loose_name(original.name, expected, staging_name) if len(staged) == 1 else original.name
+                final_plan.append((original, temp, self._browser_flat_destination(root, preferred, reserved)))
 
             finalized: list[tuple[Path, Path, Path]] = []
             try:
@@ -6901,7 +6939,7 @@ class SabDownloadManager:
             "post_indeterminate": bool(post in {"queued", "verifying", "repairing", "extracting", "importing"} and not (import_status == "importing" or (not import_status and sab_post_progress_known))),
             "post_message": str(meta.get("import_message") or sab_post_message or pp), "automation_context": automation_context, "source": "nzb",
             "automation_label": automation_label, "automation_release_title": automation_release_title,
-            "automation_destination": automation_destination, "display_name": automation_label or str(slot.get("filename") or meta.get("name") or "NZB package"),
+            "automation_destination": automation_destination, "display_name": automation_label or (visible_filename if bool(meta.get("browser_flattened")) and len(flat_names) == 1 else str(slot.get("filename") or meta.get("name") or "NZB package")),
             "source_filename": str(slot.get("filename") or ""), "import_status": import_status,
             "imported": bool(meta.get("imported")),
             "import_heartbeat_age_seconds": float(import_heartbeat_age),
