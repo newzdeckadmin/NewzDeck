@@ -89,16 +89,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Validate NewzDeck source and v3.7.18 regression guard
+      - name: Validate NewzDeck source and v3.7.19 regression guard
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path variable:PSNativeCommandUseErrorActionPreference)) { throw 'PowerShell native-command failure propagation is unavailable.' }
           $PSNativeCommandUseErrorActionPreference = $true
 
-          if ($env:VERSION -cne '3.7.18') { throw "This source workflow is the v3.7.18 production gate, got $env:VERSION." }
-          python release/windows/validate-v3718-regressions.py
-          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3718-regressions.py
+          if ($env:VERSION -cne '3.7.19') { throw "This source workflow is the v3.7.19 production gate, got $env:VERSION." }
+          python release/windows/validate-v3719-regressions.py
+          python -m py_compile src/app/server.py src/app/sab_engine.py src/app/automation_engine.py src/app/yenc_decoder.py release/windows/build-portable.py release/windows/validate-sabctools-runtime.py release/windows/validate-v3719-regressions.py
           node --check src/app/static/app.js
           node release/windows/validate-media-set-key.js
           node release/windows/validate-image-sets-v378.js
@@ -112,6 +112,7 @@ jobs:
           python release/windows/validate-v3715-queue-backend.py
           python release/windows/validate-v3716-video-console.py
           python release/windows/validate-v3717-loose-filenames.py
+          python release/windows/validate-v3719-library-io.py
           python release/windows/validate-v3714-completed-backend.py
           node release/windows/validate-groups-pane-resizer.js
 
@@ -292,7 +293,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Join-Path (Join-Path $env:RUNNER_TEMP 'newzdeck-release') ("NewzDeck_v{0}_Setup.exe" -f $env:VERSION)
-          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v3718-smoke'
+          $installDir = Join-Path $env:RUNNER_TEMP 'NewzDeck-v3719-smoke'
 
           function Run-Setup([bool]$UpdateMode) {
             $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/CLOSEAPPLICATIONS',"/DIR=$installDir")
@@ -330,7 +331,7 @@ jobs:
           else {
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Windows CI Path Identity Recovery"
+            git tag -a $tag $env:SOURCE_COMMIT -m "NewzDeck v$env:VERSION - Media Library Scan & Disk I/O Optimization"
             git push origin "refs/tags/$tag"
           }
 

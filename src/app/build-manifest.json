@@ -1,22 +1,26 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.18",
-  "base_version": "3.7.17",
-  "release": "Windows CI Path Identity Recovery",
-  "adapter_version": "3.7.18",
-  "name": "Windows CI Path Identity Recovery",
+  "version": "3.7.19",
+  "base_version": "3.7.18",
+  "release": "Media Library Scan & Disk I/O Optimization",
+  "adapter_version": "3.7.19",
+  "name": "Media Library Scan & Disk I/O Optimization",
   "sab_version": "5.1.2",
   "changes": [
-    "Fix the v3.7.17 GitHub Windows CI regression assertion by comparing directory filesystem identity rather than Windows 8.3 versus long-name spellings.",
-    "Ship the original v3.7.17 Image Set filename restoration code unchanged, with all prior safeguards."
+    "Cache Automation media analysis by path and file size/mtime/file identity and persist it across scans/restarts, without storing media contents.",
+    "Re-use quality, fingerprint and codec/HDR traits for unchanged files without opening their contents.",
+    "Inspect each changed TV/movie candidate once for codec/HDR metadata and reuse it for quality cutoffs and display.",
+    "Preserve real directory traversal to detect new, moved and missing episodes; invalidate analysis when file metadata changes.",
+    "Keep bounded rebuildable cache storage and preserve Smart Import/quality/episode matching."
   ],
   "regression_guards": [
-    "Preserve the v3.7.17 original Image Set filename restoration and all previous SABnzbd semantics.",
-    "Preserve v3.7.16 video helper console suppression, v3.7.15 media and queue fixes, v3.7.14 Completed cleanup and v3.7.13 gallery.",
-    "Do not replace or move the existing annotated v3.7.17 source tag."
+    "Preserve v3.7.18 release identity and v3.7.17 original filename behavior.",
+    "Preserve v3.7.16 video console suppression, v3.7.15 media/queue behavior, v3.7.14 Completed history and v3.7.13 gallery.",
+    "Ensure warm scans do not re-read media contents; changed same-size files revalidate; cache corruption is recoverable."
   ],
   "preserved": [
-    "No changes to application behavior beyond v3.7.17; only test reliability, release metadata and version coherence."
+    "No changes to NNTP, SABnzbd 5.1.2, SABCTools 9.6.3, image/video thumbnails, Downloads, Smart Import or Metadata Server.",
+    "Automated scans still enumerate library directories to discover additions/deletions."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

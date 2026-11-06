@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.7.18'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.7.19'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -605,6 +605,9 @@ class MediaAutomationEngine:
         self.discover_state_file = self.data_dir / 'discover-state.json'
         self.automation_runtime_file = self.data_dir / 'automation-runtime.json'
         self.media_quality_cache_file = self.data_dir / 'media-quality-cache.json'
+        # v3.7.19: recoverable, bounded cache for library-scan file analysis.
+        # Not a source of truth; every scan still enumerates actual files.
+        self.media_scan_cache_file = self.data_dir / 'media-scan-cache.json'
         self.grab_reservation_dir = self.data_dir / 'automation-grab-reservations'
         self.automation_cycle_lock_file = self.data_dir / '.automation-cycle.lock'
         self.protect_secret = protect_secret
@@ -4417,6 +4420,79 @@ class MediaAutomationEngine:
         value=_read(self.media_quality_cache_file,{})
         return value if isinstance(value,dict) else {}
 
+    def _scan_media_cache(self) -> dict[str, Any]:
+        """Load a rebuildable, versioned file-analysis cache for Automation scans."""
+        raw = _read(self.media_scan_cache_file, {})
+        if not isinstance(raw, dict) or raw.get('schema') != 1:
+            return {}
+        records = raw.get('files')
+        # Defensive bound: a damaged or oversized cache never blocks scanning.
+        return records if isinstance(records, dict) and len(records) <= 30000 else {}
+
+    def _analyze_scanned_media(self, path: Path, quality_cache: dict[str, Any],
+                               previous: dict[str, Any] | None,
+                               scan_cache: dict[str, Any]) -> tuple[str, str, str, dict[str, Any], bool, bool]:
+        """Get quality/traits once per scan, reusing results only for unchanged files.
+
+        Only stat() runs on a cache hit; no file contents are opened. Cache entries
+        are invalidated by path, size, nanosecond mtime, volume and file identity.
+        An unreadable file is never negatively cached. Changed files continue
+        through the original quality/provenance logic and integrity checks.
+        """
+        try:
+            stat = path.stat()
+        except OSError:
+            return 'Unknown', 'unavailable', '', {}, False, False
+        key = os.path.normcase(os.path.abspath(os.fspath(path)))
+        signature = [int(stat.st_size), int(stat.st_mtime_ns),
+                     int(getattr(stat, 'st_dev', 0)), int(getattr(stat, 'st_ino', 0))]
+        saved = scan_cache.get(key)
+        if (isinstance(saved, dict) and saved.get('signature') == signature
+                and isinstance(saved.get('media_info'), dict)
+                and isinstance(saved.get('quality'), str)
+                and isinstance(saved.get('fingerprint'), str)
+                and saved.get('fingerprint')):
+            q = saved['quality']
+            src = str(saved.get('source') or 'scan-cache')
+            prev = previous if isinstance(previous, dict) else {}
+            # Do not override a more recent, explicit library-quality decision.
+            prev_q = str(prev.get('file_quality') or prev.get('quality') or '')
+            prev_path = str(prev.get('file_path') or prev.get('path') or '')
+            if prev_q not in {'', 'Unknown'} and prev_path == str(path) and int(prev.get('file_size') or prev.get('size') or 0) == signature[0]:
+                q, src = prev_q, str(prev.get('quality_source') or src)
+            return q, src, saved['fingerprint'], dict(saved['media_info']), False, False
+
+        # A known change at the same path/size must not inherit stale quality
+        # from the prior episode record. First-time cache warmup preserves the
+        # established previous-value/provenance rules.
+        safe_previous = {} if isinstance(saved, dict) else previous
+        traits = self._probe_media_traits(path)
+        q, src, fp, q_changed = self._quality_for_media(
+            path, quality_cache, safe_previous,
+            resolution_hint=str(traits.get('resolution') or 'Unknown'))
+        # Do not cache a read error, an empty file or a file modified mid-scan.
+        try:
+            after = path.stat()
+            stable = [int(after.st_size), int(after.st_mtime_ns),
+                      int(getattr(after, 'st_dev', 0)), int(getattr(after, 'st_ino', 0))] == signature
+        except OSError:
+            stable = False
+        cache_changed = bool(stable and fp and stat.st_size > 0)
+        if cache_changed:
+            scan_cache[key] = {'signature': signature, 'quality': q, 'source': src,
+                               'fingerprint': fp, 'media_info': traits,
+                               'cached_at': int(time.time())}
+        return q, src, fp, traits, q_changed, cache_changed
+
+    def _save_scan_media_cache(self, records: dict[str, Any]) -> None:
+        """Persist only after actual changes; cap entries to prevent disk growth."""
+        if len(records) > 12000:
+            newest = sorted(records.items(),
+                            key=lambda row: int((row[1] if isinstance(row[1], dict) else {}).get('cached_at') or 0),
+                            reverse=True)[:10000]
+            records = dict(newest)
+        _write_compact(self.media_scan_cache_file, {'schema': 1, 'files': records})
+
     def _media_fingerprint(self, path: Path) -> str:
         """Stable, cheap identity for a media file that survives a rename/move."""
         try:
@@ -4631,7 +4707,7 @@ class MediaAutomationEngine:
         folder=self._template(str(cfg.get('tv_folder_template') or '{library_title}'),values,_safe_component(library_title,title))
         return root/folder
 
-    def _quality_for_media(self, path: Path, cache:dict[str,Any], previous:dict[str,Any]|None=None) -> tuple[str,str,str,bool]:
+    def _quality_for_media(self, path: Path, cache:dict[str,Any], previous:dict[str,Any]|None=None, *, resolution_hint: str|None=None) -> tuple[str,str,str,bool]:
         """Return quality, source-of-truth, fingerprint, cache_changed."""
         size=0
         try: size=int(path.stat().st_size)
@@ -4653,7 +4729,9 @@ class MediaAutomationEngine:
             if fp:
                 cache[fp]={'quality':q,'source':'filename','release_title':path.name,'updated_at':_now()}; changed=True
             return q,'filename',fp,changed
-        resolution=self._probe_media_resolution(path)
+        # Library scans already read container metadata; do not reopen the same
+        # multi-MiB file just to recover its resolution a second time.
+        resolution=resolution_hint if resolution_hint is not None else self._probe_media_resolution(path)
         if resolution!='Unknown':
             return f'{resolution} Unknown','media-probe',fp,False
         return 'Unknown','unknown',fp,False
@@ -5466,6 +5544,8 @@ class MediaAutomationEngine:
             scan_baseline={str(x.get('id') or ''):copy.deepcopy(x) for x in targets if str(x.get('id') or '')}
             profiles={str(p.get('id')):p for p in profiles_list}; files_by_root={}; scanned_paths=set()
             qcache=self._media_quality_cache(); qcache_changed=False; matched=0; changes=[]; offline=[]
+            scan_cache=self._scan_media_cache(); scan_cache_changed=False
+            scan_cache_hits=0; scan_cache_misses=0
             total_items=len(targets); files_processed_total=0
             emit(phase='starting',detail='Preparing library scan…',determinate=bool(total_items),progress_percent=0,items_done=0,items_total=total_items,files_discovered=0,files_processed=0,matched=0,changes_found=0,offline_roots=0,eta_seconds=None)
 
@@ -5568,16 +5648,18 @@ class MediaAutomationEngine:
                             current_fp=self._media_fingerprint(f) if excluded_fp else ''
                             if not excluded_fp or current_fp==excluded_fp: continue
                             ep.pop('integrity_excluded_path',None); ep.pop('integrity_excluded_fingerprint',None); ep.pop('integrity_reviewed_at',None)
-                        q,source,fp,changed=self._quality_for_media(f,qcache,previous.get(key)); qcache_changed|=changed
-                        rec=(self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp)
+                        q,source,fp,traits,changed,scan_changed=self._analyze_scanned_media(f,qcache,previous.get(key),scan_cache)
+                        qcache_changed|=changed; scan_cache_changed|=scan_changed
+                        scan_cache_misses+=int(scan_changed); scan_cache_hits+=int(not scan_changed)
+                        rec=(self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp,traits)
                         if key not in candidates or rec[:2]<candidates[key][:2]: candidates[key]=rec
                     meta_pct=pct_for(item_index,0.93)
                     emit(phase='metadata',detail=f'Reading media metadata • {title}',determinate=True,progress_percent=meta_pct,items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total+file_total,current_item=title,current_root=str(scan_root or root or ''),current_item_file=file_total,current_item_files=file_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(meta_pct))
-                    for (sn,en),(_,neg_size,f,q,source,fp) in candidates.items():
+                    for (sn,en),(_,neg_size,f,q,source,fp,traits) in candidates.items():
                         sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None)
                         ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
                         if ep is None: continue
-                        ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile,self._probe_media_traits(f))}); matched+=1
+                        ep.update({'has_file':True,'file_path':str(f),'file_quality':q,'file_size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':traits,'cutoff_met':self._quality_cutoff_met(q,profile,traits)}); matched+=1
                     for key,old in previous.items():
                         sn,en=key; sr=next((x for x in item.get('seasons',[]) if int(x.get('season_number',0) or 0)==sn),None); ep=next((x for x in (sr or {}).get('episodes',[]) if int(x.get('episode_number',0) or 0)==en),None)
                         if ep is None: continue
@@ -5594,14 +5676,16 @@ class MediaAutomationEngine:
                             current_fp=self._media_fingerprint(f) if excluded_fp else ''
                             if not excluded_fp or current_fp==excluded_fp: continue
                             item.pop('integrity_excluded_path',None); item.pop('integrity_excluded_fingerprint',None); item.pop('integrity_reviewed_at',None)
-                        q,source,fp,changed=self._quality_for_media(f,qcache,previous); qcache_changed|=changed
-                        candidates.append((self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp))
+                        q,source,fp,traits,changed,scan_changed=self._analyze_scanned_media(f,qcache,previous,scan_cache)
+                        qcache_changed|=changed; scan_cache_changed|=scan_changed
+                        scan_cache_misses+=int(scan_changed); scan_cache_hits+=int(not scan_changed)
+                        candidates.append((self._quality_rank(q,profile),-(f.stat().st_size if f.exists() else 0),f,q,source,fp,traits))
                     meta_pct=pct_for(item_index,0.93)
                     emit(phase='metadata',detail=f'Reading media metadata • {title}',determinate=True,progress_percent=meta_pct,items_done=item_index,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total+file_total,current_item=title,current_root=str(scan_root or root or ''),current_item_file=file_total,current_item_files=file_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=eta_for(meta_pct))
                     item['movie_file']=None
                     if candidates:
-                        _,neg_size,f,q,source,fp=min(candidates,key=lambda x:x[:2])
-                        item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':self._probe_media_traits(f),'cutoff_met':self._quality_cutoff_met(q,profile,self._probe_media_traits(f))}; matched+=1
+                        _,neg_size,f,q,source,fp,traits=min(candidates,key=lambda x:x[:2])
+                        item['movie_file']={'path':str(f),'quality':q,'size':-neg_size,'file_fingerprint':fp,'quality_source':source,'media_info':traits,'cutoff_met':self._quality_cutoff_met(q,profile,traits)}; matched+=1
                     current=item.get('movie_file') or {}
                     if previous and not current: changes.append({'type':'file_missing','item_id':str(item.get('id') or ''),'title':title,'path':str(previous.get('path') or '')})
                     elif not previous and current: changes.append({'type':'file_found','item_id':str(item.get('id') or ''),'title':title,'path':str(current.get('path') or ''),'quality':str(current.get('quality') or '')})
@@ -5624,12 +5708,15 @@ class MediaAutomationEngine:
                 self._note_target_integrity('scan_merge_conflicts',len(conflict_keys)); self._event('scan-merge-conflict',f'Skipped {len(conflict_keys)} stale library-scan merge(s) because newer file state won',conflicts=len(conflict_keys))
                 changes=[change for change in changes if str(change.get('type') or '') in {'root_offline','root_online'} or (str(change.get('item_id') or ''),change.get('season'),change.get('episode')) not in conflict_keys]
             if qcache_changed: _write(self.media_quality_cache_file,qcache)
+            if scan_cache_changed:
+                try: self._save_scan_media_cache(scan_cache)
+                except OSError: pass  # Rebuildable cache must never fail the library scan.
             for change in changes[:80]:
                 typ=change.get('type'); label=change.get('title') or 'Media'
                 if change.get('season') is not None: label+=f" {_episode_token(change.get('season'),change.get('episode'))}"
                 messages={'root_offline':f'Root Folder offline for {label}','root_online':f'Root Folder restored for {label}','file_missing':f'Library file is missing for {label}','file_found':f'Library file found for {label}','quality_changed':f'Library quality changed for {label}'}
                 self._event(str(typ),messages.get(str(typ),f'Library changed for {label}'),**change)
-            self._event('scan',f'Library scan matched {matched} media file(s)',matched=matched,files=len(scanned_paths),changes=len(changes),offline_roots=len(offline),merge_conflicts=len(conflict_keys))
+            self._event('scan',f'Library scan matched {matched} media file(s)',matched=matched,files=len(scanned_paths),changes=len(changes),offline_roots=len(offline),merge_conflicts=len(conflict_keys),analysis_cache_hits=scan_cache_hits,analysis_cache_misses=scan_cache_misses)
             emit(phase='complete',detail='Library scan complete.',determinate=True,progress_percent=100,items_done=total_items,items_total=total_items,files_discovered=len(scanned_paths),files_processed=files_processed_total,matched=matched,changes_found=len(changes),offline_roots=len(offline),eta_seconds=0)
             return {'ok':True,'matched':matched,'files_scanned':len(scanned_paths),'items_scanned':len(targets),'changes':changes,'offline_roots':offline,'merge_conflicts':len(conflict_keys),'library':fresh}
         finally:

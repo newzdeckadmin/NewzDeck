@@ -1,3 +1,3 @@
-NewzDeck v3.7.18 — Windows CI Path Identity Recovery
+NewzDeck v3.7.19 — Media Library Scan & Disk I/O Optimization
 
-Repairs a Windows 8.3-vs-long-path test failure so the previously prepared Image Set original-filename fix can be shipped. Runtime behavior is otherwise unchanged from v3.7.17 source.
+Retains all v3.7.18 features while caching Automation video analysis across library scans. Downloads, monitoring and user data are preserved.

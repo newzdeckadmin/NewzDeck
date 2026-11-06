@@ -1,3 +1,3 @@
-NewzDeck v3.7.18 update notes
+NewzDeck v3.7.19 update notes
 
-Ships the v3.7.17 original Image Set filename restoration and corrects only the Windows CI test path-identity check. Existing downloads and settings are preserved.
+Automatic library scans avoid repeated content reads for unchanged video files after the initial cache warmup. All downloads and persistent user data remain untouched.
