@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.22** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.23** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.22_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.23_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -33,6 +33,10 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Automate TV and movies** with monitored libraries, quality profiles, Wanted items, calendar, history, root folders, and Newznab-compatible indexers.
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
+
+## v3.7.23 Obfuscated Binary Discovery & Recovery
+
+All Posts / Raw Posts can now inspect an extensionless NNTP article on demand, inspect its yEnc part metadata and decoded prefix signature, and distinguish a likely single-file article from a multipart fragment. A likely complete article can use the ordinary queue; an incomplete fragment can instead be explicitly saved as a bounded `.part` file without being falsely treated as a complete download. Media signatures include common images, video containers, archives and other formats. No automatic 71,000-article BODY probe is performed. See [release notes](release/RELEASE_NOTES_v3.7.23.md).
 
 ## v3.7.22 Loose Video Filename Restoration
 
@@ -59,7 +63,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.22_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.23_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

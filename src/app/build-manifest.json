@@ -1,23 +1,25 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.22",
-  "base_version": "3.7.21",
-  "release": "Loose Video Filename Restoration",
-  "adapter_version": "3.7.22",
-  "name": "Loose Video Filename Restoration",
+  "version": "3.7.23",
+  "base_version": "3.7.22",
+  "release": "Obfuscated Binary Discovery & Recovery",
+  "adapter_version": "3.7.23",
+  "name": "Obfuscated Binary Discovery & Recovery",
   "sab_version": "5.1.2",
   "changes": [
-    "Restore known original loose-video names when SAB completed using the exact job-owned NewzDeck Loose staging token.",
-    "Extend only the safe image-only suffix allowlist to recognized video formats while preserving same-extension, single-file and collision guards.",
-    "Keep Completed history filenames in sync with the final files and preserve original image restores and grouped packages."
+    "Add explicit per-article Identify to All Posts Raw Posts for extensionless obfuscated subjects.",
+    "Probe only a bounded NNTP yEnc BODY prefix; show actual source name, part number, byte range, and content-signature format when available.",
+    "Permit SABnzbd queueing of apparently complete inspected single-article binaries; leave multipart fragments non-queueable.",
+    "Offer opt-in, 4 MB capped, collision-safe .part forensic export of decoded yEnc article fragments with CRC/trailer checks.",
+    "Reuse existing inferred media resolution cache only for inspected single-article images or videos."
   ],
   "regression_guards": [
-    "v3.7.22 staged/direct-root video filename, collision, wrong token, ambiguous metadata and Completed identity tests.",
-    "Preserve v3.7.21 Image Sets visibility, v3.7.20 date sequences, v3.7.19 disk I/O, v3.7.17 image naming and earlier runtime tests."
+    "Retain v3.7.22 safe image/video filename restoration and Completed history, v3.7.21 Image Sets cover recovery, and v3.7.20 date-based sequences.",
+    "Retain v3.7.19 scan-I/O caching, hidden FFmpeg subprocesses, selected queueing, Complete Remove All safeguards and 3.7.13 gallery recovery."
   ],
   "preserved": [
-    "No NNTP, decoding, SAB transport, Smart Import, Automation, Metadata Server or Diagnostic Collector change.",
-    "Existing v3.7.21 gallery and download safety features remain intact."
+    "No SABnzbd transport, NNTP provider settings, Windows native service, data migrations, or unrelated Automation changes.",
+    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged; no automatic BODY probe across all loaded articles."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.22"
+APP_VERSION = "3.7.23"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -2242,6 +2242,7 @@ class NntpClient:
                 _parse_yenc_end(control, meta)
                 break
             decoded.extend(_decode_yenc_data_line(line))
+        meta["yenc_found"] = saw_begin
         return bytes(decoded[:max_decoded]), meta
 
     def _read_body_raw_response(self, *, cancel_check=None, progress_callback=None, max_bytes: int = 32 * 1024 * 1024) -> bytes:
@@ -3944,6 +3945,191 @@ def resolve_article_names(provider_id: str, group: str, items: list[dict[str, An
         "article_unavailable": article_unavailable, "permanent_unavailable": permanent_unavailable,
         "circuit_open": circuit_open, "backoff_seconds": backoff_seconds,
     }
+
+# v3.7.23: manual investigation of extensionless/obfuscated raw NNTP articles.
+# Intentionally opt-in; never scan an entire newsgroup or auto-download fragments.
+UNKNOWN_FRAGMENT_MAX = 4 * 1024 * 1024
+
+
+def _unknown_target(item: dict[str, Any]) -> int | str:
+    if not isinstance(item, dict):
+        raise ValueError("Choose one article")
+    number = item.get("article")
+    if number is not None and str(number).strip():
+        try:
+            number = int(number)
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError("Invalid article number") from None
+        if number <= 0 or number >= 2**63:
+            raise ValueError("Invalid article number")
+        return number
+    mid = str(item.get("message_id") or "").strip()
+    if len(mid) > 512 or not re.fullmatch(r"<?[A-Za-z0-9._%+!#$&'*=/?:@-]+>?", mid) or (mid.startswith("<") != mid.endswith(">")):
+        raise ValueError("Invalid Message-ID")
+    return mid
+
+
+def _unknown_magic(data: bytes) -> dict[str, str] | None:
+    tests = [
+        (data.startswith(b"\xff\xd8\xff"), "jpg", "JPEG image", "image", "image/jpeg"),
+        (data.startswith(b"\x89PNG\r\n\x1a\n"), "png", "PNG image", "image", "image/png"),
+        (data.startswith((b"GIF87a", b"GIF89a")), "gif", "GIF image", "image", "image/gif"),
+        (len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP", "webp", "WebP image", "image", "image/webp"),
+        (len(data) >= 26 and data[:2] == b"BM", "bmp", "BMP image", "image", "image/bmp"),
+        (len(data) >= 12 and data[4:12].startswith(b"ftypavif"), "avif", "AVIF image", "image", "image/avif"),
+        (len(data) >= 12 and data[4:12].startswith((b"ftypheic", b"ftypheix", b"ftypmif1")), "heic", "HEIF image", "image", "image/heic"),
+        (len(data) >= 12 and data[4:8] == b"ftyp", "mp4", "MP4/MOV-family container", "video", "video/mp4"),
+        (data.startswith(b"\x1aE\xdf\xa3"), "mkv", "Matroska/WebM container", "video", "video/x-matroska"),
+        (len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"AVI ", "avi", "AVI video", "video", "video/x-msvideo"),
+        (data.startswith(b"Rar!\x1a\x07"), "rar", "RAR archive", "file", "application/vnd.rar"),
+        (data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")), "zip", "ZIP archive", "file", "application/zip"),
+        (data.startswith(b"7z\xbc\xaf'\x1c"), "7z", "7-Zip archive", "file", "application/x-7z-compressed"),
+        (data.startswith(b"PAR2\x00PKT"), "par2", "PAR2 recovery data", "file", "application/octet-stream"),
+        (data.startswith(b"%PDF-"), "pdf", "PDF document", "file", "application/pdf"),
+        (data.startswith(b"fLaC"), "flac", "FLAC audio", "file", "audio/flac"),
+        (data.startswith(b"ID3"), "mp3", "MP3 audio", "file", "audio/mpeg"),
+        (data.startswith(b"MZ"), "exe", "Windows executable (do not run)", "file", "application/octet-stream"),
+    ]
+    for match, extension, label, kind, mime in tests:
+        if match:
+            return {"extension": extension, "label": label, "kind": kind, "mime": mime}
+    return None
+
+
+def _unknown_classify(meta: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    part = max(1, int(meta.get("part") or (item.get("multipart") or {}).get("part") or 1))
+    total = max(1, int(meta.get("total") or (item.get("multipart") or {}).get("total") or item.get("segment_total") or 1))
+    begin, end, size = (int(meta.get(k) or 0) for k in ("begin", "end", "size"))
+    fragment = bool(total > 1 or part > 1 or begin > 1 or (end and size and end < size) or item.get("multipart_fragment"))
+    yenc = bool(meta.get("yenc_found"))
+    status = "fragment" if fragment else "possible_complete" if yenc else "unknown_encoding"
+    return {"status": status, "part": part, "total": total, "yenc": yenc,
+            "can_queue": status == "possible_complete" and len(item.get("segments") or [item]) == 1,
+            "can_save_fragment": yenc, "declared_size": size, "range_begin": begin, "range_end": end}
+
+
+def inspect_unknown_article(provider_id: str, group: str, item: dict[str, Any]) -> dict[str, Any]:
+    if not group or len(group) > 250 or "\r" in group or "\n" in group:
+        raise ValueError("Invalid newsgroup")
+    provider = provider_by_id(provider_id)
+    target = _unknown_target(item)
+    client = NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)),
+                        provider.get("username", ""), unprotect_secret(provider.get("password_protected", "")),
+                        timeout=NAME_RESOLUTION_SOCKET_TIMEOUT, probe_capabilities=False)
+    try:
+        client.connect(); client.group(group)
+        prefix, meta = client.body_yenc_decoded_prefix(target, max_decoded=16384, max_wire=98304)
+    finally:
+        client.abort()
+        try: client.close()
+        except Exception: pass
+    result = _unknown_classify(meta, item)
+    if not prefix:
+        # A yEnc control line by itself is not evidence of a usable file body.
+        result["can_queue"] = False
+    magic = _unknown_magic(prefix) if result["yenc"] else None
+    source_name = _clean_yenc_source_name(str(meta.get("name") or ""))
+    named = _resolution_filename_media(source_name) if source_name else None
+    # Known executables may be inspected but cannot enter the normal unknown
+    # media queue, which may otherwise post-process a misleading filename.
+    forbidden = {"exe", "com", "scr", "bat", "cmd", "ps1", "msi", "dll"}
+    if (magic and magic["extension"] in forbidden) or (named and named["extension"] in forbidden):
+        result["can_queue"] = False
+    media = None
+    if result["can_queue"]:
+        if magic and magic["extension"] != "exe":
+            fallback = _generated_unresolved_media(provider_id, group, item)
+            if named and named["extension"] == magic["extension"]:
+                media = named
+            else:
+                media = {**fallback, "filename": f"{Path(fallback['filename']).stem}.{magic['extension']}",
+                         "extension": magic["extension"], "kind": magic["kind"], "mime": magic["mime"],
+                         "type_inferred_from_signature": True}
+        elif named and not magic:
+            media = named
+    if media and media.get("kind") in {"image", "video"}:
+        # Reuse the existing per-article cache so refreshed media tabs see an
+        # explicitly identified single article; do not cache multipart fragments.
+        _store_name_resolution_entries([(_name_resolution_cache_key(provider_id, group, item), {
+            "ts": time.time(), "subject": str(item.get("subject") or ""), "filename": media["filename"],
+            "source": "Content signature, generated name" if media.get("generated_name") else "yEnc header",
+            "confidence": "medium" if media.get("generated_name") else "high"})])
+    result.update({"signature": magic, "media": media, "yenc_filename": source_name[:220],
+                   "decoded_prefix_bytes": len(prefix), "message": (
+                       "Multipart fragment; this article alone is not a complete file." if result["status"] == "fragment"
+                       else "No multipart markers seen; full transfer must still be verified." if result["can_queue"]
+                       else "No yEnc header found in the bounded prefix; format remains unknown.")})
+    return result
+
+
+class _UnknownLimitedClient(NntpClient):
+    def body_iter(self, article):
+        wire = 0
+        for line in super().body_iter(article):
+            wire += len(line) + 2
+            if wire > 8 * 1024 * 1024:
+                raise ValueError("Article exceeds 8 MB encoded safety limit")
+            yield line
+
+
+class _UnknownLimitedBuffer(io.BytesIO):
+    def write(self, chunk):
+        if self.tell() + len(chunk) > UNKNOWN_FRAGMENT_MAX:
+            raise ValueError("Decoded article exceeds 4 MB safety limit")
+        return super().write(chunk)
+
+
+def save_unknown_fragment(provider_id: str, group: str, item: dict[str, Any]) -> dict[str, Any]:
+    """Explicit forensic export: save exactly ONE decoded yEnc article as .part."""
+    if not group or len(group) > 250 or "\r" in group or "\n" in group:
+        raise ValueError("Invalid newsgroup")
+    if int(item.get("bytes") or 0) > UNKNOWN_FRAGMENT_MAX:
+        raise ValueError("Article exceeds 4 MB safety limit")
+    provider = provider_by_id(provider_id)
+    target = _unknown_target(item)
+    client = _UnknownLimitedClient(provider["host"], provider["port"], bool(provider.get("ssl", True)),
+                                    provider.get("username", ""), unprotect_secret(provider.get("password_protected", "")),
+                                    timeout=NAME_RESOLUTION_SOCKET_TIMEOUT, probe_capabilities=False)
+    stage = _UnknownLimitedBuffer()
+    try:
+        client.connect(); client.group(group)
+        written, meta = retrieve_segment_into_file(client,
+             {"article": target if isinstance(target, int) else None,
+              "message_id": target if isinstance(target, str) else "", "part": 1},
+             stage, apply_part_offset=False)
+    finally:
+        client.abort()
+        try: client.close()
+        except Exception: pass
+    if meta.get("encoding") != "yenc" or not meta.get("saw_end") or written < 1:
+        raise ValueError("No complete decodable yEnc segment; nothing saved")
+    content = stage.getvalue()
+    if int(meta.get("end_size") or len(content)) != len(content):
+        raise ValueError("yEnc trailer size mismatch; nothing saved")
+    expected_crc = str(meta.get("pcrc32") or meta.get("crc32") or "").lower()
+    if expected_crc and f"{zlib.crc32(content) & 0xffffffff:08x}" != expected_crc:
+        raise ValueError("yEnc CRC32 mismatch; nothing saved")
+    token = hashlib.sha256(f"{provider_id}|{group}|{target}".encode("utf-8")).hexdigest()[:16].upper()
+    folder = DOWNLOAD_DIR / "Unidentified Fragments"
+    folder.mkdir(parents=True, exist_ok=True)
+    for n in range(1, 1000):
+        suffix = "" if n == 1 else f" ({n})"
+        dest = folder / f"NewzDeck_Fragment_{token}{suffix}.part"
+        try:
+            fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise ValueError("Fragment save limit reached for this article")
+    try:
+        with os.fdopen(fd, "wb") as output: output.write(content)
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
+    return {"saved": True, "filename": dest.name, "path": str(dest), "size": len(content),
+            "signature": _unknown_magic(content[:16384]), "folder": str(folder),
+            "message": "Saved decoded article bytes as .part. It may be one part of a larger file."}
 
 _YENC_DECODE_TABLE = bytes(((i - 42) & 0xFF) for i in range(256))
 
@@ -13101,6 +13287,10 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.articles_api(data)
             if parsed.path == "/api/articles/resolve-names":
                 return self.article_name_resolution_api(data)
+            if parsed.path == "/api/articles/inspect-unknown":
+                return self.inspect_unknown_article_api(data)
+            if parsed.path == "/api/articles/save-fragment":
+                return self.save_unknown_fragment_api(data)
             if parsed.path == "/api/group-search/start":
                 return self.group_search_start_api(data)
             if parsed.path == "/api/group-search/status":
@@ -13837,6 +14027,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             "errors": errors,
             "folder": str(CACHE_DIR),
         })
+
+    def inspect_unknown_article_api(self, data: dict[str, Any]):
+        return self._json(200, inspect_unknown_article(str(data.get("provider_id") or ""),
+                          str(data.get("group") or "").strip(), data.get("item") or {}))
+
+    def save_unknown_fragment_api(self, data: dict[str, Any]):
+        return self._json(200, save_unknown_fragment(str(data.get("provider_id") or ""),
+                          str(data.get("group") or "").strip(), data.get("item") or {}))
 
     def downloads_add_api(self, data: dict[str, Any]):
         provider_id = str(data.get("provider_id", ""))
