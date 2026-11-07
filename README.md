@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.21** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.22** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.21_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.22_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,9 +34,9 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.21 Image Sets Visibility & Cover Recovery
+## v3.7.22 Loose Video Filename Restoration
 
-Image Sets containing numbered date-stamped images such as `0001_2026-06-05.png` now stay visible in Related Media even when thumbnail-cover probes fail. NewzDeck shows a **Cover unavailable** placeholder with working **Open set** and **Queue all** actions rather than hiding the entire set. Failed *cover sampling* no longer removes otherwise eligible posts from regular browsing; individual-image preview failure handling remains unchanged. The v3.7.20 date-sequence classifier, v3.7.19 media-library I/O improvements and all earlier fixes are preserved. See [release notes](release/RELEASE_NOTES_v3.7.21.md).
+Newsgroups loose-video downloads now restore the known actual filename when SABnzbd uses NewzDeck's internal `NewzDeck Loose <token>` staging title. Single-file, exact token and matching video extension safeguards are preserved, with numbered collision-safe names and correct Completed display names. Images retain v3.7.17's restoration behavior; packages, NZB imports, Smart Import, download engine and v3.7.21 Image Sets remain unchanged. See [release notes](release/RELEASE_NOTES_v3.7.22.md).
 
 ## Requirements
 
@@ -59,7 +59,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.21_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.22_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

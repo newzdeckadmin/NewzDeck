@@ -59,7 +59,7 @@ assert f(BASE+'.jpg',['file.bin'],BASE)==BASE+'.jpg'
 assert f(BASE+'.jpg',[],BASE)==BASE+'.jpg'
 assert f(BASE+'.jpg',[PREFERRED,'second.jpg'],BASE)==BASE+'.jpg'
 assert f('Already Correct.jpg',[PREFERRED],BASE)=='Already Correct.jpg'
-assert f(BASE+'.mkv',['Video.mkv'],BASE)==BASE+'.mkv'
+assert f(BASE+'.mkv',['Video.mkv'],BASE)=='Video.mkv'
 assert f(BASE+'.jpg',['../Travel.jpg'],BASE)=='Travel.jpg'
 case('stage rename', [BASE+'.jpg'], [PREFERRED],want=[PREFERRED])
 case('direct-root rename', [BASE+'.jpg'], [PREFERRED],root_file=True,want=[PREFERRED])

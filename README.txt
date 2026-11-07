@@ -1,3 +1,3 @@
-NewzDeck v3.7.21 — Image Sets Visibility & Cover Recovery
+NewzDeck v3.7.22 — Loose Video Filename Restoration
 
-Shows unavailable Image Sets with a safe placeholder and preserves original articles for browsing.
+Restores original video filenames after internal SAB staging without changing downloaded content.

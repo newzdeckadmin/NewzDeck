@@ -1,24 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.21",
-  "base_version": "3.7.20",
-  "release": "Image Sets Visibility & Cover Recovery",
-  "adapter_version": "3.7.21",
-  "name": "Image Sets Visibility & Cover Recovery",
+  "version": "3.7.22",
+  "base_version": "3.7.21",
+  "release": "Loose Video Filename Restoration",
+  "adapter_version": "3.7.22",
+  "name": "Loose Video Filename Restoration",
   "sab_version": "5.1.2",
   "changes": [
-    "Do not hide complete grouped Image Sets from Related Media when a bounded cover sample fails.",
-    "Render a stable Cover unavailable placeholder while preserving set title, Open set, Queue all and original articles.",
-    "Do not mark original image articles unpreviewable solely from a set-cover sample failure.",
-    "Keep v3.7.20 date-sequence recognition and established individual-image suppression unchanged."
+    "Restore known original loose-video names when SAB completed using the exact job-owned NewzDeck Loose staging token.",
+    "Extend only the safe image-only suffix allowlist to recognized video formats while preserving same-extension, single-file and collision guards.",
+    "Keep Completed history filenames in sync with the final files and preserve original image restores and grouped packages."
   ],
   "regression_guards": [
-    "v3.7.21 failed-cover behavior tests plus v3.7.20 date sequences and legacy grouping.",
-    "v3.7.19 library disk I/O cache tests, v3.7.17 filenames, v3.7.16 FFmpeg, v3.7.15 filters/queue, v3.7.14 Completed, v3.7.13 preview tests."
+    "v3.7.22 staged/direct-root video filename, collision, wrong token, ambiguous metadata and Completed identity tests.",
+    "Preserve v3.7.21 Image Sets visibility, v3.7.20 date sequences, v3.7.19 disk I/O, v3.7.17 image naming and earlier runtime tests."
   ],
   "preserved": [
-    "No NNTP, SABnzbd, file storage, Automation scan or Metadata Server changes.",
-    "Image Sets ON/OFF and original posted-image preview suppression remain intact."
+    "No NNTP, decoding, SAB transport, Smart Import, Automation, Metadata Server or Diagnostic Collector change.",
+    "Existing v3.7.21 gallery and download safety features remain intact."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

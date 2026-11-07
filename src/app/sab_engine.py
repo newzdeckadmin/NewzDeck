@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.7.21"
+ADAPTER_VERSION = "3.7.22"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -5340,12 +5340,12 @@ class SabDownloadManager:
 
     @staticmethod
     def _browser_final_loose_name(actual: str, expected: list[str], staging_name: str) -> str:
-        """Replace only our exact SAB staging-token basename with a known image name.
+        """Restore a known image/video name only for this exact SAB staging token.
 
-        Some SAB versions use the internal NZB name as the decoded filename when
-        yEnc headers lack a filename. A normal image filename must never be
-        overwritten by a subject-only guess, and a different job's staged file
-        must never be renamed. Keep filename recovery conservative.
+        SAB may use its internal NZB title as the decoded filename if the yEnc
+        header does not identify a filename. Only a one-file loose-browser job
+        with the exact matching 12-hex staging token and the SAME supported media
+        extension may use its own known original name. Never guess across jobs.
         """
         actual_name = Path(str(actual or "").replace("\\", "/")).name
         staging = str(staging_name or "").strip()
@@ -5357,22 +5357,29 @@ class SabDownloadManager:
         proposed = _safe_name(proposed, "")
         if not proposed or _browser_opaque_filename(proposed) or proposed.casefold() in {"file.bin", "download.bin"}:
             return actual_name
+        if re.fullmatch(r"NewzDeck Loose [0-9a-f]{12}(?: \(\d+\))?", Path(proposed).stem, flags=re.I):
+            return actual_name
         image_exts = {".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".heif", ".jxl"}
-        if Path(actual_name).suffix.casefold() not in image_exts:
+        # v3.7.22: browser_loose already covers BOTH images and videos. The
+        # v3.7.17 suffix gate accidentally rejected videos during finalization,
+        # allowing SAB's internal "NewzDeck Loose <token>.mkv/mp4" to remain.
+        # Reuse the established Automation video extensions; do not broaden this
+        # rule to archives, executables, or arbitrary files.
+        permitted_media_exts = image_exts | AUTOMATION_MEDIA_EXTS
+        if Path(actual_name).suffix.casefold() not in permitted_media_exts:
             return actual_name
         if Path(proposed).suffix.casefold() != Path(actual_name).suffix.casefold():
             return actual_name
         return proposed
 
     def _flatten_completed_browser_images(self, nzo_id: str, meta: dict[str, Any], slot: dict[str, Any]) -> bool:
-        """Finalize a direct Newsgroups image job with no per-job output folder.
+        """Finalize direct loose Newsgroups media without per-job output folders.
 
-        SAB remains the authoritative transfer engine, so it necessarily stages an NZB
-        in a job directory while it works. r2 gives new loose-image jobs a unique
-        ``NewzDeck Images <token>`` SAB-only name, then uses the *fresh Completed*
-        history storage path to move the finished payload into Download Folder itself.
-        The visible NewzDeck job name remains the image name. Automation, imported
-        NZBs, videos and All Posts/browser_set packages never receive this marker.
+        The legacy browser_flat_images marker is also set on browser_loose VIDEO
+        jobs; changing that persisted field would break existing queued jobs.
+        SAB stages the NZB under a unique internal NewzDeck Loose token. For a
+        single matching media file, finalization restores the actual browser name.
+        NZB imports, Automation and explicitly grouped packages do not use this.
         """
         if not bool(meta.get("browser_flat_images")):
             return False
@@ -5442,7 +5449,7 @@ class SabDownloadManager:
                 target = self._browser_flat_destination(root, preferred, set())
                 try:
                     source.rename(target)
-                    self._event("info", "Restored original loose-image filename", nzo_id=nzo_id, filename=target.name)
+                    self._event("info", "Restored original loose-media filename", nzo_id=nzo_id, filename=target.name)
                     source = target
                 except OSError as exc:
                     self._event("warning", "Could not restore original loose-image filename", nzo_id=nzo_id, error=str(exc))

@@ -1,3 +1,3 @@
-NewzDeck v3.7.21 update notes
+NewzDeck v3.7.22 update notes
 
-Grouped sets are no longer hidden after cover failures. No user data or cache reset required.
+Newly completed loose Newsgroups videos with exact safe staging identity receive their known original names. Existing files are not retroactively renamed; no user data reset.
