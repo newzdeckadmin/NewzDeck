@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.23"
+APP_VERSION = "3.7.24"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -2236,7 +2236,7 @@ class NntpClient:
             if not saw_begin:
                 continue
             if low.startswith(b"=ypart"):
-                _parse_ypart(control, meta)
+                _parse_yenc_part(control, meta)
                 continue
             if low.startswith(b"=yend"):
                 _parse_yenc_end(control, meta)

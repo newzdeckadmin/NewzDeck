@@ -1,19 +1,18 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.23",
-  "base_version": "3.7.22",
-  "release": "Obfuscated Binary Discovery & Recovery",
-  "adapter_version": "3.7.23",
-  "name": "Obfuscated Binary Discovery & Recovery",
+  "version": "3.7.24",
+  "base_version": "3.7.23",
+  "release": "Binary Inspection Reliability Fix",
+  "adapter_version": "3.7.24",
+  "name": "Binary Inspection Reliability Fix",
   "sab_version": "5.1.2",
   "changes": [
-    "Add explicit per-article Identify to All Posts Raw Posts for extensionless obfuscated subjects.",
-    "Probe only a bounded NNTP yEnc BODY prefix; show actual source name, part number, byte range, and content-signature format when available.",
-    "Permit SABnzbd queueing of apparently complete inspected single-article binaries; leave multipart fragments non-queueable.",
-    "Offer opt-in, 4 MB capped, collision-safe .part forensic export of decoded yEnc article fragments with CRC/trailer checks.",
-    "Reuse existing inferred media resolution cache only for inspected single-article images or videos."
+    "Correct the nonexistent _parse_ypart call in the bounded NNTP yEnc BODY prefix reader; use the existing _parse_yenc_part helper.",
+    "Restore on-demand Identify of valid =ypart multipart articles without changing download eligibility, fragment export or NNTP transfer handling.",
+    "Add real-prefix-parser regression coverage for single-file and multipart yEnc headers, escaped bytes, missing trailer and NNTP errors."
   ],
   "regression_guards": [
+    "Preserve v3.7.23 unknown binary Identify, optional .part export, guarded queueing, and bounded NNTP inspection.",
     "Retain v3.7.22 safe image/video filename restoration and Completed history, v3.7.21 Image Sets cover recovery, and v3.7.20 date-based sequences.",
     "Retain v3.7.19 scan-I/O caching, hidden FFmpeg subprocesses, selected queueing, Complete Remove All safeguards and 3.7.13 gallery recovery."
   ],

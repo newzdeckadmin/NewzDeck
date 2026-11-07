@@ -1,3 +1,3 @@
-NewzDeck v3.7.23 update notes
+NewzDeck v3.7.24 update notes
 
-In All Posts, set Show: All and Min size: 0 MB, use Raw Posts, and press Identify on an extensionless post. A likely complete single yEnc article can be queued normally; multipart articles may be saved as decoded .part files for inspection, not as complete downloads. Old downloads are never renamed automatically.
+Fixes the on-demand yEnc multipart inspection exception. Under Newsgroups > All Posts > Show All > Min size 0 MB > Raw Posts, use Identify on a previously failing extensionless post. A valid multipart article should report its yEnc part metadata; it is still a fragment until reconstructed. Existing downloaded media is untouched.

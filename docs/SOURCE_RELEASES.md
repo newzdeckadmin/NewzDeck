@@ -2,15 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.23
+## Current release: v3.7.24
 
-**v3.7.23 is the current stable production release.**
+**v3.7.24 is the current stable production release.**
 
-The `v3.7.23` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.24` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.24 - Binary Inspection Reliability Fix.** Corrects the yEnc `=ypart` prefix parser helper call that caused `NameError` during v3.7.23 unknown-binary Identify; adds an actual-parser NNTP BODY regression and preserves all existing retrieval safeguards.
 
 - **v3.7.23 - Obfuscated Binary Discovery & Recovery.** On-demand bounded yEnc and signature inspection of extensionless raw posts, guarded single-file queueing, and explicit collision-safe `.part` fragment export. No automatic mass article inspection.
 

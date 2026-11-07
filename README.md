@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.23** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.24** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.23_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.24_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -33,6 +33,10 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Automate TV and movies** with monitored libraries, quality profiles, Wanted items, calendar, history, root folders, and Newznab-compatible indexers.
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
+
+## v3.7.24 Binary Inspection Reliability Fix
+
+Fixes multipart yEnc Identify for extensionless Raw Posts: the existing NNTP prefix reader called a nonexistent parser helper for `=ypart` headers. v3.7.24 calls the working helper and adds a real-parser regression test without changing queuing, fragment export, SAB runtime, or user data. See [release notes](release/RELEASE_NOTES_v3.7.24.md).
 
 ## v3.7.23 Obfuscated Binary Discovery & Recovery
 
@@ -63,7 +67,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.23_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.24_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
