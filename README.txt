@@ -1,3 +1,3 @@
-NewzDeck v3.7.19 — Media Library Scan & Disk I/O Optimization
+NewzDeck v3.7.20 — Image Sets Date-Based Sequence Detection
 
-Retains all v3.7.18 features while caching Automation video analysis across library scans. Downloads, monitoring and user data are preserved.
+Adds leading-number/date sequences to Image Sets and preserves all v3.7.19 features and persistent user data.

@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.19';
+const UI_VERSION = '3.7.20';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -1063,12 +1063,31 @@ function mediaSetSequenceBase(a){
     const candidate=trimBase(base.slice(0,m.index));if(candidate.length<3)return false;
     base=candidate;index=n;matched=true;return true
   };
+  // v3.7.20: YYYY-MM-DD is an album/date label, not a trailing image number.
+  // Inspect an explicit leading counter FIRST, before the legacy trailing-number
+  // recognizers can mistake the final day (05) for a sequence number.
+  const leadingDate=stem.match(/^\s*[\[(\{#]?\s*(\d{1,6})\s*[\])\}]?[\s._\-–—]+((?:19|20)\d{2})[._-](\d{2})[._-](\d{2})\s*$/i);
+  if(leadingDate){
+    const n=Number(leadingDate[1]),year=Number(leadingDate[2]),month=Number(leadingDate[3]),day=Number(leadingDate[4]);
+    const leap=year%4===0&&(year%100!==0||year%400===0);
+    const days=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
+    if(n>0&&n<=999999&&!(n>=1900&&n<=2099)&&month>=1&&month<=12&&day>=1&&day<=days[month-1]){
+      base=`${leadingDate[2]}-${leadingDate[3]}-${leadingDate[4]}`;
+      index=n;
+      matched=true;
+    }
+  }
+  // Date-only names (and invalid dates) aren't image sequences by themselves.
+  // Preserve the existing explicit subject-index fallback below.
+  const hasDateTail=/(?:^|[\s._\-–—])(?:19|20)\d{2}[._-]\d{2}[._-]\d{2}\s*$/.test(stem);
+  if(!matched&&!hasDateTail){
   accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*(?:\/|of)\s*(\d{1,6})\s*[\])\}]\s*$/i),{totalGroup:2})||
   accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video|page|part|scan)?[\s._\-–—#]*(\d{1,6})[\s._\-–—]*(?:of|\/)[\s._\-–—]*(\d{1,6})\s*$/i),{totalGroup:2})||
   accept(base.match(/[\s._\-–—]*[\[(\{]\s*(\d{1,6})\s*[\])\}]\s*$/i),{yearGuard:true})||
   accept(base.match(/[\s._\-–—]*(?:img|image|pic|photo|frame|shot|vid|video|page|part|scan)[\s._\-–—#]*(\d{1,6})\s*$/i))||
   accept(base.match(/(\d{1,6})\s*$/i),{yearGuard:true});
-  if(!matched){
+  }
+  if(!matched&&!hasDateTail){
     // Explicit leading counters: 01 - Vacation.jpg, [02] Vacation.jpg, #03_Vacation.jpg.
     const m=stem.match(/^\s*[\[(\{#]?\s*(\d{1,6})\s*[\])\}]?[\s._\-–—]+(.{3,})$/i);
     if(m){const n=Number(m[1]),candidate=trimBase(m[2]);if(n>0&&!(n>=1900&&n<=2099)&&candidate.length>=3){base=candidate;index=n;matched=true}}

@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.19** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.20** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.19_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.20_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -34,9 +34,9 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
 
-## v3.7.19 Media Library Scan & Disk I/O Optimization
+## v3.7.20 Image Sets Date-Based Sequence Detection
 
-Automation library scans now persist compact file-analysis evidence and reuse it for unchanged videos, preventing repeated large file reads. Changes in file size, modification time or identity trigger fresh analysis. Scan results still detect new and removed media, and quality profiles, Smart Import, and background downloading keep their existing behavior. The first scan warms the cache and can still read media; later unchanged scans are substantially lighter. See [release notes](release/RELEASE_NOTES_v3.7.19.md).
+Image Sets now recognize numbered media filenames such as `0001_2026-06-05.png`, `0002_2026-06-05.png` and `0003_2026-06-05.png` as one dated sequence. Date separators (`-`, `_`, `.`) and numbered prefixes (`0001_`, `001-`, `[02] `) are supported. Date-only files, invalid dates, and year-like counters do not create accidental sets. Image Sets still require three members and respect the same poster and newsgroup. All v3.7.19 Automation I/O optimizations and earlier fixes are preserved. See [release notes](release/RELEASE_NOTES_v3.7.20.md).
 
 ## Requirements
 
@@ -59,7 +59,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.19_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.20_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 
