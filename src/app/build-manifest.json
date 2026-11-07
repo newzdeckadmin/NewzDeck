@@ -1,25 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.20",
-  "base_version": "3.7.19",
-  "release": "Image Sets Date-Based Sequence Detection",
-  "adapter_version": "3.7.20",
-  "name": "Image Sets Date-Based Sequence Detection",
+  "version": "3.7.21",
+  "base_version": "3.7.20",
+  "release": "Image Sets Visibility & Cover Recovery",
+  "adapter_version": "3.7.21",
+  "name": "Image Sets Visibility & Cover Recovery",
   "sab_version": "5.1.2",
   "changes": [
-    "Recognize Image Sets with leading counters followed by the same YYYY-MM-DD date label, including hyphen, underscore and dot separators.",
-    "Interpret sequence counters before trailing dates so 0001_2026-06-05.png and 0002_2026-06-05.png share one set key.",
-    "Reject invalid calendar dates, year-like leading counters and date-only names as sequence evidence.",
-    "Preserve standard trailing-number, leading-number and subject index/total detection; maintain poster/newsgroup/media-kind isolation."
+    "Do not hide complete grouped Image Sets from Related Media when a bounded cover sample fails.",
+    "Render a stable Cover unavailable placeholder while preserving set title, Open set, Queue all and original articles.",
+    "Do not mark original image articles unpreviewable solely from a set-cover sample failure.",
+    "Keep v3.7.20 date-sequence recognition and established individual-image suppression unchanged."
   ],
   "regression_guards": [
-    "Positive/negative/legacy Image Sets classifier tests and browser ON/OFF behavior.",
-    "Preserve v3.7.19 media scan I/O cache and regression checks.",
-    "Preserve v3.7.17 filename, v3.7.16 video console, v3.7.15 filter/queue, v3.7.14 Completed history, v3.7.13 gallery."
+    "v3.7.21 failed-cover behavior tests plus v3.7.20 date sequences and legacy grouping.",
+    "v3.7.19 library disk I/O cache tests, v3.7.17 filenames, v3.7.16 FFmpeg, v3.7.15 filters/queue, v3.7.14 Completed, v3.7.13 preview tests."
   ],
   "preserved": [
-    "No changes to NNTP, SABnzbd 5.1.2, SABCTools 9.6.3, Automation scans, Smart Import, Downloads, or Metadata Server.",
-    "Existing Image Sets enable/disable controls and minimum member count are unchanged."
+    "No NNTP, SABnzbd, file storage, Automation scan or Metadata Server changes.",
+    "Image Sets ON/OFF and original posted-image preview suppression remain intact."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"

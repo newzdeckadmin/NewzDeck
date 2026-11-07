@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.20';
+const UI_VERSION = '3.7.21';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -1111,7 +1111,7 @@ function addMediaSetIndexItem(item,changedKeys=null){
 function mediaSetIndexSnapshot({includeUngrouped=true,changedKeys=null}={}){
   const groups=[],groupMap=new Map(),ungrouped=includeUngrouped?[...state.mediaSetIndexSingles.values()]:[];let ungroupedCount=state.mediaSetIndexSingles.size,suppressedGroups=0;
   for(const[key,members]of state.mediaSetIndexBuckets){
-    if(members.length>=3){const group={key,members};groupMap.set(key,group);if(state.mediaSetBrokenKeys.has(key)||!members.some(x=>x.a?.complete))suppressedGroups++;else groups.push(group)}
+    if(members.length>=3){const group={key,members};groupMap.set(key,group);if(!members.some(x=>x.a?.complete))suppressedGroups++;else groups.push(group) /* A failed cover is not undownloadable media. */}
     else{ungroupedCount+=members.length;if(includeUngrouped)ungrouped.push(...members)}
   }
   return{groups,ungrouped,ungroupedCount,suppressedGroups,stream:includeUngrouped?ungrouped.map(item=>({type:'item',item})):[],buckets:state.mediaSetIndexBuckets,groupMap,changedKeys}
@@ -1148,12 +1148,14 @@ async function fetchMediaSetCover(task,a){
     for(const item of samples){
       try{
         const data=await fetchImageThumbnail(item.a,{...task,index:item.index,role:'set-probe',priority:0,distance:0,requestTimeoutMs:7000});
-        if(data?.suppressed_small){const info={message:'Image is too small for the gallery.',label:'Image suppressed',code:'small_image',retryable:false};rememberPreviewUnavailable(item.a,info);definitiveFailures++;continue}
+        if(data?.suppressed_small){ // Cover probes cannot decide visibility of the original downloadable article.
+          definitiveFailures++;continue}
         if(data?.url)return{index:item.index,articleKey:articleKey(item.a),data};
         lastError=new Error('The Related Media cover did not return a thumbnail.');lastError.data={error:'The Related Media cover did not return a thumbnail.',error_code:'set_cover_empty',error_label:'Cover unavailable',retryable:true};break;
       }catch(error){
         const info=friendlyPreviewError(error),definitive=thumbnailFailureSkipsFullFallback(error);lastError=error;
-        if(definitive){rememberPreviewUnavailable(item.a,info);definitiveFailures++;continue}
+        if(definitive){ // Only an individual preview may suppress its article; cover failures are set-local.
+          definitiveFailures++;continue}
         // Timeout/transient errors are terminal for this attempt so a card can never
         // sit in Loading forever. The user can retry without spawning hidden fan-out.
         break;
@@ -1167,8 +1169,9 @@ async function fetchMediaSetCover(task,a){
 function mediaSetNewestArticle(group){return Math.max(0,...group.members.map(x=>Number(x.a?.article||0)))}
 function mediaSetCard(group){
   const rep=mediaSetRepresentative(group),a=rep.a,index=rep.index,kind=a.media?.kind||'media',title=mediaSetTitle(group),bytes=group.members.reduce((n,x)=>n+Number(x.a.bytes||0),0),cache=kind==='image'?state.imageThumbCache.get(previewKey(a)):state.videoThumbCache.get(previewKey(a));
-  const visual=cache?.url?`<img class="thumb-img" src="${cache.url}" alt="${escapeHtml(title)}" decoding="async" data-thumb-image-index="${index}" data-thumb-role="set-cover" data-thumb-set-key="${escapeHtml(group.key)}">`:`<div class="thumb-loader ${kind==='video'?'video-thumb-loader':''}" data-thumb-index="${index}" data-thumb-role="set-cover" data-thumb-set-key="${escapeHtml(group.key)}"><span></span><small>Loading cover…</small></div>`;
-  return`<article class="media-set-card related-set-card" data-set-key="${escapeHtml(group.key)}" data-set-newest="${mediaSetNewestArticle(group)}" data-set-cover-index="${index}" data-set-cover-state="${cache?.url?'loaded':'pending'}"><div class="media-set-cover">${visual}<span class="set-badge">${group.members.length.toLocaleString()} ${kind==='image'?'IMAGES':'VIDEOS'}</span><span class="kind-pill ${kind}">${kind.toUpperCase()} SET</span></div><div class="media-set-info"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><span class="media-set-meta">${formatBytes(bytes)} • ${shortDate(a.date)}</span><div class="media-set-actions"><button class="set-open-btn" type="button">Open set</button><button class="set-queue-btn" type="button">＋ Queue all</button></div></div></article>`
+  const coverFailed=state.mediaSetBrokenKeys.has(group.key);
+  const visual=coverFailed?`<div class="thumb-error"><span>!</span><small>Cover unavailable</small><em>Set items remain available; turn Image Sets OFF to browse individually.</em></div>`:cache?.url?`<img class="thumb-img" src="${cache.url}" alt="${escapeHtml(title)}" decoding="async" data-thumb-image-index="${index}" data-thumb-role="set-cover" data-thumb-set-key="${escapeHtml(group.key)}">`:`<div class="thumb-loader ${kind==='video'?'video-thumb-loader':''}" data-thumb-index="${index}" data-thumb-role="set-cover" data-thumb-set-key="${escapeHtml(group.key)}"><span></span><small>Loading cover…</small></div>`;
+  return`<article class="media-set-card related-set-card" data-set-key="${escapeHtml(group.key)}" data-set-newest="${mediaSetNewestArticle(group)}" data-set-cover-index="${index}" data-set-cover-state="${coverFailed?'failed':cache?.url?'loaded':'pending'}"><div class="media-set-cover">${visual}<span class="set-badge">${group.members.length.toLocaleString()} ${kind==='image'?'IMAGES':'VIDEOS'}</span><span class="kind-pill ${kind}">${kind.toUpperCase()} SET</span></div><div class="media-set-info"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><span class="media-set-meta">${formatBytes(bytes)} • ${shortDate(a.date)}</span><div class="media-set-actions"><button class="set-open-btn" type="button">Open set</button><button class="set-queue-btn" type="button">＋ Queue all</button></div></div></article>`
 }
 function mediaSetGroupByKey(setKey){if(!setKey)return null;const members=state.mediaSetIndexValid?(state.mediaSetIndexBuckets.get(setKey)||[]):filteredArticles().filter(x=>mediaSetKey(x.a)===setKey);return members.length>=3?{key:setKey,members}:null}
 function wireMediaSetCards(root=els.previewContent){
@@ -1181,7 +1184,7 @@ function updateMediaSetCardInPlace(card,group){
   const titleNode=card.querySelector('.media-set-info > strong');if(titleNode){titleNode.textContent=title;titleNode.title=title}
   const meta=card.querySelector('.media-set-meta')||card.querySelector('.media-set-info > span');if(meta){meta.classList.add('media-set-meta');meta.textContent=`${formatBytes(bytes)} • ${shortDate(a.date)}`}
   const previousCoverIndex=Number(card.dataset.setCoverIndex??-1),hasLoadedCover=!!card.querySelector('.media-set-cover .thumb-img');
-  if(!hasLoadedCover&&Number.isFinite(rep.index)&&rep.index!==previousCoverIndex){
+  if(!state.mediaSetBrokenKeys.has(group.key)&&!hasLoadedCover&&Number.isFinite(rep.index)&&rep.index!==previousCoverIndex){
     const cover=card.querySelector('.media-set-cover'),oldHolder=cover?.querySelector('[data-thumb-index][data-thumb-role="set-cover"]');if(oldHolder)unregisterThumbnailHolder(Number(oldHolder.dataset.thumbIndex),'set-cover');
     cover?.querySelectorAll('.thumb-loader,.thumb-error,.video-play-overlay').forEach(n=>n.remove());
     if(cover){cover.insertAdjacentHTML('afterbegin',`<div class="thumb-loader ${kind==='video'?'video-thumb-loader':''}" data-thumb-index="${rep.index}" data-thumb-role="set-cover" data-thumb-set-key="${escapeHtml(group.key)}"><span></span><small>Loading cover…</small></div>`);registerThumbnailHolderNode(cover.querySelector('[data-thumb-index][data-thumb-role="set-cover"]'),rep.index,'set-cover')}
@@ -2245,7 +2248,19 @@ function markThumbnailError(index,error,kind='image',role='item',setKey=''){
     const holder=thumbnailHolder(index,role);if(holder){holder.className='thumb-loader';holder.setAttribute('data-thumb-index',String(index));holder.dataset.thumbRole=role;holder.dataset.thumbDeferredRecovery='1';holder.dataset.thumbDeferredSince=String(started);registerThumbnailHolderNode(holder,index,role);holder.innerHTML='<span></span><small>Waiting briefly for preview recovery…</small>'}
     scheduleDeferredFullPreviewRecovery(index,role);return;
   }
-  if(role==='set-cover'&&info.code==='media_set_unavailable'){const card=relatedSetCardByKey(setKey);if(setKey)state.mediaSetBrokenKeys.add(setKey);if(card)card.remove();renderRelatedMediaPane(null,{incremental:true});return}
+  if(role==='set-cover'&&info.code==='media_set_unavailable'){
+    // v3.7.21: A failed three-member cover sample does not establish that the
+    // entire dated Image Set is missing or not downloadable. Retain the set card,
+    // without endlessly retrying the failed cover or hiding the original posts.
+    if(setKey)state.mediaSetBrokenKeys.add(setKey);
+    const card=relatedSetCardByKey(setKey);
+    if(card){
+      const holder=card.querySelector('.media-set-cover .thumb-loader,.media-set-cover .thumb-error');
+      if(holder){const oldIndex=Number(holder.dataset.thumbIndex);if(Number.isFinite(oldIndex))unregisterThumbnailHolder(oldIndex,'set-cover');holder.className='thumb-error';holder.removeAttribute('data-thumb-index');holder.innerHTML='<span>!</span><small>Cover unavailable</small><em>Set items remain available; turn Image Sets OFF to browse individually.</em>'}
+      card.dataset.setCoverState='failed';
+    }
+    return
+  }
   if(role==='set-cover'){
     if(a&&isDefinitiveUnsupportedMedia(info))rememberPreviewUnavailable(a,info);
     const card=relatedSetCardByKey(setKey),holder=card?.querySelector('.media-set-cover .thumb-loader,.media-set-cover .thumb-error')||thumbnailHolder(index,role);if(!holder)return;const oldIndex=Number(holder.dataset.thumbIndex);if(Number.isFinite(oldIndex))unregisterThumbnailHolder(oldIndex,role);holder.className='thumb-error';holder.removeAttribute('data-thumb-index');holder.dataset.thumbRole='set-cover';holder.dataset.thumbSetKey=setKey;if(card)card.dataset.setCoverState='failed';holder.innerHTML=`<span>!</span><small>Cover unavailable</small><em class="error-label">${escapeHtml(info.label||'Cover unavailable')}</em><em>${escapeHtml(String(info.message||'').slice(0,120))}</em>${info.retryable?'<button type="button" class="thumb-retry">Retry</button>':''}`;

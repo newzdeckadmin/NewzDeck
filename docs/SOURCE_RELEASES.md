@@ -2,15 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.20
+## Current release: v3.7.21
 
-**v3.7.20 is the current stable production release.**
+**v3.7.21 is the current stable production release.**
 
-The `v3.7.20` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.21` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.21 - Image Sets Visibility & Cover Recovery.** Keeps complete image sets visible with a non-retrying unavailable-cover placeholder, retaining queue/open actions and avoiding article-level suppression from failed cover sampling.
 
 - **v3.7.20 - Image Sets Date-Based Sequence Detection.** Recognizes leading counters with shared YYYY-MM-DD dates and guards against interpreting the date day as a frame number. Retains existing formats and image/queue/Automation fixes.
 
