@@ -1,3 +1,3 @@
-NewzDeck v3.7.24 — Binary Inspection Reliability Fix
+NewzDeck v3.7.25 — Image Sets UI Refinement
 
-Fixes the multipart yEnc =ypart parser NameError in Raw Posts > Identify. Retains v3.7.23 unknown-binary discovery and guarded .part export. No data migrations or automatic mass BODY probing.
+Newsgroups > Images, Videos, Images + Video: with Image Sets OFF, the Related Media side panel is hidden and the main results area expands. Image Sets ON restores it. All Posts and downloads remain unchanged. No migration required.

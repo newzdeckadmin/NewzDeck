@@ -1,24 +1,24 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.24",
-  "base_version": "3.7.23",
-  "release": "Binary Inspection Reliability Fix",
-  "adapter_version": "3.7.24",
-  "name": "Binary Inspection Reliability Fix",
+  "version": "3.7.25",
+  "base_version": "3.7.24",
+  "release": "Image Sets UI Refinement",
+  "adapter_version": "3.7.25",
+  "name": "Image Sets UI Refinement",
   "sab_version": "5.1.2",
   "changes": [
-    "Correct the nonexistent _parse_ypart call in the bounded NNTP yEnc BODY prefix reader; use the existing _parse_yenc_part helper.",
-    "Restore on-demand Identify of valid =ypart multipart articles without changing download eligibility, fragment export or NNTP transfer handling.",
-    "Add real-prefix-parser regression coverage for single-file and multipart yEnc headers, escaped bytes, missing trailer and NNTP errors."
+    "When Image Sets is Off in Images, Videos, or Images + Video, hide the entire Grouped Sets/Related Media side panel and give its width to the main results pane.",
+    "When Image Sets is On, restore the existing side panel; All Posts retains its established two-column full-width layout regardless of Image Sets.",
+    "Keep the Image Sets preference persistent and preserve browser selection, downloads, thumbnail handling and the v3.7.24 yEnc reliability fix."
   ],
   "regression_guards": [
-    "Preserve v3.7.23 unknown binary Identify, optional .part export, guarded queueing, and bounded NNTP inspection.",
-    "Retain v3.7.22 safe image/video filename restoration and Completed history, v3.7.21 Image Sets cover recovery, and v3.7.20 date-based sequences.",
-    "Retain v3.7.19 scan-I/O caching, hidden FFmpeg subprocesses, selected queueing, Complete Remove All safeguards and 3.7.13 gallery recovery."
+    "Real updateBrowseModeControls() behavioral tests verify 8 media/filter combinations, OFF/ON/OFF toggles, accessibility state, and consistent full-width layout.",
+    "Preserve v3.7.24 yEnc multipart parser fix and the v3.7.23 on-demand obfuscated binary identification and fragment safeguards.",
+    "Retain v3.7.22 loose-media filename restoration, v3.7.21 Image Sets cover recovery, v3.7.20 date sequence grouping, v3.7.19 disk-I/O caching and prior releases."
   ],
   "preserved": [
-    "No SABnzbd transport, NNTP provider settings, Windows native service, data migrations, or unrelated Automation changes.",
-    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged; no automatic BODY probe across all loaded articles."
+    "No changes to SABnzbd transport, NNTP providers, Windows service, installer baseline, media-library data, Auto-download or download eligibility.",
+    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged. No data migrations or cleanup."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"
