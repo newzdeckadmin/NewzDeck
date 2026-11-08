@@ -1,3 +1,3 @@
-NewzDeck v3.7.25 — Image Sets UI Refinement
+NewzDeck v3.7.26 — High-Speed Entire Group Search
 
-Newsgroups > Images, Videos, Images + Video: with Image Sets OFF, the Related Media side panel is hidden and the main results area expands. Image Sets ON restores it. All Posts and downloads remain unchanged. No migration required.
+Fresh Entire Group searches scan live NNTP headers using bounded parallel connections and adaptive request windows. Filtering is faster and results may refresh during scanning. No persistent header index or automatic search-result history is created. No migrations required.

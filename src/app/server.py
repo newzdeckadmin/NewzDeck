@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.25"
+APP_VERSION = "3.7.26"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -2134,7 +2134,7 @@ class NntpClient:
                 groups.append({"name": parts[0], "high": parts[1], "low": parts[2], "status": parts[3], "articles": estimate})
         return groups
 
-    def overview(self, start: int, end: int) -> list[dict[str, Any]]:
+    def overview(self, start: int, end: int, *, search_filter: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         if end < start:
             return []
         commands = [f"OVER {start}-{end}", f"XOVER {start}-{end}"]
@@ -2143,17 +2143,17 @@ class NntpClient:
             try:
                 code, msg, lines = self.command_multiline(cmd)
                 if code in (224, 225):
-                    return parse_overview(lines)
+                    return parse_overview(lines, search_filter=search_filter)
                 last_error = f"{code} {msg}"
             except Exception as exc:
                 last_error = str(exc)
         raise NntpError(f"Unable to load article overview: {last_error or 'unsupported'}")
 
-    def overview_chunked(self, start: int, end: int, *, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS) -> list[dict[str, Any]]:
+    def overview_chunked(self, start: int, end: int, *, chunk_size: int = BROWSE_OVERVIEW_CHUNK_HEADERS, search_filter: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Load a large overview newest-first in bounded NNTP multiline responses."""
         combined: list[dict[str, Any]] = []
         for low, high in _overview_chunk_ranges(start, end, chunk_size):
-            combined.extend(self.overview(low, high))
+            combined.extend(self.overview(low, high, search_filter=search_filter))
         combined.sort(key=lambda item: int(item.get("article", 0) or 0), reverse=True)
         return combined
 
@@ -2467,8 +2467,19 @@ class BrowseHeaderClientPool:
 
 BROWSE_HEADER_POOL = BrowseHeaderClientPool()
 
-def parse_overview(lines: Iterable[bytes]) -> list[dict[str, Any]]:
+def parse_overview(lines: Iterable[bytes], *, search_filter: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Decode headers, optionally skipping obvious nonmatches before media detection.
+
+    Query/poster checks use fully decoded RFC 2047 text; filename always comes
+    from the subject. Media type and age checks still run on the full article
+    via GroupSearchManager._match, so this cannot discard uncertain matches.
+    """
     result = []
+    criteria = search_filter or {}
+    query = str(criteria.get("query") or "").strip().casefold()
+    poster = str(criteria.get("poster") or "").strip().casefold()
+    min_bytes = max(0, int(criteria.get("min_bytes", 0) or 0))
+    max_bytes = max(0, int(criteria.get("max_bytes", 0) or 0))
     for raw in lines:
         cols = raw.decode("utf-8", errors="replace").split("\t")
         if len(cols) < 5:
@@ -2486,6 +2497,12 @@ def parse_overview(lines: Iterable[bytes]) -> list[dict[str, Any]]:
             bytes_count = int(re.sub(r"\D", "", cols[6])) if len(cols) > 6 else 0
         except ValueError:
             bytes_count = 0
+        if query and query not in subject.casefold() and query not in sender.casefold() and query not in message_id.casefold():
+            continue
+        if poster and poster not in sender.casefold():
+            continue
+        if min_bytes and bytes_count < min_bytes: continue
+        if max_bytes and bytes_count > max_bytes: continue
         try:
             lines_count = int(re.sub(r"\D", "", cols[7])) if len(cols) > 7 else 0
         except ValueError:
@@ -5942,10 +5959,17 @@ class DownloadCancelled(RuntimeError):
 class PostProcessingCancelled(RuntimeError):
     pass
 
+# Shared across simultaneous searches. Never consume an unbounded number of
+# NNTP sessions even if several browser tabs start searches at once.
+_GROUP_SEARCH_LANES = threading.BoundedSemaphore(4)
+
 class GroupSearchManager:
-    """Background full-newsgroup header scanner with cancellable, paged results."""
+    """Live, bounded full-group scanning; no persistent header index or result history."""
 
     CHUNK_SIZE = 5000
+    MIN_CHUNK_SIZE = 2500
+    MAX_CHUNK_SIZE = 8000
+    MAX_LANES = 4
     MAX_JOBS = 8
 
     def __init__(self):
@@ -5973,6 +5997,10 @@ class GroupSearchManager:
             "started_at": job.get("started_at", 0),
             "completed_at": job.get("completed_at", 0),
             "elapsed_ms": int((time.time() - float(job.get("started_at", time.time()))) * 1000) if job.get("started_at") else 0,
+            "workers": int(job.get("workers", 1) or 1),
+            "active_workers": int(job.get("active_workers", 0) or 0),
+            "overview_requests": int(job.get("overview_requests", 0) or 0),
+            "retry_count": int(job.get("retry_count", 0) or 0),
             "error": job.get("error", ""),
         }
 
@@ -6042,13 +6070,16 @@ class GroupSearchManager:
         if len(query) > 300: raise ValueError("Search text is too long")
         with self.lock:
             self._prune()
+            if len(self.jobs) >= self.MAX_JOBS:
+                raise ValueError("Too many full-group searches are active; finish or cancel one before starting another")
             job_id = secrets.token_hex(10)
             job = {
                 "id": job_id, "provider_id": provider_id, "group": group, "query": query, "filters": filters,
                 "status": "queued", "low": 0, "high": 0, "total_headers": 0,
                 "scanned_headers": 0, "match_headers": 0, "match_keys": set(),
                 "matches": [], "grouped_cache": None, "started_at": time.time(), "completed_at": 0, "error": "",
-                "cancel_event": threading.Event(),
+                "cancel_event": threading.Event(), "clients": set(),
+                "workers": 1, "active_workers": 0, "overview_requests": 0, "retry_count": 0,
             }
             self.jobs[job_id] = job
         threading.Thread(target=self._run, args=(job_id,), name=f"group-search-{job_id[:6]}", daemon=True).start()
@@ -6057,108 +6088,175 @@ class GroupSearchManager:
     def _run(self, job_id: str):
         with self.lock:
             job = self.jobs.get(job_id)
-            if not job:
-                return
+            if not job: return
             job["status"] = "scanning"
-            provider_id, group, query, filters = job["provider_id"], job["group"], job["query"], dict(job.get("filters") or {})
+            provider_id, group, query = job["provider_id"], job["group"], job["query"]
+            filters = dict(job.get("filters") or {})
+            quick_filter = {"query": query, "poster": filters.get("poster", ""),
+                            "min_bytes": filters.get("min_bytes", 0), "max_bytes": filters.get("max_bytes", 0)}
             cancel_event = job["cancel_event"]
-        try:
-            provider = provider_by_id(provider_id)
-            password = unprotect_secret(provider.get("password_protected", ""))
-            client: NntpClient | None = None
+        stop_event = threading.Event()
+        errors: list[BaseException] = []
+        errors_lock = threading.Lock()
+        cursor_lock = threading.Lock()
+        cursor = [0]
+        low = 0
+        password = ""
 
-            def connect_client() -> NntpClient:
-                started = time.perf_counter()
-                try:
-                    c = NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)), provider.get("username", ""), password, timeout=30.0)
-                    c.connect(); c.group(group)
-                    DIAGNOSTICS.provider_result(provider.get('host',''), int(provider.get('port',563)), ok=True, latency_ms=(time.perf_counter()-started)*1000)
-                    return c
-                except Exception as exc:
-                    DIAGNOSTICS.provider_result(provider.get('host',''), int(provider.get('port',563)), ok=False, error=str(exc))
-                    raise
-
+        def connect_client() -> NntpClient:
+            started = time.perf_counter()
+            c = NntpClient(provider["host"], provider["port"], bool(provider.get("ssl", True)),
+                           provider.get("username", ""), password, timeout=15.0, probe_capabilities=False)
             try:
-                client = connect_client()
-                info = client.group(group)
-                low, high = int(info["low"]), int(info["high"])
-                total = max(0, high - low + 1) if int(info.get("count", 0) or 0) > 0 else 0
-                with self.lock:
-                    job = self.jobs.get(job_id)
-                    if not job:
-                        return
-                    job.update({"low": low, "high": high, "total_headers": total})
-                if total <= 0:
-                    with self.lock:
-                        job["status"] = "completed"
-                        job["completed_at"] = time.time()
-                    return
+                c.connect()
+                c.group(group)
+                DIAGNOSTICS.provider_result(provider.get('host',''), int(provider.get('port',563)),
+                                            ok=True, latency_ms=(time.perf_counter()-started)*1000)
+                return c
+            except Exception as exc:
+                try: c.close()
+                except Exception: pass
+                DIAGNOSTICS.provider_result(provider.get('host',''), int(provider.get('port',563)),
+                                            ok=False, error=str(exc))
+                raise
 
-                cursor = high
-                while cursor >= low:
-                    if cancel_event.is_set():
-                        with self.lock:
-                            job["status"] = "cancelled"
-                            job["completed_at"] = time.time()
-                        return
-                    start = max(low, cursor - self.CHUNK_SIZE + 1)
+        def abort_clients():
+            # Breaking the underlying socket wakes a blocking OVER/XOVER response.
+            # The owning worker is responsible for closing its own buffered reader.
+            with self.lock:
+                active = tuple(job.get("clients") or ())
+            for client in active:
+                try: client.abort()
+                except Exception: pass
+
+        def worker():
+            nonlocal low
+            client: NntpClient | None = None
+            acquired = False
+            chunk = self.CHUNK_SIZE
+            try:
+                # A global cap prevents simultaneous search jobs multiplying the
+                # provider connection count; polling makes cancellation immediate.
+                while not (cancel_event.is_set() or stop_event.is_set()):
+                    if _GROUP_SEARCH_LANES.acquire(timeout=0.10):
+                        acquired = True
+                        break
+                if not acquired: return
+                with self.lock: job["active_workers"] += 1
+                while not (cancel_event.is_set() or stop_event.is_set()):
+                    with cursor_lock:
+                        if cursor[0] < low: break
+                        end = cursor[0]
+                        start = max(low, end - chunk + 1)
+                        cursor[0] = start - 1
                     raw: list[dict[str, Any]] | None = None
                     last_error: Exception | None = None
+                    elapsed = 0.0
                     for attempt in range(3):
+                        if cancel_event.is_set() or stop_event.is_set(): break
                         try:
                             if client is None:
                                 client = connect_client()
-                            raw = client.overview(start, cursor)
+                                with self.lock: job["clients"].add(client)
+                            started = time.perf_counter()
+                            # Adaptive increases are safe only with a bounded
+                            # fallback to the proven 5,000-header request size.
+                            if attempt > 0 and end - start + 1 > self.CHUNK_SIZE:
+                                raw = client.overview_chunked(start, end, chunk_size=self.CHUNK_SIZE, search_filter=quick_filter)
+                            else:
+                                raw = client.overview(start, end, search_filter=quick_filter)
+                            elapsed = time.perf_counter() - started
+                            with self.lock: job["overview_requests"] += 1
                             break
                         except Exception as exc:
                             last_error = exc
-                            try:
-                                if client:
-                                    client.close()
-                            except Exception:
-                                pass
-                            client = None
-                            if attempt < 2 and not cancel_event.is_set():
-                                DIAGNOSTICS.provider_result(provider.get('host',''), int(provider.get('port',563)), ok=False, reconnect=True, error=str(exc))
-                                time.sleep(0.3 * (2 ** attempt))
+                            if client is not None:
+                                with self.lock: job["clients"].discard(client)
+                                try: client.close()
+                                except Exception: pass
+                                client = None
+                            if cancel_event.is_set() or stop_event.is_set(): break
+                            with self.lock: job["retry_count"] += 1
+                            if attempt < 2:
+                                DIAGNOSTICS.provider_result(provider.get('host',''), int(provider.get('port',563)),
+                                                            ok=False, reconnect=True, error=str(exc))
+                                if cancel_event.wait(0.2 * (2 ** attempt)): break
+                    if cancel_event.is_set() or stop_event.is_set(): break
                     if raw is None:
-                        raise NntpError(f"Search failed while scanning headers {start}-{cursor}: {last_error}")
-                    found = [a for a in raw if self._match(a, query, filters)]
+                        raise NntpError(f"Search failed while scanning headers {start}-{end}: {last_error}")
+                    found = [article for article in raw if self._match(article, query, filters)]
                     with self.lock:
-                        job = self.jobs.get(job_id)
-                        if not job:
-                            return
                         job["matches"].extend(found)
                         job["grouped_cache"] = None
                         job["match_headers"] += len(found)
-                        for article in found:
-                            job["match_keys"].add(self._logical_key(article))
-                        job["scanned_headers"] = min(total, int(job.get("scanned_headers", 0)) + (cursor - start + 1))
-                    cursor = start - 1
-
-                with self.lock:
-                    job = self.jobs.get(job_id)
-                    if job:
-                        job["status"] = "completed"
-                        job["scanned_headers"] = total
-                        job["completed_at"] = time.time()
+                        job["match_keys"].update(self._logical_key(article) for article in found)
+                        # Progress counts probed article-number positions, including
+                        # unavailable numbers; no range is omitted or double counted.
+                        job["scanned_headers"] += end - start + 1
+                    if elapsed < 1.5 and chunk < self.MAX_CHUNK_SIZE:
+                        chunk = min(self.MAX_CHUNK_SIZE, chunk + 1000)
+                    elif elapsed > 5.0 and chunk > self.MIN_CHUNK_SIZE:
+                        chunk = max(self.MIN_CHUNK_SIZE, chunk // 2)
+            except Exception as exc:
+                if not cancel_event.is_set():
+                    with errors_lock:
+                        if not errors: errors.append(exc)
+                    stop_event.set()
+                    abort_clients()
             finally:
-                try:
-                    if client:
-                        client.close()
-                except Exception:
-                    pass
-        except Exception as exc:
-            DIAGNOSTICS.event("error", "search", str(exc), provider_id=provider_id if 'provider_id' in locals() else '', group=group if 'group' in locals() else '')
+                if client is not None:
+                    with self.lock: job["clients"].discard(client)
+                    try: client.close()
+                    except Exception: pass
+                if acquired:
+                    with self.lock: job["active_workers"] -= 1
+                    _GROUP_SEARCH_LANES.release()
+
+        try:
+            provider = provider_by_id(provider_id)
+            password = unprotect_secret(provider.get("password_protected", ""))
+            if cancel_event.is_set():
+                with self.lock: job["status"] = "cancelled"; job["completed_at"] = time.time()
+                return
+            # Use one short-lived connection for the authoritative group range;
+            # close it before the worker fan-out to respect provider limits.
+            initial = connect_client()
+            try:
+                info = initial.group(group)
+            finally:
+                initial.close()
+            if cancel_event.is_set():
+                with self.lock: job["status"] = "cancelled"; job["completed_at"] = time.time()
+                return
+            low, high = int(info["low"]), int(info["high"])
+            total = max(0, high - low + 1) if int(info.get("count", 0) or 0) > 0 else 0
+            configured, reserve, _download_budget = _provider_download_capacity(provider)
+            # Never compete with downloads for their reserved connection slots.
+            lanes = max(1, min(self.MAX_LANES, max(1, reserve),
+                               (total + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE))
             with self.lock:
-                job = self.jobs.get(job_id)
-                if job:
-                    if job.get("cancel_event") and job["cancel_event"].is_set():
-                        job["status"] = "cancelled"
-                    else:
-                        job["status"] = "failed"
-                        job["error"] = str(exc)
-                    job["completed_at"] = time.time()
+                job.update({"low": low, "high": high, "total_headers": total, "workers": lanes})
+            if not total:
+                with self.lock: job["status"] = "completed"; job["completed_at"] = time.time()
+                return
+            cursor[0] = high
+            threads = [threading.Thread(target=worker, name=f"group-scan-{job_id[:6]}-{i}", daemon=True)
+                       for i in range(lanes)]
+            for t in threads: t.start()
+            for t in threads: t.join()
+            if errors: raise errors[0]
+            with self.lock:
+                job["status"] = "cancelled" if cancel_event.is_set() else "completed"
+                if not cancel_event.is_set(): job["scanned_headers"] = total
+                job["completed_at"] = time.time()
+        except Exception as exc:
+            DIAGNOSTICS.event("error", "search", str(exc), provider_id=provider_id, group=group)
+            with self.lock:
+                job["status"] = "cancelled" if cancel_event.is_set() else "failed"
+                if not cancel_event.is_set(): job["error"] = str(exc)
+                job["completed_at"] = time.time()
+        finally:
+            with self.lock: job["clients"].clear()
 
     def status(self, job_id: str) -> dict[str, Any]:
         with self.lock:
@@ -6175,7 +6273,14 @@ class GroupSearchManager:
             if job.get("status") in {"queued", "scanning"}:
                 job["cancel_event"].set()
                 job["status"] = "cancelling"
-            return self._public(job)
+                clients = tuple(job.get("clients") or ())
+            else:
+                clients = ()
+            public = self._public(job)
+        for client in clients:
+            try: client.abort()
+            except Exception: pass
+        return public
 
     def results(self, job_id: str, page: int, page_size: int) -> dict[str, Any]:
         page = max(1, int(page or 1))

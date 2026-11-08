@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.25';
+const UI_VERSION = '3.7.26';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -923,7 +923,8 @@ function renderEntireGroupSearchStatus(job){
   const labels={queued:'Preparing search…',scanning:'Scanning retained headers…',cancelling:'Cancelling scan…',completed:'Search complete',cancelled:'Search cancelled',failed:'Search failed'};
   els.entireGroupSearchStatus.textContent=labels[status]||status;
   const scanned=Number(job.scanned_headers||0),total=Number(job.total_headers||0),matches=Number(job.match_posts||0),headerMatches=Number(job.match_headers||0);
-  els.entireGroupSearchStats.textContent=`${scanned.toLocaleString()}${total?' / '+total.toLocaleString():''} headers scanned • ${matches.toLocaleString()} matching post${matches===1?'':'s'} (${headerMatches.toLocaleString()} matching headers)`;
+  const lanes=Number(job.workers||1),active=Number(job.active_workers||0),requests=Number(job.overview_requests||0);
+  els.entireGroupSearchStats.textContent=`${scanned.toLocaleString()}${total?' / '+total.toLocaleString():''} headers scanned • ${matches.toLocaleString()} matching post${matches===1?'':'s'} (${headerMatches.toLocaleString()} matching headers) • ${running?`${active}/${lanes} live lanes • `:''}${requests.toLocaleString()} requests`;
   els.entireGroupSearchError.classList.toggle('hidden',!job.error);els.entireGroupSearchError.textContent=job.error||'';
   els.cancelEntireGroupSearchBtn.classList.toggle('hidden',!running);els.cancelEntireGroupSearchBtn.disabled=status==='cancelling';
   els.viewEntireGroupSearchResultsBtn.classList.toggle('hidden',matches===0);els.viewEntireGroupSearchResultsBtn.disabled=matches===0;
@@ -933,6 +934,7 @@ async function startEntireGroupSearch(){
   const criteria=currentEntireSearchCriteria(),f=criteria.filters,hasFilter=(f.kind&&f.kind!=='all')||f.poster||f.min_bytes||f.max_bytes||f.age_days||(f.extensions&&f.extensions.length);if(!criteria.query&&!hasFilter){toast('Enter search text or choose at least one filter.','error');return}if(f.min_bytes&&f.max_bytes&&f.min_bytes>f.max_bytes){toast('Minimum size cannot exceed maximum size.','error');return}
   if(state.groupSearchJob&&['queued','scanning','cancelling'].includes(state.groupSearchJob.status)){toast('A full-group search is already running.');return}
   els.startEntireGroupSearchBtn.disabled=true;els.startEntireGroupSearchBtn.textContent='Starting…';
+  state.groupSearchLiveRefreshAt=0;state.groupSearchLiveRefreshCount=0;state.groupSearchLiveRefreshPending=false;
   try{const data=await api('/api/group-search/start',{provider_id:state.providerId,group:state.selectedGroup,...criteria});state.groupSearchJob=data.search;renderEntireGroupSearchStatus(data.search);startEntireGroupSearchPolling();}
   catch(e){toast(e.message,'error');els.startEntireGroupSearchBtn.disabled=false;els.startEntireGroupSearchBtn.textContent='Search entire group'}
 }
@@ -944,6 +946,15 @@ function startEntireGroupSearchPolling(){
     try{
       const data=await api('/api/group-search/status',{id});if(state.groupSearchJob?.id!==id)return;const old=state.groupSearchJob?.status;state.groupSearchJob=data.search;renderEntireGroupSearchStatus(data.search);
       if(state.searchMode)renderSearchModeSummary();
+      // Repaint only a stable, unselected first result page. Never reset an
+      // actively inspected item or the user's scroll position during scanning.
+      const liveCount=Number(data.search.match_headers||0),now=Date.now();
+      if(data.search.status==='scanning'&&state.searchMode&&state.articlePage===1&&!state.selectedArticleKey&&
+         els.articlesList.scrollTop<60&&!state.groupSearchLiveRefreshPending&&
+         liveCount>Number(state.groupSearchLiveRefreshCount||0)&&now-Number(state.groupSearchLiveRefreshAt||0)>2800){
+        state.groupSearchLiveRefreshAt=now;state.groupSearchLiveRefreshCount=liveCount;state.groupSearchLiveRefreshPending=true;
+        loadEntireGroupSearchResults(1,{silent:true}).catch(()=>{}).finally(()=>{state.groupSearchLiveRefreshPending=false});
+      }
       if(!['queued','scanning','cancelling'].includes(data.search.status)){
         if(state.groupSearchPollTimer){clearInterval(state.groupSearchPollTimer);state.groupSearchPollTimer=null}
         if(data.search.status==='completed'){toast(`Full-group search complete: ${Number(data.search.match_posts||0).toLocaleString()} matching posts.`,'success');if(state.searchMode)loadEntireGroupSearchResults(state.articlePage);}
@@ -966,15 +977,15 @@ function renderSearchModeSummary(){
 async function viewEntireGroupSearchResults(){
   if(!state.groupSearchJob?.id)return;state.browsePageBeforeSearch=state.searchMode?state.browsePageBeforeSearch:state.articlePage;state.searchMode=true;const tab=state.browserTabs.find(t=>t.id===state.activeBrowserTabId);if(tab){tab.title=`⌕ ${state.groupSearchJob.query||state.selectedGroup}`;renderBrowserTabs()}state.articleSearchTerm='';els.articleSearch.value='';closeEntireGroupSearch();await loadEntireGroupSearchResults(1);
 }
-async function loadEntireGroupSearchResults(page=1){
+async function loadEntireGroupSearchResults(page=1,{silent=false}={}){
   if(!state.groupSearchJob?.id||!state.selectedGroup)return;
-  setArticleLoading(true);const generation=++state.galleryGeneration;state.thumbQueue=[];state.thumbQueued.clear();
+  if(!silent)setArticleLoading(true);const generation=++state.galleryGeneration;state.thumbQueue=[];state.thumbQueued.clear();
   try{
     const data=await api('/api/group-search/results',{id:state.groupSearchJob.id,page:Number(page||1),page_size:Number(els.articleLimit.value)});if(generation!==state.galleryGeneration)return;
     state.groupSearchJob=data.search;state.articles=data.articles||[];state.articlePaging=data.paging||null;state.articlePage=Number(data.paging?.page||1);state.selectedArticleKey='';sortArticles(false);renderArticles();updateArticlePaging();
     els.articleEyebrow.textContent='ENTIRE NEWSGROUP SEARCH';renderSearchModeSummary();
   }catch(e){if(generation===state.galleryGeneration){toast(e.message,'error');state.articles=[];renderArticles()}}
-  finally{if(generation===state.galleryGeneration)setArticleLoading(false)}
+  finally{if(!silent&&generation===state.galleryGeneration)setArticleLoading(false)}
 }
 async function exitEntireGroupSearch(){
   state.searchMode=false;state.articleSearchTerm='';els.articleSearch.value='';els.articleEyebrow.textContent='VISUAL NEWSGROUP BROWSER';const tab=state.browserTabs.find(t=>t.id===state.activeBrowserTabId);if(tab){tab.title=tab.group;renderBrowserTabs();saveUiSettings()}await loadArticles({page:state.browsePageBeforeSearch||1});

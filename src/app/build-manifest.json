@@ -1,24 +1,28 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.25",
-  "base_version": "3.7.24",
-  "release": "Image Sets UI Refinement",
-  "adapter_version": "3.7.25",
-  "name": "Image Sets UI Refinement",
+  "version": "3.7.26",
+  "base_version": "3.7.25",
+  "release": "High-Speed Entire Group Search",
+  "adapter_version": "3.7.26",
+  "name": "High-Speed Entire Group Search",
   "sab_version": "5.1.2",
   "changes": [
-    "When Image Sets is Off in Images, Videos, or Images + Video, hide the entire Grouped Sets/Related Media side panel and give its width to the main results pane.",
-    "When Image Sets is On, restore the existing side panel; All Posts retains its established two-column full-width layout regardless of Image Sets.",
-    "Keep the Image Sets preference persistent and preserve browser selection, downloads, thumbnail handling and the v3.7.24 yEnc reliability fix."
+    "Entire Group search now scans independent NNTP article-number ranges in bounded parallel worker lanes, respecting the provider browse/download reserve and a global four-lane search cap.",
+    "Adaptive request windows (2,500–8,000) use proven 5,000-header fallback when a larger OVER/XOVER request fails, while retrying failures and never silently skipping a claimed range.",
+    "Lightweight subject/poster/size prefiltering precedes media and multipart classification, including correct RFC 2047 header decoding.",
+    "On-demand live results refresh during scanning without resetting user selection or scroll; display active worker and request counts.",
+    "Everything remains ephemeral in process memory; no search index, persistent header cache, or automatic search-history writes."
   ],
   "regression_guards": [
-    "Real updateBrowseModeControls() behavioral tests verify 8 media/filter combinations, OFF/ON/OFF toggles, accessibility state, and consistent full-width layout.",
-    "Preserve v3.7.24 yEnc multipart parser fix and the v3.7.23 on-demand obfuscated binary identification and fragment safeguards.",
-    "Retain v3.7.22 loose-media filename restoration, v3.7.21 Image Sets cover recovery, v3.7.20 date sequence grouping, v3.7.19 disk-I/O caching and prior releases."
+    "Actual GroupSearchManager workers exercised against fake NNTP clients for non-overlapping range coverage, bounded fan-out, single-lane providers, retry, failure and prompt cancellation.",
+    "Real production overview parser selective fast path compared with unfiltered results, including MIME-encoded subjects, obfuscated names and size filtering.",
+    "Search progress and incremental first-page refresh UI behavioral regression.",
+    "Retain v3.7.25 Image Sets OFF full-width, v3.7.24 yEnc parser, v3.7.23 unknown-binary discovery, v3.7.22 filename restoration, v3.7.19 disk IO caching and earlier regression gates."
   ],
   "preserved": [
-    "No changes to SABnzbd transport, NNTP providers, Windows service, installer baseline, media-library data, Auto-download or download eligibility.",
-    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged. No data migrations or cleanup."
+    "No persistent search index, search-history database, schema migration or user-data cleanup.",
+    "SABnzbd 5.1.2, SABCTools 9.6.3, existing NNTP settings, download manager, service, tray, Automation and Smart Import unchanged.",
+    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged."
   ],
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"
