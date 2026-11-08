@@ -1,14 +1,15 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.27",
-  "base_version": "3.7.26",
-  "release": "Downloads Live Status Reliability & Responsiveness",
-  "adapter_version": "3.7.27",
-  "name": "Downloads Live Status Reliability & Responsiveness",
+  "version": "3.7.28",
+  "base_version": "3.7.27",
+  "release": "Windows Release Validation Recovery",
+  "adapter_version": "3.7.28",
+  "name": "Windows Release Validation Recovery",
   "sab_version": "5.1.2",
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac",
   "changes": [
+    "Fix v3.7.27 Windows CI failure by removing the obsolete v3.7.26 version-specific gate and replacing it with a v3.7.28 gate; retain all v3.7.26 targeted functional tests.",
     "Nonblocking in-memory SAB Queue progress pulse with explicit stale indicators and a maximum of 500 items; no extra SAB API reads.",
     "Downloads visible view uses bounded lightweight progress between full authoritative snapshots, avoiding full queue/history rebuild at every 500 ms tick.",
     "Existing rows and one-job Image Set package progress update in place, keeping queue controls and completion state on authoritative snapshots.",
@@ -18,6 +19,7 @@
     "Quiet full-snapshot failure backoff and visibly stale status avoid repeated expensive retries and falsely presenting stale progress as fresh."
   ],
   "regression_guards": [
+    "Version-specific full release gates may only run for their own version; v3.7.28 verifies existing v3.7.27 Downloads/Diagnostics and v3.7.26 search features without invoking older version identity tests.",
     "Real SAB presentation_pulse AST tests: no control reads/state writes, bounded rows, fresh/stale semantics and realistic slot conversion.",
     "UI simulation tests: no stale progress application, progress never rewinds, package/row progress updates without rebuilding the DOM.",
     "No change to SAB queue mutations or completion/history deletion; existing guarded add and control logic is preserved.",

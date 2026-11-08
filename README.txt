@@ -1,3 +1,3 @@
-NewzDeck v3.7.27 — Downloads Live Status Reliability & Responsiveness
+NewzDeck v3.7.28 — Windows Release Validation Recovery
 
-Large Image Set submissions yield to the browser UI. Downloads updates live file/package progress from the existing SAB sampler, with full authoritative snapshots retained. Lightweight Diagnostics heartbeat and UI-lag metrics are available. No data migrations or persistent search index.
+Safely retains the v3.7.27 Downloads/Diagnostics responsiveness improvements and corrects its CI version-gate error. No download engine changes, no search index, no data migration.

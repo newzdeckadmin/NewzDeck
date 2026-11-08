@@ -1,3 +1,3 @@
-NewzDeck v3.7.27 update notes
+NewzDeck v3.7.28 update notes
 
-Improved responsiveness when queueing large Image Sets. Downloads uses bounded in-memory progress between full authoritative status refreshes. Diagnostics has a lightweight heartbeat to distinguish backend load from browser stalls. Existing download data, history and user settings remain unchanged.
+Recovers from the failed v3.7.27 Windows release validation. v3.7.28 retains the Downloads live-status UI, queued Image Sets, and full-group search improvements. All existing downloads, user settings and history are preserved.
