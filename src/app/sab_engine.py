@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.2"
-ADAPTER_VERSION = "3.7.26"
+ADAPTER_VERSION = "3.7.27"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.2/SABnzbd-5.1.2-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "0a48cc87023f054130758a114158e0f17f32152e8ff9158eef49cf73be04be46"
 ENGINE_STATE_VERSION = 2
@@ -6303,6 +6303,46 @@ class SabDownloadManager:
                 if len(self._queue_sampler_failure_reasons)>20:
                     self._queue_sampler_failure_reasons=dict(sorted(self._queue_sampler_failure_reasons.items(),key=lambda kv:kv[1],reverse=True)[:20])
                 delay = 0.75
+
+    def presentation_pulse(self, limit: int = 500) -> dict[str, Any]:
+        """Bounded in-memory Queue progress without SAB control reads or reconciliation.
+
+        This MUST NOT call snapshot(), _queue_and_history_fetch(), or write state;
+        the background Queue/History sampler remains the only routine SAB reader.
+        Stale samples are explicitly marked and must never be treated as fresh.
+        """
+        now = time.time()
+        with self._queue_sample_lock:
+            pair = self._queue_sample_pair
+            timestamp = float(self._queue_sample_ts or 0.0)
+            queue_data = pair[0] if pair is not None else None
+        age = max(0.0, now - timestamp) if timestamp else 0.0
+        if not isinstance(queue_data, dict):
+            return {"ok": True, "ready": False, "fresh": False,
+                    "sample_age_seconds": None, "jobs": [], "queue_total": 0}
+        queue_root, slots = self._queue_slots(queue_data)
+        fresh = bool(timestamp and age <= 3.0 and queue_root.get("_newzdeck_fresh", True))
+        # Preserve queue ordering and a hard response bound. This is a presentation
+        # supplement only; the full paginated snapshot retains authoritative jobs.
+        bounded = max(1, min(500, int(limit or 200)))
+        jobs: list[dict[str, Any]] = []
+        if fresh:
+            for slot in slots[:bounded]:
+                job_id = str(slot.get("nzo_id") or "").strip()
+                if not job_id:
+                    continue
+                jobs.append({
+                    "id": job_id,
+                    "status": str(slot.get("status") or ""),
+                    "percent": max(0.0, min(100.0, _num(slot.get("percentage"), 0))),
+                    "remaining_bytes": max(0, _mb_to_bytes(slot.get("mbleft"))),
+                    "total_bytes": max(0, _mb_to_bytes(slot.get("mb"))),
+                    "speed_bps": max(0, _kb_to_bps(slot.get("kbpersec"))),
+                    "eta_seconds": max(0, _duration_seconds(slot.get("timeleft"))),
+                })
+        return {"ok": True, "ready": True, "fresh": fresh,
+                "sample_age_seconds": round(age, 3), "jobs": jobs,
+                "queue_total": len(slots), "truncated": len(slots) > bounded}
 
     def _queue_and_history(self, *, live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
         """Return the background sample for routine readers; fetch for controls.

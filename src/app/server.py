@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.26"
+APP_VERSION = "3.7.27"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -13169,6 +13169,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._json(200, base_health)
         if parsed.path == "/api/service/status":
             return self._json(200, service_status_snapshot())
+        if parsed.path == "/api/diagnostics/ping":
+            # No download snapshots, disk scans, or SAB control requests here.
+            return self._json(200, {"ok": True, "version": APP_VERSION,
+                                    "uptime_seconds": int(time.monotonic() - BACKEND_PROCESS_STARTED_AT)})
+        if parsed.path == "/api/downloads/pulse":
+            # Active transfer status comes only from the background in-memory sample.
+            # This route must stay responsive during bulk Image Set submissions.
+            pulse = DOWNLOAD_MANAGER.presentation_pulse() if hasattr(DOWNLOAD_MANAGER, "presentation_pulse") else {"ok": True, "ready": False, "fresh": False, "jobs": []}
+            return self._json(200, pulse)
         if parsed.path == "/api/diagnostics":
             return self._json(200, diagnostics_snapshot())
         if parsed.path == "/api/diagnostics/report":

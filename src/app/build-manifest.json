@@ -1,29 +1,31 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.26",
-  "base_version": "3.7.25",
-  "release": "High-Speed Entire Group Search",
-  "adapter_version": "3.7.26",
-  "name": "High-Speed Entire Group Search",
+  "version": "3.7.27",
+  "base_version": "3.7.26",
+  "release": "Downloads Live Status Reliability & Responsiveness",
+  "adapter_version": "3.7.27",
+  "name": "Downloads Live Status Reliability & Responsiveness",
   "sab_version": "5.1.2",
+  "sabctools_version": "9.6.3",
+  "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac",
   "changes": [
-    "Entire Group search now scans independent NNTP article-number ranges in bounded parallel worker lanes, respecting the provider browse/download reserve and a global four-lane search cap.",
-    "Adaptive request windows (2,500–8,000) use proven 5,000-header fallback when a larger OVER/XOVER request fails, while retrying failures and never silently skipping a claimed range.",
-    "Lightweight subject/poster/size prefiltering precedes media and multipart classification, including correct RFC 2047 header decoding.",
-    "On-demand live results refresh during scanning without resetting user selection or scroll; display active worker and request counts.",
-    "Everything remains ephemeral in process memory; no search index, persistent header cache, or automatic search-history writes."
+    "Nonblocking in-memory SAB Queue progress pulse with explicit stale indicators and a maximum of 500 items; no extra SAB API reads.",
+    "Downloads visible view uses bounded lightweight progress between full authoritative snapshots, avoiding full queue/history rebuild at every 500 ms tick.",
+    "Existing rows and one-job Image Set package progress update in place, keeping queue controls and completion state on authoritative snapshots.",
+    "A lightweight Diagnostics heartbeat responds separately from heavy download/automation/storage aggregation.",
+    "Bulk Image Set queue submission yields to the browser after every three batches and tracks in-progress submission without changing submitted job identities or retry decisions.",
+    "UI event-loop stalls, full-refresh age, pulse failures and queue-submission activity appear in copied Diagnostics to help reproduce load-related pauses.",
+    "Quiet full-snapshot failure backoff and visibly stale status avoid repeated expensive retries and falsely presenting stale progress as fresh."
   ],
   "regression_guards": [
-    "Actual GroupSearchManager workers exercised against fake NNTP clients for non-overlapping range coverage, bounded fan-out, single-lane providers, retry, failure and prompt cancellation.",
-    "Real production overview parser selective fast path compared with unfiltered results, including MIME-encoded subjects, obfuscated names and size filtering.",
-    "Search progress and incremental first-page refresh UI behavioral regression.",
-    "Retain v3.7.25 Image Sets OFF full-width, v3.7.24 yEnc parser, v3.7.23 unknown-binary discovery, v3.7.22 filename restoration, v3.7.19 disk IO caching and earlier regression gates."
+    "Real SAB presentation_pulse AST tests: no control reads/state writes, bounded rows, fresh/stale semantics and realistic slot conversion.",
+    "UI simulation tests: no stale progress application, progress never rewinds, package/row progress updates without rebuilding the DOM.",
+    "No change to SAB queue mutations or completion/history deletion; existing guarded add and control logic is preserved.",
+    "All previous v3.7.26 NNTP search, v3.7.25 Image Sets layout, v3.7.24 yEnc inspection, v3.7.22 filename and v3.7.19 disk caching guards remain enabled."
   ],
   "preserved": [
-    "No persistent search index, search-history database, schema migration or user-data cleanup.",
-    "SABnzbd 5.1.2, SABCTools 9.6.3, existing NNTP settings, download manager, service, tray, Automation and Smart Import unchanged.",
-    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged."
-  ],
-  "sabctools_version": "9.6.3",
-  "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac"
+    "No persistent search index, new search history, download migration, deletion or new database.",
+    "Original SABnzbd 5.1.2, SABCTools 9.6.3, provider allocations, service/tray, user settings and persisted download history.",
+    "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 unchanged."
+  ]
 }

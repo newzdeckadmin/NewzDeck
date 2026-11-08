@@ -1,3 +1,3 @@
-NewzDeck v3.7.26 — High-Speed Entire Group Search
+NewzDeck v3.7.27 — Downloads Live Status Reliability & Responsiveness
 
-Fresh Entire Group searches scan live NNTP headers using bounded parallel connections and adaptive request windows. Filtering is faster and results may refresh during scanning. No persistent header index or automatic search-result history is created. No migrations required.
+Large Image Set submissions yield to the browser UI. Downloads updates live file/package progress from the existing SAB sampler, with full authoritative snapshots retained. Lightweight Diagnostics heartbeat and UI-lag metrics are available. No data migrations or persistent search index.

@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.26';
+const UI_VERSION = '3.7.27';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -58,6 +58,15 @@ let downloadSnapshotAppliedSeq = 0;
 let downloadDomSignature = '';
 let downloadPollTimer = null;
 let downloadPollInFlight = false;
+let downloadLastFullAppliedAt = 0;
+let downloadLastFullAttemptAt = 0;
+let downloadPulseFailures = 0;
+let downloadLastFreshPulseAt = 0;
+let downloadBulkQueueActive = 0;
+let downloadUiLagPeakMs = 0;
+let downloadUiLagEpisodes = 0;
+let downloadUiLagLastMs = 0;
+let downloadUiLagLastCheckAt = 0;
 let thumbDemandRaf = 0;
 let thumbWatchdogTimer = null;
 let videoThumbRequestSeq = 0;
@@ -2489,11 +2498,15 @@ async function resolveNamesForDownload(items){
 async function downloadItems(items,button=null){
   const valid=items.filter(isSelectableMedia);if(!valid.length){toast(isAllPostsMode()?'No complete downloadable binaries selected.':'No complete media items selected.','error');return}
   const old=button?.textContent;if(button){button.disabled=true;button.textContent='Preparing…'}
+  downloadBulkQueueActive++;
+  // Let the browser paint the initial queueing state before processing large sets.
+  await new Promise(resolve=>setTimeout(resolve,0));
   try{
     const initiallyUnresolved=valid.filter(a=>!a.media).length;if(initiallyUnresolved){await resolveNamesForDownload(valid);if(button)button.textContent='Adding…'}
     const collectionAssignments=browserSetCollectionAssignments(valid.filter(a=>a.media)),collectionIds=new Set();
     const byGroup=new Map();for(const a of valid){const g=articleGroup(a);if(!g)continue;if(!byGroup.has(g))byGroup.set(g,[]);byGroup.get(g).push(a)}
     let added=0,dupes=0,fallbackAdded=0;const warnings=[],submittedKeys=new Set(),failedKeys=new Set();
+    let submittedBatches=0;
     for(const [group,groupItems] of byGroup){
       const payload=groupItems.map(a=>{const collection=collectionAssignments.get(articleKey(a)),role=collection?browserSetCollectionRole(a):'';if(collection)collectionIds.add(collection.id);return{client_key:articleKey(a),segments:segmentPayload(a),media:a.media||{},allow_unresolved:!a.media,subject:a.subject||'',from:a.from||'',message_id:a.message_id||'',article:a.article,multipart:a.multipart||null,raw_yenc_name:a.raw_yenc_name||'',...(collection?{source:'browser_set',collection_id:collection.id,collection_name:collection.name,collection_expected:collection.expected,collection_required_expected:collection.required,destination_subdir:collection.name,collection_role:role,is_auxiliary:role==='auxiliary',is_par2:role==='par2'||role==='recovery_par2',is_par2_volume:role==='recovery_par2'}:{source:'browser_loose',destination_root:true})}});
       // Keep actual package members together; submit loose files in small bounded
@@ -2514,6 +2527,10 @@ async function downloadItems(items,button=null){
           for(const item of batch)if(item.client_key)failedKeys.add(String(item.client_key));
           warnings.push(`${batch.length} file${batch.length===1?'':'s'} not confirmed queued: ${e.message}. Check Downloads before retrying.`);
         }
+        submittedBatches++;
+        // A yielding boundary prevents large Image Set submissions from starving
+        // tab interactions and rendering; do not change SAB job semantics.
+        if(submittedBatches%3===0)await new Promise(resolve=>setTimeout(resolve,0));
       }
     }
     if(added){const packageCount=collectionIds.size;toast(packageCount?`${added} file${added===1?'':'s'} added as ${packageCount} grouped package${packageCount===1?'':'s'}.`:`${added} file${added===1?'':'s'} added to the download queue${fallbackAdded?` • ${fallbackAdded} will use safe generated names if the original filename stays unavailable`:''}.`,'success')}
@@ -2523,10 +2540,20 @@ async function downloadItems(items,button=null){
     for(const x of valid){const key=articleKey(x);if(submittedKeys.has(key)&&!failedKeys.has(key))state.selectedItems.delete(key)}
     if(failedKeys.size)toast(`${failedKeys.size} file${failedKeys.size===1?'':'s'} could not be queued; they remain selected.`, 'error');
     updateSelectionBar();renderArticles();await loadDownloads();
-  }catch(e){toast(e.message,'error')}finally{if(button){button.disabled=false;button.textContent=old}if(state.viewerOpen)updateViewerSelectionState()}
+  }catch(e){toast(e.message,'error')}finally{downloadBulkQueueActive=Math.max(0,downloadBulkQueueActive-1);if(button){button.disabled=false;button.textContent=old}if(state.viewerOpen)updateViewerSelectionState()}
 }
 
 
+// This timer measures scheduling stalls without retaining browsing or download history.
+(function startDownloadUiLagMonitor(){
+  let last=Date.now();
+  setInterval(()=>{
+    const now=Date.now(),lag=Math.max(0,now-last-1000);
+    last=now;downloadUiLagLastCheckAt=now;downloadUiLagLastMs=lag;
+    if(lag>downloadUiLagPeakMs)downloadUiLagPeakMs=lag;
+    if(lag>=250)downloadUiLagEpisodes++;
+  },1000);
+})();
 function uiMotionReduced(){return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches}
 function replayUiAnimation(el,cls='ui-fresh',ms=460){if(!el||uiMotionReduced())return;el.classList.remove(cls);void el.offsetWidth;el.classList.add(cls);window.setTimeout(()=>el.classList.remove(cls),ms)}
 function animateMainView(view){const map={browse:els.browseView,downloads:els.downloadsView,diagnostics:els.diagnosticsView,automation:els.automationView,discover:els.discoverView};requestAnimationFrame(()=>replayUiAnimation(map[view],'view-enter',420))}
@@ -2545,7 +2572,20 @@ function formatUptime(seconds){seconds=Math.max(0,Number(seconds||0));const d=Ma
 function healthClass(status){return status==='connected'?'good':status==='error'?'bad':'standby'}
 async function loadDiagnostics({userInitiated=false}={}){
   const done=userInitiated?beginButtonActivity($('refreshDiagnosticsBtn'),'Refreshing…'):()=>{};
-  try{state.diagnosticsSnapshot=await api('/api/diagnostics');renderDiagnostics()}catch(e){if(state.activeView==='diagnostics')toast(e.message,'error')}finally{done()}
+  const started=Date.now();
+  try{
+    // Independent lightweight liveness check before the expensive aggregation.
+    const ping=await api('/api/diagnostics/ping',null,{timeoutMs:1200});
+    if(!ping?.ok)throw new Error('Backend heartbeat did not respond.');
+    if(state.activeView==='diagnostics'&&$('diagUptime'))$('diagUptime').textContent=`${formatUptime(ping.uptime_seconds||0)} • heartbeat live; refreshing full diagnostics`;
+    state.diagnosticsSnapshot=await api('/api/diagnostics',null,{timeoutMs:4500,timeoutMessage:'Full Diagnostics is delayed by application load. Lightweight backend heartbeat is responding.'});
+    renderDiagnostics();
+  }catch(e){
+    if(state.activeView==='diagnostics')toast(e.message,'error');
+  }finally{
+    downloadUiLagLastCheckAt=Math.max(downloadUiLagLastCheckAt,started);
+    done();
+  }
 }
 function renderDiagnostics(){
   const d=state.diagnosticsSnapshot||{},conn=d.connections||{},storage=d.storage||{},disk=storage.disk||{},cache=storage.thumbnail_cache||{};
@@ -2560,7 +2600,7 @@ function renderDiagnostics(){
   const events=d.events||[];$('diagEvents').innerHTML=events.length?events.slice(0,30).map(e=>`<div class="diag-event ${escapeHtml(e.level||'info')}"><span>${new Date(Number(e.ts||0)*1000).toLocaleTimeString()}</span><div><strong>${escapeHtml((e.area||'app').toUpperCase())}</strong><p>${escapeHtml(e.message||'')}</p></div></div>`).join(''):'<div class="diag-empty">No recent reliability events. That is a good sign.</div>';
 }
 async function probeProviders(){const b=$('probeProvidersBtn'),old=b.textContent;b.disabled=true;b.textContent='Testing…';try{const r=await api('/api/diagnostics/probe',{});state.diagnosticsSnapshot=r.diagnostics;renderDiagnostics();const failed=(r.results||[]).filter(x=>!x.ok).length;toast(failed?`${failed} provider test${failed===1?'':'s'} failed.`:'Provider health tests passed.',failed?'error':'success')}catch(e){toast(e.message,'error')}finally{b.disabled=false;b.textContent=old}}
-async function copyDiagnostics(){try{const d=await api('/api/diagnostics/report');const report=`${d.report}\nBrowser timings: ${perfSummaryText()}\nRelated Media covers: ${relatedCoverSchedulerSummaryText()}\nRelated Media before leaving Newsgroups: ${state.lastRelatedCoverSnapshot||'No browse-leave snapshot captured yet.'}`;if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(report);toast('Diagnostic report copied.','success')}else{window.prompt('Copy diagnostic report:',report)}}catch(e){toast(e.message,'error')}}
+async function copyDiagnostics(){try{const d=await api('/api/diagnostics/report');const report=`${d.report}\nBrowser timings: ${perfSummaryText()}\nUI event-loop lag: last=${downloadUiLagLastMs}ms peak=${downloadUiLagPeakMs}ms episodes >=250ms=${downloadUiLagEpisodes}\nDownloads refresh: last full age=${downloadLastFullAppliedAt?Date.now()-downloadLastFullAppliedAt:'never'}ms last fresh pulse age=${downloadLastFreshPulseAt?Date.now()-downloadLastFreshPulseAt:'never'}ms pulse failures=${downloadPulseFailures} bulk submission active=${downloadBulkQueueActive}\nRelated Media covers: ${relatedCoverSchedulerSummaryText()}\nRelated Media before leaving Newsgroups: ${state.lastRelatedCoverSnapshot||'No browse-leave snapshot captured yet.'}`;if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(report);toast('Diagnostic report copied.','success')}else{window.prompt('Copy diagnostic report:',report)}}catch(e){toast(e.message,'error')}}
 function downloadVisible(job){
   const term=String(state.downloadSearchTerm||'').trim().toLowerCase();if(term){const hay=[job.filename,job.collection_name,job.provider_name,job.origin_provider_name,job.group,job.status,job.post_status,job.category].join(' ').toLowerCase();if(!hay.includes(term))return false;}
   const f=state.downloadFilter,s=job.status,post=String(job.post_status||'');
@@ -2650,13 +2690,23 @@ async function loadDownloads({render=true,livePatch=false,quiet=false}={}){
     const snapshotSeq=Number(downloads?.snapshot_seq||0);
     if(requestId<downloadSnapshotAppliedId||(snapshotSeq&&snapshotSeq<downloadSnapshotAppliedSeq))return downloads;
     downloadSnapshotAppliedId=requestId;if(snapshotSeq)downloadSnapshotAppliedSeq=snapshotSeq;
+    downloadLastFullAppliedAt=Date.now();
     state.downloadSnapshot=downloads;recalculatePreviewConcurrency();updateDownloadNavSummary(downloads);
     const changed=rebuildDownloadIndexes();
     const settingsOpen=els.settingsModal&&!els.settingsModal.classList.contains('hidden');
     if(render&&state.activeView==='downloads'&&!settingsOpen)renderDownloads({livePatch});
+    if(downloads.snapshot_stale&&state.activeView==='downloads'&&$('downloadQueueState')){
+      const age=Number(downloads.snapshot_stale_age_seconds||0);
+      $('downloadQueueState').textContent=`Status refreshing • last confirmed snapshot ${Math.max(0,Math.round(age))}s old`;
+    }
     if(changed){if(state.activeView==='browse'&&state.viewMode==='list'&&state.selectedGroup)renderArticles();else updateDownloadBadgesInPlace();if(state.viewerOpen)updateViewerSelectionState();}
     return downloads;
-  }catch(e){if(!quiet&&requestId===downloadSnapshotRequestId&&!state.serviceTransition&&state.activeView==='downloads')toast(e.message,'error')}
+  }catch(e){
+    if(!quiet&&requestId===downloadSnapshotRequestId&&!state.serviceTransition&&state.activeView==='downloads')toast(e.message,'error');
+    if(state.activeView==='downloads'&&!state.serviceTransition&&downloadLastFullAppliedAt&&Date.now()-downloadLastFullAppliedAt>5000&&$('downloadQueueState')){
+      $('downloadQueueState').textContent=`Status delayed • ${Math.round((Date.now()-downloadLastFullAppliedAt)/1000)}s since last full update`;
+    }
+  }
 }
 function downloadCompletedSortValue(item){
   const completed=Number(item?.completed_ts||0);
@@ -3861,6 +3911,50 @@ async function maybeOfferBackgroundService(){
   }catch(_e){}
 }
 
+function applyDownloadPulse(pulse){
+  if(!pulse?.fresh||!Array.isArray(pulse.jobs)||state.activeView!=='downloads'||document.hidden)return false;
+  downloadLastFreshPulseAt=Date.now();
+  const jobs=new Map((state.downloadSnapshot?.jobs||[]).map(job=>[String(job.id),job]));
+  const packages=new Map((state.downloadSnapshot?.collections||[]).map(pkg=>[String(pkg.id),pkg]));
+  const rows=new Map(Array.from(els.downloadsList?.querySelectorAll('.download-row[data-id]')||[]).map(r=>[String(r.dataset.id),r]));
+  const panels=new Map(Array.from(els.downloadsList?.querySelectorAll('.download-package[data-package-id]')||[]).map(p=>[String(p.dataset.packageId),p]));
+  // Avoid replacing authoritative status and row actions with speculative status.
+  for(const item of pulse.jobs){
+    const job=jobs.get(String(item.id));
+    if(!job||!['queued','downloading','retry_wait'].includes(String(job.status||'')))continue;
+    const expected=Math.max(0,Number(job.expected_bytes||item.total_bytes||0));
+    const pct=Math.max(0,Math.min(100,Number(item.percent||0)));
+    const left=Math.max(0,Number(item.remaining_bytes||0));
+    let done=expected?Math.max(0,Math.min(expected,expected-left)):0;
+    if(expected&&done===0&&pct>0)done=Math.round(expected*pct/100);
+    if(expected&&done===0&&pct===0)continue;
+    job.downloaded_bytes=Math.max(Number(job.downloaded_bytes||0),done);
+    job.speed_bps=Math.max(0,Number(item.speed_bps||0));
+    job.eta_seconds=Math.max(0,Number(item.eta_seconds||0));
+    const row=rows.get(String(item.id));
+    if(row){
+      const percent=expected?Math.max(0,Math.min(99,Math.round(100*job.downloaded_bytes/expected))):Math.round(pct);
+      const fill=row.querySelector('.download-progress-cell .download-progress-fill');if(fill)fill.style.width=`${percent}%`;
+      const chunks=row.querySelectorAll('.download-progress-cell > small > span');
+      if(chunks[0])chunks[0].textContent=`${percent}%${job.eta_seconds>0?' • ETA '+formatEta(job.eta_seconds):''}`;
+      if(chunks[1])chunks[1].textContent=job.speed_bps>0?formatSpeed(job.speed_bps):`${formatBytes(job.downloaded_bytes)} / ${formatBytes(expected)}`;
+      const meta=row.querySelector('.download-meta > b');if(meta)meta.textContent=`${formatBytes(job.downloaded_bytes)} / ${formatBytes(expected)}`;
+    }
+    const pkg=packages.get(String(job.collection_id||''));
+    if(pkg && Array.isArray(pkg.job_ids) && pkg.job_ids.length===1){
+      pkg.downloaded_bytes=Math.max(Number(pkg.downloaded_bytes||0),job.downloaded_bytes);
+      pkg.speed_bps=job.speed_bps;
+      const panel=panels.get(String(pkg.id));
+      if(panel){
+        const pe=Number(pkg.expected_bytes||expected),pd=Number(pkg.downloaded_bytes||0);
+        const percent=pe?Math.max(0,Math.min(99,Math.round(pd/pe*100))):Math.round(pct);
+        const fill=panel.querySelector('.package-progress .download-progress-fill');if(fill)fill.style.width=`${percent}%`;
+        const text=panel.querySelector('.package-progress small > span');if(text)text.textContent=`${percent}% • ${formatBytes(pd)} / ${formatBytes(pe)}`;
+      }
+    }
+  }
+  return true;
+}
 function scheduleNextDownloadPoll(delay=null){
   if(downloadPollTimer)clearTimeout(downloadPollTimer);
   const visible=state.activeView==='downloads'&&!document.hidden;
@@ -3876,7 +3970,22 @@ async function runDownloadLivePoll(){
   if(state.serviceTransition){scheduleNextDownloadPoll();return;}
   if(downloadPollInFlight){scheduleNextDownloadPoll(100);return;}
   downloadPollInFlight=true;
-  try{await loadDownloads({render:true,livePatch:state.activeView==='downloads',quiet:true});}finally{downloadPollInFlight=false;scheduleNextDownloadPoll();}
+  try{
+    const now=Date.now(),visible=state.activeView==='downloads'&&!document.hidden;
+    const nextFullMs=downloadBulkQueueActive?2600:(visible?2000:3500);
+    const dueFull=!downloadLastFullAppliedAt||now-downloadLastFullAppliedAt>=nextFullMs||downloadPulseFailures>=3;
+    if(dueFull&&now-downloadLastFullAttemptAt>=Math.min(2500,nextFullMs)){
+      downloadLastFullAttemptAt=now;
+      const full=await loadDownloads({render:true,livePatch:visible,quiet:true});
+      if(full)downloadPulseFailures=0;
+    }else if(visible){
+      try{
+        const pulse=await api('/api/downloads/pulse',null,{timeoutMs:1200,timeoutMessage:'Live Downloads pulse delayed'});
+        applyDownloadPulse(pulse);
+        downloadPulseFailures=0;
+      }catch(_e){downloadPulseFailures=Math.min(3,downloadPulseFailures+1);}
+    }
+  }finally{downloadPollInFlight=false;scheduleNextDownloadPoll();}
 }
 function startDownloadLivePolling(){
   document.addEventListener('visibilitychange',()=>scheduleNextDownloadPoll(document.hidden?750:0));
