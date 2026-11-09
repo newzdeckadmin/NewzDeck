@@ -1,3 +1,3 @@
-NewzDeck v3.7.29 — Metadata Refresh Reliability & Monitoring Integrity
+NewzDeck v3.7.30 - SABnzbd 5.1.3 Security & Download Engine Update
 
-Corrects the scheduled single-title metadata refresh bug affecting monitored TV and movies. Full post-upgrade sweep, safe per-title retries, freshness/status visibility and preservation of all existing user/download data.
+The private SABnzbd Windows x64 engine is SHA-256 pinned to official upstream stable 5.1.3. Existing download queue, incomplete files, provider settings, history, media libraries and metadata reliability fixes are preserved.

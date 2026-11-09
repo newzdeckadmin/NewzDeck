@@ -1,3 +1,3 @@
-NewzDeck v3.7.29 update notes
+NewzDeck v3.7.30 update notes
 
-Upon first start, the metadata scheduler verifies all monitored TV and movie titles even if the previous version reported a recent successful refresh. Failed titles are retried without overwriting verified metadata. Existing downloads, search settings, metadata server, and history remain intact.
+On startup NewzDeck provisions the official SABnzbd 5.1.3 Windows x64 portable ZIP, verifies its SHA-256 and gracefully transfers control from an authenticated older SABnzbd engine. The upgrade is deferred without forced process termination if provisioning/authentication/shutdown fails. A temporary transfer interruption is possible. No user data or library migration is performed.

@@ -1,14 +1,18 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.29",
-  "base_version": "3.7.28",
-  "release": "Metadata Refresh Reliability & Monitoring Integrity",
-  "adapter_version": "3.7.29",
-  "name": "Metadata Refresh Reliability & Monitoring Integrity",
-  "sab_version": "5.1.2",
+  "version": "3.7.30",
+  "base_version": "3.7.29",
+  "release": "SABnzbd 5.1.3 Security & Download Engine Update",
+  "adapter_version": "3.7.30",
+  "name": "SABnzbd 5.1.3 Security & Download Engine Update",
+  "sab_version": "5.1.3",
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac",
   "changes": [
+    "Upgrade private localhost SABnzbd backend from 5.1.2 to official stable 5.1.3; pin the release URL and upstream SHA-256.",
+    "Use existing guarded provision-before-shutdown and credentialed version checks for managed engine upgrades; never force-kill old engine on failure.",
+    "Preserve existing SAB admin/config, incoming/incomplete data, NewzDeck queue ledger, download history, and provider settings.",
+    "Retain all v3.7.29 monitored metadata-refresh reliability fixes and all v3.7.27 downloads/diagnostics, v3.7.26 search, and prior gallery/image integrity safeguards.",
     "Correct scheduled metadata refresh loop to process every monitored movie and TV title rather than only the first item.",
     "Immediately perform a full sweep once after upgrading from the broken v3.7.28 scheduler, without changing existing user settings.",
     "Require a live Metadata Service response for verified refreshes; never stamp a 30-day local cached fallback as fresh.",
@@ -26,6 +30,9 @@
     "Quiet full-snapshot failure backoff and visibly stale status avoid repeated expensive retries and falsely presenting stale progress as fresh."
   ],
   "regression_guards": [
+    "Official upstream 5.1.3 Windows x64 portable archive SHA-256 and version URL are pinned and immutable.",
+    "Managed upgrade validates existing localhost SAB version and API-key proof, provisions target first, requests graceful shutdown, and defers on missing hash/download/auth/port release.",
+    "No destructive queue/admin/incomplete/user-state migration or SABCTools retargeting.",
     "Real production-AST test with 57 TV and 6 movie titles: complete full sweep, targeted manual refresh, failed and recovered metadata.",
     "Fresh-fetch bypasses long-lived local response fallbacks; incomplete TV season lists fail safe without deleting existing episode records.",
     "v3.7.29-only full release gate; do not execute older version-specific full gates (prior v3.7.27 CI failure).",
@@ -38,7 +45,7 @@
   ],
   "preserved": [
     "No persistent search index, new search history, download migration, deletion or new database.",
-    "Original SABnzbd 5.1.2, SABCTools 9.6.3, provider allocations, service/tray, user settings and persisted download history.",
+    "Official SABnzbd 5.1.3, SABCTools 9.6.3, provider allocations, service/tray, user settings and persisted download history.",
     "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 unchanged."
   ]
 }

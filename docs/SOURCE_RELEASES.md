@@ -2,15 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.29
+## Current release: v3.7.30
 
-**v3.7.29 is the current stable production release.**
+**v3.7.30 is the current stable production release.**
 
-The `v3.7.29` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.30` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
+
+- **v3.7.30 — SABnzbd 5.1.3 Security & Download Engine Update.** Pins the private upstream SABnzbd Windows x64 backend to 5.1.3 and preserves the managed queue-safe version handoff and all v3.7.29 metadata safeguards.
 
 - **v3.7.29 — Metadata Refresh Reliability & Monitoring Integrity.** All monitored movie/TV titles refresh automatically, stale local fallbacks do not count as verified metadata, incomplete records retry safely and new eligibility notifies Wanted.
 

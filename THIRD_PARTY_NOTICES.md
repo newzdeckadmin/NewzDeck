@@ -24,9 +24,9 @@ NewzDeck can download the official **CPython 3.12.10 Windows embeddable x64** pa
 
 CPython is not embedded in the current NewzDeck Portable ZIP or Setup payload; it is obtained separately from the upstream publisher on the user's machine.
 
-## SABnzbd 5.1.2
+## SABnzbd 5.1.3
 
-NewzDeck Download Engine v2 can provision the official **SABnzbd 5.1.2 Windows x64 portable** release and run it locally as a separate backend process behind NewzDeck's UI/API.
+NewzDeck Download Engine v2 can provision the official **SABnzbd 5.1.3 Windows x64 portable** release and run it locally as a separate backend process behind NewzDeck's UI/API.
 
 - Project: SABnzbd
 - Copyright: The SABnzbd-Team and contributors
