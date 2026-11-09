@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.7.28'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.7.29'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -1982,7 +1982,18 @@ class MediaAutomationEngine:
             if not isinstance(rec,dict): continue
             penalty=self._indexer_penalty(rt,str(rec.get('name') or key))
             ih.append({'name':str(rec.get('name') or key),'penalty':penalty,'recent_failures':sum(1 for x in rec.get('failures') or [] if time.time()-float(x)<24*3600),'recent_successes':sum(1 for x in rec.get('successes') or [] if time.time()-float(x)<24*3600)})
-        metadata={'url':str(cfg.get('metadata_service_url') or ''),'status':'ready' if not str((rt.get('last_error') or '')).lower().startswith('metadata') else 'warning','last_refresh_ts':float(rt.get('last_metadata_refresh_ts') or 0)}
+        metadata_result=rt.get('last_metadata_result') if isinstance(rt.get('last_metadata_result'),dict) else {}
+        pending_metadata=list(rt.get('metadata_pending_retry_ids') or [])
+        metadata={'url':str(cfg.get('metadata_service_url') or ''),
+                  'status':'warning' if pending_metadata or rt.get('last_metadata_error') else 'ready',
+                  'last_refresh_ts':float(rt.get('last_metadata_refresh_ts') or 0),
+                  'updated':int(metadata_result.get('updated') or 0),
+                  'attempted':int(metadata_result.get('attempted') or 0),
+                  'monitored_total':int(metadata_result.get('monitored_total') or 0),
+                  'failed':int(metadata_result.get('failed') or 0),
+                  'pending_retry':len(pending_metadata),'last_error':str(rt.get('last_metadata_error') or ''),
+                  'last_retry_ts':float(rt.get('last_metadata_retry_ts') or 0),
+                  'errors':list(metadata_result.get('errors') or [])[:8]}
         needs_attention=[]
         try:
             snap=self.download_manager.snapshot()
@@ -2043,6 +2054,13 @@ class MediaAutomationEngine:
             'last_searches':int(rt.get('last_searches') or 0),
             'last_grab_count':int(rt.get('last_grab_count') or 0),
             'last_metadata_refresh_ts':float(rt.get('last_metadata_refresh_ts') or 0),
+            'last_metadata_result':{'attempted':int((rt.get('last_metadata_result') or {}).get('attempted') or 0),
+                                    'updated':int((rt.get('last_metadata_result') or {}).get('updated') or 0),
+                                    'failed':int((rt.get('last_metadata_result') or {}).get('failed') or 0),
+                                    'new_episodes':int((rt.get('last_metadata_result') or {}).get('new_episodes') or 0),
+                                    'became_wanted':int((rt.get('last_metadata_result') or {}).get('became_wanted') or 0)},
+            'last_metadata_error':str(rt.get('last_metadata_error') or ''),
+            'metadata_retry_pending':len(rt.get('metadata_pending_retry_ids') or []),
             'last_library_scan_ts':float(rt.get('last_library_scan_ts') or 0),
             'active_targets':active_count,
             'target_states':target_states,
@@ -2058,28 +2076,43 @@ class MediaAutomationEngine:
             'smart_retry_enabled':bool(cfg.get('automatic_smart_retry_enabled',True)),
         }
 
-    def refresh_monitored_metadata(self, *, force:bool=False, ident:str='') -> dict[str,Any]:
-        """Refresh monitored metadata, preferring TMDB through NewzDeck Metadata Service.
+    def refresh_monitored_metadata(self, *, force:bool=False, ident:str='', only_ids:list[str]|None=None) -> dict[str,Any]:
+        """Refresh *all* eligible monitored titles with verified live metadata.
 
-        Existing TVmaze/Wikidata records are migrated only when an exact title/year
-        match is found. File state and per-episode monitoring choices are preserved.
+        v3.7.28 accidentally reused ``ident`` as the loop-local item id. A full
+        scheduled sweep consequently processed only its first monitored title.
+        Preserve the requested filter independently and report every failure.
         """
-        lib=self._library(); now=time.time(); cfg=self.public_config(); max_age=max(1,int(cfg.get('automatic_metadata_refresh_hours') or 6))*3600
-        fetched={}; errors=[]; migrated=0
+        lib=self._library(); now=time.time(); cfg=self.public_config()
+        max_age=max(1,int(cfg.get('automatic_metadata_refresh_hours') or 6))*3600
+        requested_id=str(ident or '').strip()
+        requested_ids={str(x) for x in only_ids if str(x)} if only_ids is not None else None
+        fetched:dict[str,dict[str,Any]]={}; errors:list[dict[str,Any]]=[]
+        attempted_ids:list[str]=[]; migrated=0
+        monitored_count=sum(1 for x in lib if isinstance(x,dict) and x.get('monitored',True))
+        def record_error(item_id:str,item:dict[str,Any],exc:Exception|str) -> None:
+            errors.append({'item_id':item_id,'title':str(item.get('title') or ''),
+                           'kind':str(item.get('kind') or ''),'error':str(exc)[:500]})
         for item in lib:
             if not isinstance(item,dict) or not item.get('monitored',True): continue
-            if ident and str(item.get('id') or '')!=str(ident): continue
+            item_id=str(item.get('id') or '').strip()
+            if requested_id and item_id!=requested_id: continue
+            if requested_ids is not None and item_id not in requested_ids: continue
             if not force and now-self._iso_epoch(item.get('metadata_refreshed_at'))<max_age: continue
-            ident=str(item.get('id') or ''); kind='tv' if item.get('kind')=='tv' else 'movie'
-            tmdb_id=int(item.get('tmdb_id')) if str(item.get('tmdb_id') or '').isdigit() else 0
-            match=None
+            if not item_id:
+                record_error('',item,'Monitored library title is missing its identity'); continue
+            attempted_ids.append(item_id)
+            kind='tv' if item.get('kind')=='tv' else 'movie'
             try:
+                tmdb_id=int(item.get('tmdb_id')) if str(item.get('tmdb_id') or '').isdigit() else 0
                 if not tmdb_id:
                     match=self._find_tmdb_match_for_legacy(item)
-                    if match and match.get('tmdb_id'): tmdb_id=int(match['tmdb_id'])
+                    if match and str(match.get('tmdb_id') or '').isdigit(): tmdb_id=int(match['tmdb_id'])
                 if tmdb_id:
                     if kind=='tv':
-                        bundle=self._metadata_tv_bundle(tmdb_id)
+                        # Scheduled/manual refresh must not masquerade a 30-day
+                        # local cached fallback as a verified new episode sweep.
+                        bundle=self._metadata_tv_bundle(tmdb_id,fresh=True)
                         series=bundle.get('series') if isinstance(bundle.get('series'),dict) else {}
                         canonical=str(series.get('title') or item.get('title') or '').strip()
                         ambiguous=bool(item.get('title_ambiguous'))
@@ -2088,80 +2121,141 @@ class MediaAutomationEngine:
                                 rows=self._metadata_service_search('tv',canonical,None); target=_norm(canonical)
                                 ambiguous=any(target in {_norm(r.get('title')),_norm(r.get('original_title'))} and str(r.get('tmdb_id') or r.get('metadata_id') or '')!=str(tmdb_id) for r in rows)
                             except Exception: pass
-                        fetched[ident]={'kind':'tv','source':'tmdb','bundle':bundle,'migrate':str(item.get('metadata_provider') or '').lower()!='tmdb','title_ambiguous':ambiguous}
-                    else: fetched[ident]={'kind':'movie','source':'tmdb','movie':self._metadata_movie_detail(tmdb_id),'migrate':str(item.get('metadata_provider') or '').lower()!='tmdb'}
+                        fetched[item_id]={'kind':'tv','source':'tmdb','bundle':bundle,
+                                          'migrate':str(item.get('metadata_provider') or '').lower()!='tmdb',
+                                          'title_ambiguous':ambiguous}
+                    else:
+                        detail=self._metadata_movie_detail(tmdb_id,fresh=True)
+                        fetched[item_id]={'kind':'movie','source':'tmdb','movie':detail,
+                                          'migrate':str(item.get('metadata_provider') or '').lower()!='tmdb'}
                     continue
-            except Exception as exc:
-
-
-                if str(item.get('metadata_provider') or '').lower()=='tmdb':
-                    errors.append({'item_id':ident,'title':str(item.get('title') or ''),'error':str(exc)}); continue
-            try:
+                # Older library records may use TVmaze or Wikidata. Only count a
+                # successful response as refreshed; never silently skip a title.
                 if kind=='tv' and item.get('metadata_provider')=='tvmaze' and item.get('tvmaze_id'):
-                    show_id=int(item.get('tvmaze_id')); show=self._tvmaze(f'shows/{show_id}',{},0); episodes=self._tvmaze(f'shows/{show_id}/episodes',{'specials':'1'},0)
-                    fetched[ident]={'kind':'tv','source':'tvmaze','show':show,'episodes':list(episodes or [])}
+                    show_id=int(item['tvmaze_id']);show=self._tvmaze(f'shows/{show_id}',{},0)
+                    episodes=self._tvmaze(f'shows/{show_id}/episodes',{'specials':'1'},0)
+                    if not isinstance(show,dict) or not show.get('name'): raise ValueError('TVmaze title detail missing')
+                    fetched[item_id]={'kind':'tv','source':'tvmaze','show':show,'episodes':list(episodes or [])}
                 elif kind=='movie' and item.get('metadata_provider')=='wikidata' and item.get('wikidata_id'):
-                    qid=str(item.get('wikidata_id') or '').upper(); raw=self._wikidata({'action':'wbgetentities','ids':qid,'props':'labels|descriptions|claims|sitelinks','languages':'en','languagefallback':'1'},0); ent=((raw.get('entities') or {}).get(qid) or {})
-                    if ent and ent.get('missing') is None: fetched[ident]={'kind':'movie','source':'wikidata','movie':self._movie_from_entity(ent,False)}
+                    qid=str(item['wikidata_id']).upper()
+                    raw=self._wikidata({'action':'wbgetentities','ids':qid,'props':'labels|descriptions|claims|sitelinks','languages':'en','languagefallback':'1'},0)
+                    entity=((raw.get('entities') or {}).get(qid) or {})
+                    if not entity or entity.get('missing') is not None: raise ValueError('Wikidata title detail unavailable')
+                    fetched[item_id]={'kind':'movie','source':'wikidata','movie':self._movie_from_entity(entity,False)}
+                else:
+                    raise ValueError('No matching TMDB title or supported legacy metadata identity')
             except Exception as exc:
-                errors.append({'item_id':ident,'title':str(item.get('title') or ''),'error':str(exc)})
-        updated=0; added_episodes=0; discovered=[]
-        if fetched:
-            with self.lock:
-                fresh=self._library(); today=datetime.now().date().isoformat()
-                for item in fresh:
-                    ident=str(item.get('id') or ''); data=fetched.get(ident)
-                    if not data: continue
-                    before_keys={(int(s.get('season_number') or 0),int(e.get('episode_number') or 0)) for s in item.get('seasons') or [] for e in s.get('episodes') or []} if item.get('kind')=='tv' else set()
-                    before_count=len(before_keys)
+                record_error(item_id,item,exc)
+        updated=0; added_episodes=0; discovered=[]; became_wanted=0; availability_changed=0
+        changed=False; failure_by_id={str(x['item_id']):x['error'] for x in errors if x.get('item_id')}
+        with self.lock:
+            fresh=self._library(); today=datetime.now().date().isoformat()
+            for item in fresh:
+                item_id=str(item.get('id') or '').strip()
+                if item_id in failure_by_id:
+                    item['metadata_refresh_error']=failure_by_id[item_id]
+                    item['metadata_refresh_error_ts']=_now()
+                    changed=True
+                data=fetched.get(item_id)
+                if not data: continue
+                # Apply atomically per title: a failed metadata merge must not
+                # partially overwrite episodes, user monitoring or file states.
+                revised=copy.deepcopy(item)
+                kind=str(item.get('kind') or '')
+                before_keys={(int(s.get('season_number') or 0),int(e.get('episode_number') or 0)) for s in item.get('seasons') or [] for e in s.get('episodes') or []} if kind=='tv' else set()
+                before_eligible=False; before_missing=set()
+                if kind=='movie':
+                    before_date,_=self._movie_wanted_date(item,cfg)
+                    before_eligible=bool(not item.get('movie_file') and before_date and self._aired(before_date))
+                    before_home=tuple(str(item.get(x) or '') for x in ('digital_release_date','physical_release_date','availability_date'))
+                else:
+                    before_missing={(int(s.get('season_number') or 0),int(ep.get('episode_number') or 0))
+                        for s in item.get('seasons') or [] if s.get('monitored',True)
+                        for ep in s.get('episodes') or [] if ep.get('monitored',True) and not ep.get('has_file') and self._aired(str(ep.get('air_date') or ''))}
+                try:
                     source=data.get('source')
                     if source=='tmdb':
                         if data.get('kind')=='tv':
-                            self._apply_tmdb_tv(item,data.get('bundle') or {},migrate=bool(data.get('migrate')))
-                            if 'title_ambiguous' in data: item['title_ambiguous']=bool(data.get('title_ambiguous'))
-                            self._refresh_tv_library_identity(item,allow_network=False)
-                        else: self._apply_tmdb_movie(item,data.get('movie') or {},migrate=bool(data.get('migrate')))
-                        if data.get('migrate'): migrated+=1
+                            self._apply_tmdb_tv(revised,data.get('bundle') or {},migrate=bool(data.get('migrate')))
+                            if 'title_ambiguous' in data: revised['title_ambiguous']=bool(data.get('title_ambiguous'))
+                            self._refresh_tv_library_identity(revised,allow_network=False)
+                        else: self._apply_tmdb_movie(revised,data.get('movie') or {},migrate=bool(data.get('migrate')))
                     elif data.get('kind')=='tv':
-                        show=data.get('show') or {}; image=show.get('image') or {}; premiered=_date(show.get('premiered'))
-                        item.update({'title':str(show.get('name') or item.get('title') or ''),'overview':self._strip_html(show.get('summary')) or item.get('overview',''),'first_air_date':premiered or item.get('first_air_date',''),'status':str(show.get('status') or item.get('status') or 'Unknown'),'poster_url':str(image.get('original') or image.get('medium') or item.get('poster_url') or ''),'genres':list(show.get('genres') or item.get('genres') or []),'rating':(show.get('rating') or {}).get('average') if isinstance(show.get('rating'),dict) else item.get('rating'),'network':str(((show.get('webChannel') or show.get('network') or {}).get('name')) or item.get('network') or ''),'language':str(show.get('language') or item.get('language') or '')})
-                        if premiered[:4].isdigit(): item['year']=int(premiered[:4])
-                        seasons={int(x.get('season_number') or 0):x for x in item.get('seasons') or [] if int(x.get('season_number') or 0)>0}; mode=str(item.get('monitor_mode') or 'all')
+                        show=data.get('show') or {};image=show.get('image') or {};premiered=_date(show.get('premiered'))
+                        revised.update({'title':str(show.get('name') or revised.get('title') or ''),'overview':self._strip_html(show.get('summary')) or revised.get('overview',''),
+                                        'first_air_date':premiered or revised.get('first_air_date',''),
+                                        'status':str(show.get('status') or revised.get('status') or 'Unknown'),
+                                        'poster_url':str(image.get('original') or image.get('medium') or revised.get('poster_url') or ''),
+                                        'genres':list(show.get('genres') or revised.get('genres') or []),
+                                        'rating':(show.get('rating') or {}).get('average') if isinstance(show.get('rating'),dict) else revised.get('rating'),
+                                        'network':str(((show.get('webChannel') or show.get('network') or {}).get('name')) or revised.get('network') or ''),
+                                        'language':str(show.get('language') or revised.get('language') or '')})
+                        if premiered[:4].isdigit(): revised['year']=int(premiered[:4])
+                        seasons={int(x.get('season_number') or 0):x for x in revised.get('seasons') or [] if int(x.get('season_number') or 0)>0};mode=str(revised.get('monitor_mode') or 'all')
                         for epd in data.get('episodes') or []:
-                            sn=int(epd.get('season') or 0); en=int(epd.get('number') or 0)
+                            sn=int(epd.get('season') or 0);en=int(epd.get('number') or 0)
                             if sn<=0 or en<=0: continue
                             season=seasons.get(sn)
-                            if season is None: season={'season_number':sn,'name':f'Season {sn}','air_date':'','monitored':mode not in {'none','selected'},'episodes':[]}; seasons[sn]=season
-                            eps={int(x.get('episode_number') or 0):x for x in season.get('episodes') or []}; air=_date(epd.get('airdate')); ep=eps.get(en)
+                            if season is None: season={'season_number':sn,'name':f'Season {sn}','air_date':'','monitored':mode not in {'none','selected'},'episodes':[]};seasons[sn]=season
+                            eps={int(x.get('episode_number') or 0):x for x in season.get('episodes') or []};air=_date(epd.get('airdate'));ep=eps.get(en)
                             if ep is None:
-                                monitored=(self._selected_episode_key(sn,en) in self._selected_episode_set(item)) if mode=='selected' else False if mode=='none' else bool(air and air>=today) if mode=='future' else bool(season.get('monitored',True))
-                                ep={'episode_number':en,'name':str(epd.get('name') or f'Episode {en}'),'air_date':air,'overview':self._strip_html(epd.get('summary')),'monitored':monitored,'has_file':False,'file_path':'','file_quality':'','cutoff_met':False,'tvmaze_episode_id':epd.get('id')}; season.setdefault('episodes',[]).append(ep)
+                                monitored=(self._selected_episode_key(sn,en) in self._selected_episode_set(revised)) if mode=='selected' else False if mode=='none' else bool(air and air>=today) if mode=='future' else bool(season.get('monitored',True))
+                                ep={'episode_number':en,'name':str(epd.get('name') or f'Episode {en}'),'air_date':air,'overview':self._strip_html(epd.get('summary')),'monitored':monitored,'has_file':False,'file_path':'','file_quality':'','cutoff_met':False,'tvmaze_episode_id':epd.get('id')}
+                                season.setdefault('episodes',[]).append(ep)
                             else: ep.update({'name':str(epd.get('name') or ep.get('name') or f'Episode {en}'),'air_date':air or ep.get('air_date',''),'overview':self._strip_html(epd.get('summary')) or ep.get('overview',''),'tvmaze_episode_id':epd.get('id') or ep.get('tvmaze_episode_id')})
                         for season in seasons.values():
-                            season['episodes']=sorted(season.get('episodes') or [],key=lambda e:int(e.get('episode_number') or 0)); dates=[str(e.get('air_date') or '') for e in season['episodes'] if e.get('air_date')]
+                            season['episodes']=sorted(season.get('episodes') or [],key=lambda e:int(e.get('episode_number') or 0))
+                            dates=[str(e.get('air_date') or '') for e in season['episodes'] if e.get('air_date')]
                             if dates: season['air_date']=min(dates)
-                        item['seasons']=sorted(seasons.values(),key=lambda x:int(x.get('season_number') or 0))
-                        if mode=='selected': self._sync_selected_episode_monitoring(item)
+                        revised['seasons']=sorted(seasons.values(),key=lambda x:int(x.get('season_number') or 0))
+                        if mode=='selected': self._sync_selected_episode_monitoring(revised)
                     else:
-                        movie=data.get('movie') or {}; release=_date(movie.get('release_date'))
-                        item.update({'title':str(movie.get('title') or item.get('title') or ''),'overview':str(movie.get('overview') or item.get('overview') or ''),'release_date':release or item.get('release_date',''),'runtime':movie.get('runtime') or item.get('runtime'),'imdb_id':str(movie.get('imdb_id') or item.get('imdb_id') or ''),'wikipedia_title':str(movie.get('wikipedia_title') or item.get('wikipedia_title') or '')})
-                        if movie.get('year'): item['year']=movie.get('year')
-                    after_count=sum(len(s.get('episodes') or []) for s in item.get('seasons') or []) if item.get('kind')=='tv' else 0
-                    if item.get('kind')=='tv' and after_count>before_count:
-                        for season in item.get('seasons') or []:
-                            sn=int(season.get('season_number') or 0)
-                            for ep in season.get('episodes') or []:
-                                en=int(ep.get('episode_number') or 0)
-                                if sn>0 and en>0 and (sn,en) not in before_keys:
-                                    discovered.append({'item_id':ident,'title':str(item.get('title') or ''),'season':sn,'episode':en,'episode_name':str(ep.get('name') or f'Episode {en}'),'air_date':str(ep.get('air_date') or ''),'monitored':bool(ep.get('monitored',True))})
-                    added_episodes+=max(0,after_count-before_count)
-                    item['metadata_refreshed_at']=_now(); item['updated_at']=_now(); updated+=1
-                self._save_library(fresh)
+                        movie=data.get('movie') or {};release=_date(movie.get('release_date'))
+                        revised.update({'title':str(movie.get('title') or revised.get('title') or ''),'overview':str(movie.get('overview') or revised.get('overview') or ''),'release_date':release or revised.get('release_date',''),
+                                        'runtime':movie.get('runtime') or revised.get('runtime'),'imdb_id':str(movie.get('imdb_id') or revised.get('imdb_id') or ''),
+                                        'wikipedia_title':str(movie.get('wikipedia_title') or revised.get('wikipedia_title') or '')})
+                        if movie.get('year'): revised['year']=movie.get('year')
+                    revised['metadata_refreshed_at']=_now();revised['updated_at']=_now()
+                    revised.pop('metadata_refresh_error',None);revised.pop('metadata_refresh_error_ts',None)
+                except Exception as exc:
+                    record_error(item_id,item,exc)
+                    failure_by_id[item_id]=str(exc)[:500]
+                    item['metadata_refresh_error']=str(exc)[:500];item['metadata_refresh_error_ts']=_now()
+                    changed=True
+                    continue
+                item.clear();item.update(revised);changed=True;updated+=1
+                if data.get('migrate'): migrated+=1
+                if kind=='movie':
+                    after_home=tuple(str(revised.get(x) or '') for x in ('digital_release_date','physical_release_date','availability_date'))
+                    if before_home!=after_home: availability_changed+=1
+                    after_date,_=self._movie_wanted_date(revised,cfg)
+                    if not before_eligible and not revised.get('movie_file') and after_date and self._aired(after_date): became_wanted+=1
+                else:
+                    after_keys={(int(s.get('season_number') or 0),int(ep.get('episode_number') or 0))
+                        for s in revised.get('seasons') or [] if s.get('monitored',True)
+                        for ep in s.get('episodes') or [] if ep.get('monitored',True) and not ep.get('has_file') and self._aired(str(ep.get('air_date') or ''))}
+                    became_wanted+=len(after_keys-before_missing)
+                    for s in revised.get('seasons') or []:
+                        sn=int(s.get('season_number') or 0)
+                        for ep in s.get('episodes') or []:
+                            en=int(ep.get('episode_number') or 0)
+                            if sn>0 and en>0 and (sn,en) not in before_keys:
+                                discovered.append({'item_id':item_id,'title':str(revised.get('title') or ''),'season':sn,'episode':en,
+                                                   'episode_name':str(ep.get('name') or f'Episode {en}'),'air_date':str(ep.get('air_date') or ''),'monitored':bool(ep.get('monitored',True))})
+                    added_episodes+=len({(int(s.get('season_number') or 0),int(ep.get('episode_number') or 0)) for s in revised.get('seasons') or [] for ep in s.get('episodes') or []}-before_keys)
+            if changed: self._save_library(fresh)
         for row in discovered[:80]:
             self._event('episode-discovered',f"Discovered {row['title']} S{row['season']:02d}E{row['episode']:02d} - {row['episode_name']}",**row)
-        if updated or errors:
-            self._event('metadata',f'Refreshed metadata for {updated} monitored title(s)',updated=updated,new_episodes=added_episodes,migrated_to_tmdb=migrated,errors=len(errors))
-        return {'ok':True,'updated':updated,'new_episodes':added_episodes,'migrated_to_tmdb':migrated,'errors':errors}
+        failed_ids=list(dict.fromkeys(str(e.get('item_id') or '') for e in errors if e.get('item_id')))
+        if attempted_ids or errors:
+            self._event('metadata',f'Metadata verified for {updated}/{len(attempted_ids)} monitored title(s); {len(errors)} failed',
+                        updated=updated,attempted=len(attempted_ids),failed=len(errors),new_episodes=added_episodes,
+                        migrated_to_tmdb=migrated,became_wanted=became_wanted,first_errors=errors[:5])
+        return {'ok':not bool(errors),'attempted':len(attempted_ids),'attempted_ids':attempted_ids,
+                'monitored_total':monitored_count,'updated':updated,'failed':len(errors),'failed_ids':failed_ids,
+                'new_episodes':added_episodes,'became_wanted':became_wanted,
+                'availability_changed':availability_changed,'migrated_to_tmdb':migrated,
+                'errors':errors,'completed_at':_now()}
 
     def _auto_release_matches(self, item:dict[str,Any], row:dict[str,Any], release:dict[str,Any], profile:dict[str,Any], *, upgrade:bool=False, current_info:dict[str,Any]|None=None) -> bool:
         title=str(release.get('title') or '')
@@ -2562,13 +2656,36 @@ class MediaAutomationEngine:
         if not force and float(rt.get('last_library_scan_ts') or 0)>0 and time.time()-float(rt.get('last_library_scan_ts') or 0)<interval: return {'started':False,'due':False}
         self.reconcile_thread=threading.Thread(target=self._reconcile_worker,name='newzdeck-library-reconcile',daemon=True); self.reconcile_thread.start(); return {'started':True}
 
-    def _metadata_refresh_worker(self):
+    def _metadata_refresh_worker(self, *, retry_ids:list[str]|None=None):
+        """A full sweep and its targeted retries maintain independent timestamps."""
         if not self.metadata_refresh_run_lock.acquire(blocking=False): return
         try:
-            result=self.refresh_monitored_metadata(force=True)
-            self._patch_auto_runtime(last_metadata_refresh_ts=time.time(),last_metadata_result=result,last_metadata_error='')
+            is_retry=retry_ids is not None
+            result=self.refresh_monitored_metadata(force=True,only_ids=retry_ids if is_retry else None)
+            now=time.time(); failed=set(result.get('failed_ids') or [])
+            previous=self._auto_runtime()
+            if is_retry:
+                outstanding=set(previous.get('metadata_pending_retry_ids') or [])
+                outstanding.difference_update(str(x) for x in (retry_ids or []))
+                outstanding.update(failed)
+                remaining=sorted(outstanding)
+                update={'last_metadata_retry_ts':now,'last_metadata_retry_result':result}
+            else:
+                remaining=sorted(failed)
+                update={'last_metadata_refresh_ts':now,'last_metadata_result':result,'metadata_refresh_schema':2}
+            update.update(last_metadata_attempt_ts=now,metadata_pending_retry_ids=remaining,
+                          last_metadata_error=(f'{len(remaining)} monitored title(s) have unverified metadata; retry scheduled' if remaining else ''))
+            if int(result.get('became_wanted') or 0)>0:
+                # The background scheduler will run within its normal 5-second
+                # check loop instead of waiting for the next feed-search interval.
+                update['last_metadata_wanted_transition_ts']=now
+            self._patch_auto_runtime(**update)
+            if remaining:
+                self._event('metadata-refresh-partial',f'Metadata sweep: {result.get("updated",0)}/{result.get("attempted",0)} verified; {len(remaining)} title(s) awaiting retry',
+                            failures=len(remaining),first_errors=list(result.get('errors') or [])[:5],retry=is_retry)
         except Exception as exc:
-            self._patch_auto_runtime(last_metadata_error=str(exc)[:600])
+            # Do not advance the last successful full-sweep timestamp on a crash.
+            self._patch_auto_runtime(last_metadata_attempt_ts=time.time(),last_metadata_error=str(exc)[:600])
             self._event('metadata-refresh-error',f'Background Automation metadata refresh failed: {exc}')
         finally:
             self.metadata_refresh_run_lock.release()
@@ -2576,10 +2693,25 @@ class MediaAutomationEngine:
     def maybe_refresh_monitored_metadata(self, force:bool=False):
         if self.metadata_refresh_thread and self.metadata_refresh_thread.is_alive(): return {'started':False,'running':True}
         if not self._library(): return {'started':False,'empty':True}
-        cfg=self.public_config(); rt=self._auto_runtime(); interval=max(1,int(cfg.get('automatic_metadata_refresh_hours') or 6))*3600
-        if not force and float(rt.get('last_metadata_refresh_ts') or 0)>0 and time.time()-float(rt.get('last_metadata_refresh_ts') or 0)<interval: return {'started':False,'due':False}
-        self.metadata_refresh_thread=threading.Thread(target=self._metadata_refresh_worker,name='newzdeck-metadata-refresh',daemon=True)
-        self.metadata_refresh_thread.start(); return {'started':True}
+        cfg=self.public_config();rt=self._auto_runtime();now=time.time()
+        interval=max(1,int(cfg.get('automatic_metadata_refresh_hours') or 6))*3600
+        last_full=float(rt.get('last_metadata_refresh_ts') or 0)
+        last_attempt=float(rt.get('last_metadata_attempt_ts') or 0)
+        # v3.7.29 always performs an initial full verification after upgrading
+        # from the broken single-title v3.7.28 metadata refresh schema.
+        full_due=bool(force or int(rt.get('metadata_refresh_schema') or 0)<2 or not last_full or now-last_full>=interval)
+        pending=list(dict.fromkeys(str(x) for x in rt.get('metadata_pending_retry_ids') or [] if str(x)))
+        last_retry=float(rt.get('last_metadata_retry_ts') or last_full)
+        retry_due=bool(pending and now-last_retry>=900)
+        if not force and last_attempt and now-last_attempt<900:
+            return {'started':False,'due':False,'retry_pending':len(pending),'cooldown':True}
+        if not full_due and not retry_due:
+            return {'started':False,'due':False,'retry_pending':len(pending)}
+        retry_ids=None if full_due else pending[:20]
+        self.metadata_refresh_thread=threading.Thread(target=self._metadata_refresh_worker,
+            kwargs={'retry_ids':retry_ids},name='newzdeck-metadata-refresh',daemon=True)
+        self.metadata_refresh_thread.start()
+        return {'started':True,'mode':'full' if retry_ids is None else 'retry','retry_pending':len(pending)}
 
     def maybe_run_automatic(self):
         cfg=self.public_config()
@@ -2588,7 +2720,8 @@ class MediaAutomationEngine:
         rt=self._auto_runtime(); interval=self._feed_cycle_interval(cfg)
         active_now=len(self._auto_active_targets()); prior_active=int(rt.get('last_active_target_count') or 0); queue_depth=max(1,int(cfg.get('automatic_queue_depth') or 25))
         refill_due=bool(active_now<queue_depth and prior_active>active_now)
-        if float(rt.get('last_cycle_ts') or 0)>0 and time.time()-float(rt.get('last_cycle_ts') or 0)<interval and not refill_due: return {'started':False,'due':False}
+        wake_due=float(rt.get('last_metadata_wanted_transition_ts') or 0)>float(rt.get('last_cycle_ts') or 0)
+        if float(rt.get('last_cycle_ts') or 0)>0 and time.time()-float(rt.get('last_cycle_ts') or 0)<interval and not (refill_due or wake_due): return {'started':False,'due':False}
         self.auto_thread=threading.Thread(target=self._automatic_worker,name='newzdeck-media-auto-grab',daemon=True)
         self.auto_thread.start(); return {'started':True}
 
@@ -2881,7 +3014,15 @@ class MediaAutomationEngine:
         minimum=str(cloud.get('min_client_version') or '')
         compatible=not minimum or _version_tuple(self.version) >= _version_tuple(minimum)
         installation_id=str(c.get('metadata_installation_id') or '')
+        rt=self._auto_runtime(); sweep=rt.get('last_metadata_result') if isinstance(rt.get('last_metadata_result'),dict) else {}
         return {
+            'refresh':{'last_full_ts':float(rt.get('last_metadata_refresh_ts') or 0),
+                       'last_retry_ts':float(rt.get('last_metadata_retry_ts') or 0),
+                       'attempted':int(sweep.get('attempted') or 0),
+                       'verified':int(sweep.get('updated') or 0),
+                       'failed':int(sweep.get('failed') or 0),
+                       'pending_retry':len(rt.get('metadata_pending_retry_ids') or []),
+                       'last_error':str(rt.get('last_metadata_error') or '')},
             'status':status,'url':self._metadata_service_base(),'authenticated':bool(str(c.get('metadata_access_token_protected') or '').strip()),
             'installation_id':installation_id,'server_version':str(cloud.get('server_version') or ''),'api_version':int(cloud.get('api_version') or 0),
             'min_client_version':minimum,'compatible':compatible,'last_success_ts':success,'last_error_ts':error_ts,'last_error':str(cloud.get('last_error') or ''),
@@ -3267,25 +3408,51 @@ class MediaAutomationEngine:
         data=self._metadata_api('/v1/search',{'q':query,'type':kind,'year':year},8)
         return [self._proxy_summary(x,kind) for x in list((data or {}).get('results') or []) if isinstance(x,dict)][:40]
 
-    def _metadata_tv_bundle(self, tmdb_id:int) -> dict[str,Any]:
+    def _metadata_tv_bundle(self, tmdb_id:int, *, fresh:bool=False) -> dict[str,Any]:
+        """Get all TV seasons; a verified refresh never accepts cached/partial data."""
         try:
-            bundle=self._metadata_api(f'/v1/tv/{int(tmdb_id)}/automation',timeout=25)
-            if isinstance(bundle,dict) and isinstance(bundle.get('series'),dict): return bundle
+            bundle=self._metadata_api(f'/v1/tv/{int(tmdb_id)}/automation',timeout=25,allow_cached_fallback=not fresh)
+            series=bundle.get('series') if isinstance(bundle,dict) and isinstance(bundle.get('series'),dict) else {}
+            if series.get('title'):
+                if fresh and not isinstance(bundle.get('seasons'),list):
+                    raise ValueError('TMDB TV automation bundle omitted its season list')
+                if fresh:
+                    # Metadata Server may best-effort omit failed season fetches;
+                    # never replace a TV library with that partial season list.
+                    expected={int(x.get('season_number') or 0) for x in series.get('seasons') or []
+                              if isinstance(x,dict) and int(x.get('season_number') or 0)>0}
+                    actual={int(x.get('season_number') or 0) for x in bundle.get('seasons') or []
+                            if isinstance(x,dict) and int(x.get('season_number') or 0)>0}
+                    if expected!=actual:
+                        raise ValueError('TMDB TV bundle omitted season metadata; using complete direct fetch')
+                return bundle
         except Exception:
-
+            # The old per-series/season endpoints remain a compatibility fallback.
+            # Fresh refreshes reject missing seasons rather than dropping episodes.
             pass
-        series=self._metadata_api(f'/v1/tv/{int(tmdb_id)}',timeout=15)
-        seasons=[]
-        for sr in list((series or {}).get('seasons') or []):
-            try: sn=int(sr.get('season_number') or 0)
-            except Exception: sn=0
-            if sn<=0: continue
-            try: seasons.append(self._metadata_api(f'/v1/tv/{int(tmdb_id)}/season/{sn}',timeout=15))
-            except Exception: continue
+        series=self._metadata_api(f'/v1/tv/{int(tmdb_id)}',timeout=15,allow_cached_fallback=not fresh)
+        if not isinstance(series,dict) or not series.get('title'):
+            raise ValueError('TV metadata service returned no usable title')
+        seasons=[];failures=[]
+        for row in list(series.get('seasons') or []):
+            try:sn=int(row.get('season_number') or 0)
+            except Exception:sn=0
+            if sn<=0:continue
+            try:
+                season=self._metadata_api(f'/v1/tv/{int(tmdb_id)}/season/{sn}',timeout=15,allow_cached_fallback=not fresh)
+                if not isinstance(season,dict) or not isinstance(season.get('episodes'),list):
+                    raise ValueError(f'Season {sn} metadata is incomplete')
+                seasons.append(season)
+            except Exception as exc:
+                failures.append(f'Season {sn}: {exc}')
+        if fresh and failures:
+            raise ValueError('Incomplete fresh TV season metadata: '+'; '.join(failures[:3]))
         return {'series':series,'seasons':seasons}
 
-    def _metadata_movie_detail(self, tmdb_id:int) -> dict[str,Any]:
-        value=self._metadata_api(f'/v1/movie/{int(tmdb_id)}',timeout=15)
+    def _metadata_movie_detail(self, tmdb_id:int, *, fresh:bool=False) -> dict[str,Any]:
+        value=self._metadata_api(f'/v1/movie/{int(tmdb_id)}',timeout=15,allow_cached_fallback=not fresh)
+        if fresh and (not isinstance(value,dict) or not value.get('title')):
+            raise ValueError('Movie metadata service returned no usable title')
         return value if isinstance(value,dict) else {}
 
     def _find_tmdb_match_for_legacy(self, item:dict[str,Any]) -> dict[str,Any]|None:
@@ -4408,7 +4575,9 @@ class MediaAutomationEngine:
 
     def refresh_media_metadata(self,ident:str):
         if not any(str(x.get('id'))==str(ident) for x in self._library()): raise ValueError('Library item was not found')
-        return self.refresh_monitored_metadata(force=True,ident=str(ident))
+        result=self.refresh_monitored_metadata(force=True,ident=str(ident))
+        if int(result.get('became_wanted') or 0)>0: self._patch_auto_runtime(last_metadata_wanted_transition_ts=time.time())
+        return result
 
     def delete_media(self,ident:str):
         with self.lock:

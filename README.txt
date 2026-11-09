@@ -1,3 +1,3 @@
-NewzDeck v3.7.28 — Windows Release Validation Recovery
+NewzDeck v3.7.29 — Metadata Refresh Reliability & Monitoring Integrity
 
-Safely retains the v3.7.27 Downloads/Diagnostics responsiveness improvements and corrects its CI version-gate error. No download engine changes, no search index, no data migration.
+Corrects the scheduled single-title metadata refresh bug affecting monitored TV and movies. Full post-upgrade sweep, safe per-title retries, freshness/status visibility and preservation of all existing user/download data.
