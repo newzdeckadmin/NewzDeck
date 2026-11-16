@@ -1,3 +1,3 @@
-NewzDeck v3.7.30 - SABnzbd 5.1.3 Security & Download Engine Update
+NewzDeck v3.7.31 - High-Performance Video Discovery & Browsing
 
-The private SABnzbd Windows x64 engine is SHA-256 pinned to official upstream stable 5.1.3. Existing download queue, incomplete files, provider settings, history, media libraries and metadata reliability fixes are preserved.
+Videos mode progressively scans a bounded number of NNTP header pages to find more complete videos without delaying the first page, recognizes additional video formats and keeps valid videos visible when thumbnail generation fails. Existing SABnzbd 5.1.3, provider configuration and personal data are unchanged. See release/RELEASE_NOTES_v3.7.31.md in the source repository.

@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.30';
+const UI_VERSION = '3.7.31';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -630,11 +630,12 @@ function renderArticleSummary(elapsedMs=0){
   const images=state.articles.filter(a=>a.media?.kind==='image').length;
   const videos=state.articles.filter(a=>a.media?.kind==='video').length;
   const previewable=state.articles.filter(a=>a.media&&a.complete).length;const unseen=state.articles.filter(a=>!isArticleSeen(a)).length;const fresh=state.articles.filter(isArticleNew).length;
-  const pages=[...state.loadedPages].sort((a,b)=>a-b),smart=!!state.articlePaging?.smart_binary_scan;const pageText=pages.length>1?`<span><b>Header pages ${pages[0].toLocaleString()}–${pages[pages.length-1].toLocaleString()}</b> ${smart?'scanned':'loaded'}</span>`:(pages.length?`<span><b>Page ${pages[0].toLocaleString()}</b></span>`:'');
+  const pages=[...state.loadedPages].sort((a,b)=>a-b),smart=!!state.articlePaging?.smart_binary_scan,videoScan=!!state.articlePaging?.video_discovery_scan;const pageText=pages.length>1?`<span><b>Header pages ${pages[0].toLocaleString()}–${pages[pages.length-1].toLocaleString()}</b> ${videoScan?'searched':smart?'scanned':'loaded'}</span>`:(pages.length?`<span><b>Page ${pages[0].toLocaleString()}</b></span>`:'');
   const depth=daysBackFromLoaded(),itemWord=isAllPostsMode()?'binary items':'posts';const depthText=state.articles.length?`<span class="browse-depth"><b>${state.articles.length.toLocaleString()}</b> ${itemWord} loaded • ${depth?`${depth.toLocaleString()} day${depth===1?'':'s'} back`:'latest'}</span>`:'';
   const retained=state.articlePaging?Math.max(0,Number(state.articlePaging.high||0)-Number(state.articlePaging.low||0)+1):0;
+  const videoScanText=videoScan?(state.smartBinaryPending?'<span>Searching older headers for complete videos…</span>':`<span>${Math.max(0,Number(state.articlePaging?.video_header_positions||0)).toLocaleString()} header positions checked for videos</span>`):'';
   els.articleSummary.classList.remove('hidden');els.articlesList.classList.add('has-summary');
-  els.articleSummary.innerHTML=`<span><b>${images.toLocaleString()}</b> images</span><span><b>${videos.toLocaleString()}</b> videos</span><span><b>${unseen.toLocaleString()}</b> unseen</span>${fresh?`<span class="new-summary"><b>${fresh.toLocaleString()}</b> new this visit</span>`:''}<span><b>${previewable.toLocaleString()}</b> previewable</span>${pageText}${depthText}${retained?`<span><b>${formatCount(retained)}</b> retained range</span>`:''}${elapsedMs?`<span>${elapsedMs} ms</span>`:''}`;
+  els.articleSummary.innerHTML=`<span><b>${images.toLocaleString()}</b> images</span><span><b>${videos.toLocaleString()}</b> videos</span><span><b>${unseen.toLocaleString()}</b> unseen</span>${fresh?`<span class="new-summary"><b>${fresh.toLocaleString()}</b> new this visit</span>`:''}<span><b>${previewable.toLocaleString()}</b> previewable</span>${videoScanText}${pageText}${depthText}${retained?`<span><b>${formatCount(retained)}</b> retained range</span>`:''}${elapsedMs?`<span>${elapsedMs} ms</span>`:''}`;
 }
 function clearPreviewUnavailableForGroup(group){
   const prefix=`${state.providerId}|${group}|`;
@@ -678,7 +679,7 @@ function rehydrateVirtualGalleryTopIfNeeded(){
   for(const card of restored){rebuildThumbnailHolderRegistry(card,{clear:false});wireGalleryCards(card);wireThumbnailImages(card);observeThumbnails({reuse:true,root:card})}state.galleryVirtualBusy=false;restoreBrowsePosition(anchors,keep);updateNewContentBoundaryDom();perfRecord('virtualize',performance.now()-started);scheduleThumbnailDemandScan()
 }
 function scheduleGalleryVirtualization(delay=180){if(!galleryVirtualizationEnabled())return;clearTimeout(state.galleryVirtualTimer);state.galleryVirtualTimer=setTimeout(compactGalleryDom,delay)}
-function articlePageRequest(page,{refresh=false,progressive=false}={}){return browsePayload({provider_id:state.providerId,group:state.selectedGroup,limit:Number(els.articleLimit.value),page,media_only:false,content_filter:browserPerfMode(),smart_binaries:true,progressive,refresh})}
+function articlePageRequest(page,{refresh=false,progressive=false}={}){const videos=browserPerfMode()==='videos';return browsePayload({provider_id:state.providerId,group:state.selectedGroup,limit:Number(els.articleLimit.value),page,media_only:false,content_filter:browserPerfMode(),smart_binaries:!videos,video_discovery:videos,progressive:progressive||videos,refresh})}
 function headerPrefetchMatches(page){const p=state.headerPrefetch;return !!(p&&p.page===page&&p.group===state.selectedGroup&&p.provider===state.providerId&&p.session===state.browseSessionToken)}
 async function warmPrefetchedPageThumbnails(data,page,group,provider,session){
   if(!data?.articles?.length||group!==state.selectedGroup||provider!==state.providerId||session!==state.browseSessionToken||activeDownloadTraffic())return;
@@ -724,8 +725,14 @@ function scheduleProgressiveBinaryCompletion(page,generation,attempt=0){
       if(generation!==state.galleryGeneration||group!==state.selectedGroup||provider!==state.providerId||session!==state.browseSessionToken)return;
       if(data.smart_binary_pending){state.smartBinaryPending=true;scheduleProgressiveBinaryCompletion(page,generation,attempt+1);return}
       state.smartBinaryPending=false;
-      if(state.loadedPages.size!==1||state.articlePage!==page){updateContinuousSentinelInPlace();return}
-      const anchors=captureBrowseAnchors(),scroll=els.articlesList.scrollTop;state.articles=data.articles||[];state.articlePaging=data.paging||state.articlePaging;state.smartBinaryHeaders=Number(data.smart_binary_headers||state.smartBinaryHeaders||0);sortArticles(false);renderArticles({preserveScroll:true,scrollTop:scroll,anchor:anchors,reason:'progressive-completion'});updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);updateContinuousSentinelInPlace();schedulePredictiveHeaderPrefetch();
+      if(data.smart_binary_background_error)toast('Video/header discovery stopped early: '+String(data.smart_binary_background_error).slice(0,160),'error');
+      if(state.articlePage!==page){updateContinuousSentinelInPlace();return}
+      const anchors=captureBrowseAnchors(),scroll=els.articlesList.scrollTop;
+      const isAppend=state.loadedPages.size>1&&Math.min(...state.loadedPages)<page;
+      state.articles=isAppend?mergeArticlePages(state.articles,data.articles||[]):(data.articles||[]);
+      state.articlePaging=data.paging||state.articlePaging;
+      const end=Math.max(page,Number(data.paging?.scanned_page_end||page));for(let p=page;p<=end;p++)state.loadedPages.add(p);
+      state.smartBinaryHeaders=Number(data.smart_binary_headers||state.smartBinaryHeaders||0);sortArticles(false);renderArticles({preserveScroll:true,scrollTop:scroll,anchor:anchors,reason:'progressive-completion'});updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);updateContinuousSentinelInPlace();schedulePredictiveHeaderPrefetch();
     }catch(e){
       if(e?.code==='browse-cancelled')return;
       if(generation!==state.galleryGeneration||group!==state.selectedGroup||provider!==state.providerId||session!==state.browseSessionToken)return;
@@ -765,7 +772,7 @@ async function loadArticles({page=null,append=false,refresh=false,pageJump=false
       if(append){generation=++state.galleryGeneration;state.thumbQueue=[];state.thumbQueued.clear();}
       renderArticles({preserveScroll:append&&!pageJump,scrollTop:pageJump?0:liveScroll,anchor:pageJump?null:liveAnchors,reason:append?'continuous-page':'page-load'});
     }
-    perfRecord('headers',Number(data.elapsed_ms||0));updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);if(data.cache_source&&data.cache_source!=='provider')els.articleSummary.insertAdjacentHTML('beforeend',`<span class="header-cache-chip">⚡ ${escapeHtml(data.cache_source)}${Number(data.cache_age_seconds||0)?` • ${Number(data.cache_age_seconds)}s`:''}</span>`);if(pageJump){armContinuousAfterJump(1350);requestAnimationFrame(()=>{if(generation===state.galleryGeneration){els.articlesList.scrollTop=0;scheduleThumbnailDemandScan()}})}if(!append&&state.smartBinaryPending)scheduleProgressiveBinaryCompletion(targetPage,generation);else if(!pageJump)schedulePredictiveHeaderPrefetch();
+    perfRecord('headers',Number(data.elapsed_ms||0));updateArticlePaging();renderArticleSummary(data.elapsed_ms||0);if(data.cache_source&&data.cache_source!=='provider')els.articleSummary.insertAdjacentHTML('beforeend',`<span class="header-cache-chip">⚡ ${escapeHtml(data.cache_source)}${Number(data.cache_age_seconds||0)?` • ${Number(data.cache_age_seconds)}s`:''}</span>`);if(pageJump){armContinuousAfterJump(1350);requestAnimationFrame(()=>{if(generation===state.galleryGeneration){els.articlesList.scrollTop=0;scheduleThumbnailDemandScan()}})}if(state.smartBinaryPending)scheduleProgressiveBinaryCompletion(targetPage,generation);else if(!pageJump)schedulePredictiveHeaderPrefetch();
   }catch(e){
     if(generation===state.galleryGeneration&&e?.code!=='browse-cancelled'){if(pageJump)armContinuousAfterJump(350);toast(e.message,'error');if(!append){state.articles=[];state.loadedPages.clear();renderArticles({preserveScroll:false,reason:'load-error'});}}
   }finally{
@@ -774,7 +781,7 @@ async function loadArticles({page=null,append=false,refresh=false,pageJump=false
 }
 async function loadOlderArticles(){
   if(state.searchMode){goToArticlePage(state.articlePage+1);return}
-  if(!state.articlePaging?.has_older||state.continuousLoading)return;
+  if(!state.articlePaging?.has_older||state.continuousLoading||state.smartBinaryPending)return;
   await loadArticles({page:Number(state.articlePaging?.next_older_page||state.articlePage+1),append:true});
 }
 function updateArticlePaging(){
@@ -785,7 +792,7 @@ function updateArticlePaging(){
   const pages=Math.max(0,Number(p.page_count||0));
   const current=Math.max(1,Number(p.page||1));
   const searchPaging=p.mode==='search'||state.searchMode;
-  els.olderArticlesBtn.disabled=!p.has_older||state.continuousLoading;
+  els.olderArticlesBtn.disabled=!p.has_older||state.continuousLoading||state.smartBinaryPending;
   els.newerArticlesBtn.disabled=!p.has_newer;
   els.latestArticlesBtn.disabled=!p.has_newer;
   els.articlePageInput.disabled=pages===0;
@@ -799,7 +806,7 @@ function updateArticlePaging(){
     const count=Number(p.result_count||0),from=Number(p.start||0),to=Number(p.end||0);const q=state.groupSearchJob?.query||'';
     els.articleRangeLabel.textContent=count?`Matches ${from.toLocaleString()}–${to.toLocaleString()} of ${count.toLocaleString()} • “${q}”`:`No matches yet • “${q}”`;
   }else{
-    const loaded=[...state.loadedPages].sort((a,b)=>a-b),scanWord=p.smart_binary_scan?'scanned':'loaded';const loadedText=loaded.length>1?`Header pages ${loaded[0].toLocaleString()}–${loaded[loaded.length-1].toLocaleString()} ${scanWord} • `:'';
+    const loaded=[...state.loadedPages].sort((a,b)=>a-b),scanWord=p.video_discovery_scan?'searched':p.smart_binary_scan?'scanned':'loaded';const loadedText=loaded.length>1?`Header pages ${loaded[0].toLocaleString()}–${loaded[loaded.length-1].toLocaleString()} ${scanWord} • `:'';
     els.articleRangeLabel.textContent=pages?`${loadedText}headers through ${Number(p.start).toLocaleString()} • retained ${Number(p.low).toLocaleString()}–${Number(p.high).toLocaleString()}`:'No retained headers';
   }
 }
@@ -855,7 +862,7 @@ function filteredArticles({ignoreStatus=false}={}){
   let items=state.articles.map((a,index)=>({a,index})).filter(({a})=>{
     const contentMatch=filter==='all'||(filter==='media'&&['image','video'].includes(a.media?.kind))||(filter==='images'&&a.media?.kind==='image')||(filter==='videos'&&a.media?.kind==='video');
     if(!contentMatch)return false;
-    if(filter!=='all'&&(!a.complete||a.small_image_suppressed||state.unsupportedMediaKeys.has(previewKey(a))||state.unpreviewableMediaKeys.has(previewKey(a))))return false;
+    if(filter!=='all'&&(!a.complete||(a.media?.kind!=='video'&&(a.small_image_suppressed||state.unsupportedMediaKeys.has(previewKey(a))||state.unpreviewableMediaKeys.has(previewKey(a))))))return false;
     if(!state.showBlockedPosters&&isPosterBlocked(a))return false;
     const status=state.articleStatusFilter||'all';if(!ignoreStatus){if(status==='new'&&!isArticleNew(a))return false;if(status==='unseen'&&isArticleSeen(a))return false;if(status==='seen'&&!isArticleSeen(a))return false;}
     const poster=String(a.from||'').toLocaleLowerCase(),ext=String(a.media?.extension||'').toLocaleLowerCase(),filename=String(a.media?.filename||'').toLocaleLowerCase(),subject=String(a.subject||'').toLocaleLowerCase(),messageId=String(a.message_id||'').toLocaleLowerCase();
@@ -2227,10 +2234,10 @@ function thumbnailFailureSkipsFullFallback(error){
 function isDefinitiveUnsupportedMedia(info){return info?.retryable===false&&['decode_failed','browser-decode-failed','ffmpeg-required'].includes(info.code)}
 function rememberPreviewUnavailable(a,info){
   if(!a)return false;
-  const key=previewKey(a);state.thumbDeferredRecoveryStarted.delete(key);state.unpreviewableMediaKeys.add(key);if(state.groupRelatedMedia)state.mediaSetIndexValid=false;
-  if(isDefinitiveUnsupportedMedia(info))state.unsupportedMediaKeys.add(key);
+  const key=previewKey(a);state.thumbDeferredRecoveryStarted.delete(key);if(a.media?.kind!=='video')state.unpreviewableMediaKeys.add(key);if(state.groupRelatedMedia)state.mediaSetIndexValid=false;
+  if(a.media?.kind!=='video'&&isDefinitiveUnsupportedMedia(info))state.unsupportedMediaKeys.add(key);
   state.thumbFailureCache.set(key,{info,expires:isDefinitiveUnsupportedMedia(info)?Number.MAX_SAFE_INTEGER:Date.now()+(info.retryable?120000:1800000)});
-  const articleId=articleKey(a);state.selectedItems.delete(articleId);if(state.selectedArticleKey===articleId){state.selectedArticleKey='';resetPreview()}if(state.viewerKey===articleId)closeMediaViewer();
+  if(a.media?.kind!=='video'){const articleId=articleKey(a);state.selectedItems.delete(articleId);if(state.selectedArticleKey===articleId){state.selectedArticleKey='';resetPreview()}if(state.viewerKey===articleId)closeMediaViewer();}
   return true;
 }
 function rememberUnsupportedMedia(a,info){return !!(a&&isDefinitiveUnsupportedMedia(info)&&rememberPreviewUnavailable(a,info))}
@@ -2257,7 +2264,7 @@ function flushUnavailableMediaHides(){
   if(mainChanged)restoreAfterGalleryMutation(anchors,keep);if(setChanged)renderRelatedMediaPane(null,{incremental:true});scheduleThumbnailDemandScan()
 }
 function queueUnavailableMediaHide(a,index,role='item'){
-  if(!a||els.contentFilter.value==='all')return false;const key=`${articleKey(a)}|${role}`;state.unavailableHideQueue.set(key,{a,index,role,generation:state.galleryGeneration,group:state.selectedGroup,provider:state.providerId});
+  if(!a||a.media?.kind==='video'||els.contentFilter.value==='all')return false;const key=`${articleKey(a)}|${role}`;state.unavailableHideQueue.set(key,{a,index,role,generation:state.galleryGeneration,group:state.selectedGroup,provider:state.providerId});
   if(!state.unavailableHideTimer)state.unavailableHideTimer=setTimeout(flushUnavailableMediaHides,70);return true;
 }
 function hideUnavailableArticleByKey(a){const index=state.articles.findIndex(x=>articleKey(x)===articleKey(a));return index>=0?hideUnavailableMediaInPlace(a,index,'item'):false}
@@ -3169,7 +3176,7 @@ els.settingsCloseBtn.onclick=closeSettingsModal;els.settingsCancelBtn.onclick=cl
 els.providerSelect.onchange=()=>{const oldGroup=state.selectedGroup,oldProvider=state.providerId;captureCurrentGroupState();if(oldGroup)endGroupVisit(oldGroup,oldProvider);if(state.groupSearchJob&&['queued','scanning','cancelling'].includes(state.groupSearchJob.status))api('/api/group-search/cancel',{id:state.groupSearchJob.id}).catch(()=>{});if(state.groupSearchPollTimer){clearInterval(state.groupSearchPollTimer);state.groupSearchPollTimer=null}closeMediaViewer();state.providerId=els.providerSelect.value;state.groups=[];state.groupsTotal=0;state.trackedGroupStatus={};startTrackedGroupRefresh();state.selectedGroup='';state.articles=[];state.nameResolutionAttempted.clear();state.nameResolutionFailures.clear();state.nameResolutionDeferred.clear();state.nameResolutionBackoffUntil=0;state.nameResolutionAutoRemaining=24;clearTimeout(state.nameResolutionTimer);state.nameResolutionTimer=null;clearNameResolutionResultRenderQueue();state.selectedArticleKey='';state.selectedItems.clear();state.selectionAnchorKey='';state.articlePage=1;state.articlePaging=null;state.loadedPages.clear();state.articleSearchTerm='';state.searchMode=false;state.groupSearchJob=null;state.continuousLoading=false;state.activeBrowserTabId='';els.articleSearch.value='';state.galleryGeneration++;state.thumbQueue=[];state.thumbQueued.clear();renderBrowserTabs();saveUiSettings();updateProviderState();renderGroups();els.groupsMoreWrap.classList.add('hidden');els.articleTitle.textContent='Articles';els.articleEyebrow.textContent='NO GROUP SELECTED';els.articleSummary.classList.add('hidden');els.entireGroupSearchBtn.disabled=true;updateSelectionBar();updateArticlePaging();updateArticleSearchUi();resetPreview();};
 $('groupSearchBtn').onclick=()=>loadGroups();els.groupAllBtn.onclick=()=>{state.groupMode='all';renderGroups()};els.groupFavoritesBtn.onclick=()=>{state.groupMode='favorites';renderGroups()};els.groupRecentBtn.onclick=()=>{state.groupMode='recent';renderGroups()};if(els.newBookmarkFolderBtn)els.newBookmarkFolderBtn.onclick=createBookmarkFolder;if(els.clearRecentBtn)els.clearRecentBtn.onclick=clearCurrentProviderRecentGroups;
 $('refreshGroupsBtn').onclick=()=>loadGroups({refresh:true});els.groupSearch.addEventListener('keydown',e=>{if(e.key==='Enter')loadGroups()});let groupSearchDebounce=null;els.groupSearch.addEventListener('input',()=>{clearTimeout(groupSearchDebounce);groupSearchDebounce=setTimeout(()=>loadGroups(),280)});els.groupSort.onchange=()=>loadGroups();els.loadMoreGroupsBtn.onclick=()=>loadGroups({append:true});
-$('refreshArticlesBtn').onclick=()=>state.searchMode?loadEntireGroupSearchResults(state.articlePage):loadArticles({page:state.articlePage,append:false,refresh:true});els.articleLimit.onchange=()=>{state.articlePage=1;saveUiSettings();if(state.searchMode)loadEntireGroupSearchResults(1);else loadArticles({page:1,append:false})};els.articleSort.onchange=()=>{state.mediaSetStreamAnchors.clear();sortArticles()};els.contentFilter.onchange=async()=>{state.activeMediaSetKey='';state.mediaSetStreamAnchors.clear();state.expandedBinarySets.clear();const all=isAllPostsMode();if(all)state.nameResolutionAutoRemaining=Math.max(state.nameResolutionAutoRemaining,24);updateBrowseModeControls();resetPreview();saveUiSettings();if(all&&state.selectedGroup){state.loadedPages.clear();state.articlePage=1;state.articlePaging=null;els.articlesList.scrollTop=0;await loadArticles({page:1,append:false,refresh:true})}else{rotateBrowsePreviewSession();renderArticles({preserveScroll:false})}};els.galleryViewBtn.onclick=()=>setView('gallery');els.listViewBtn.onclick=()=>setView('list');
+$('refreshArticlesBtn').onclick=()=>state.searchMode?loadEntireGroupSearchResults(state.articlePage):loadArticles({page:state.articlePage,append:false,refresh:true});els.articleLimit.onchange=()=>{state.articlePage=1;saveUiSettings();if(state.searchMode)loadEntireGroupSearchResults(1);else loadArticles({page:1,append:false})};els.articleSort.onchange=()=>{state.mediaSetStreamAnchors.clear();sortArticles()};els.contentFilter.onchange=async()=>{state.activeMediaSetKey='';state.mediaSetStreamAnchors.clear();state.expandedBinarySets.clear();const all=isAllPostsMode();if(all)state.nameResolutionAutoRemaining=Math.max(state.nameResolutionAutoRemaining,24);updateBrowseModeControls();resetPreview();saveUiSettings();if(state.selectedGroup){state.loadedPages.clear();state.articlePage=1;state.articlePaging=null;els.articlesList.scrollTop=0;await loadArticles({page:1,append:false,refresh:true})}else{rotateBrowsePreviewSession();renderArticles({preserveScroll:false})}};els.galleryViewBtn.onclick=()=>setView('gallery');els.listViewBtn.onclick=()=>setView('list');
 function releaseFarOffscreenThumbnails(){
   if(!els.articlesList||effectiveViewMode()!=='gallery')return;const root=els.articlesList.getBoundingClientRect(),grid=els.articlesList.querySelector('.media-grid');if(!grid)return;
   const distance=Math.max(root.height*7,5200),down=state.browseScrollDirection>=0;let released=0,inspected=0,node=down?grid.firstElementChild:grid.lastElementChild;

@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.30"
+APP_VERSION = "3.7.31"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -2523,7 +2523,7 @@ def parse_overview(lines: Iterable[bytes], *, search_filter: dict[str, Any] | No
         })
     return result
 
-MEDIA_RE = re.compile(r'''(?i)(?:["']([^"'\r\n]+?\.(?:jpe?g|png|gif|webp|bmp|mp4|m4v|webm|mov|avi|mkv))["']|([^\s"'<>|]+?\.(?:jpe?g|png|gif|webp|bmp|mp4|m4v|webm|mov|avi|mkv)))''')
+MEDIA_RE = re.compile(r'''(?i)(?:["']([^"'\r\n]+?\.(?:jpe?g|png|gif|webp|bmp|mp4|m4v|webm|mov|avi|mkv|mpeg|mpg|wmv|m2ts|mts|ts|flv|3gp|vob))["']|([^\s"'<>|]+?\.(?:jpe?g|png|gif|webp|bmp|mp4|m4v|webm|mov|avi|mkv|mpeg|mpg|wmv|m2ts|mts|ts|flv|3gp|vob)))''')
 BINARY_FILE_RE = re.compile(r'''(?i)(?:["']([^"'\r\n]+?\.[a-z0-9]{1,8})["']|([^\s"'<>|]+?\.[a-z0-9]{1,8}))''')
 COMMON_BINARY_EXTS = {
     'rar','zip','7z','par2','nzb','iso','img','bin','cue','tar','gz','bz2','xz','tgz','tbz','txz',
@@ -2531,6 +2531,17 @@ COMMON_BINARY_EXTS = {
     'mp3','flac','wav','aac','m4a','ogg','opus','exe','msi','apk','dmg','pkg','deb','rpm'
 }
 PART_PATTERN = re.compile(r"(?i)(?:\(|\[)(\d{1,6})\s*(?:/|of)\s*(\d{1,6})(?:\)|\])|\b(\d{1,6})\s*/\s*(\d{1,6})\b")
+
+# v3.7.31: share the same video extension rules for subject parsing and yEnc
+# filename recovery. Extension detection is a hint, not a media integrity proof.
+VIDEO_MEDIA_EXTS = frozenset({"mp4", "m4v", "webm", "mov", "avi", "mkv", "mpeg", "mpg", "wmv", "m2ts", "mts", "ts", "flv", "3gp", "vob"})
+VIDEO_MIME_OVERRIDES = {"ts": "video/mp2t", "m2ts": "video/mp2t", "mts": "video/mp2t", "vob": "video/mpeg", "wmv": "video/x-ms-wmv", "flv": "video/x-flv", "3gp": "video/3gpp"}
+
+def _recognized_media_mime(filename: str, ext: str, kind: str) -> str:
+    if kind == "video":
+        guessed = mimetypes.guess_type(filename)[0]
+        return VIDEO_MIME_OVERRIDES.get(ext) or (guessed if guessed and guessed.startswith("video/") else "video/mp4")
+    return mimetypes.guess_type(filename)[0] or ("image/jpeg" if kind == "image" else "application/octet-stream")
 
 def detect_media(subject: str) -> dict[str, Any] | None:
     matches = list(MEDIA_RE.finditer(subject))
@@ -2552,7 +2563,7 @@ def detect_media(subject: str) -> dict[str, Any] | None:
         if "yenc" not in subject.casefold() and ext not in COMMON_BINARY_EXTS and not re.fullmatch(r"r\d{2,3}", ext):
             return None
         kind = "file"
-    mime = mimetypes.guess_type(filename)[0] or ("image/jpeg" if kind == "image" else "video/mp4" if kind == "video" else "application/octet-stream")
+    mime = _recognized_media_mime(filename, ext, kind)
     return {"filename": filename, "extension": ext, "kind": kind, "mime": mime}
 
 def multipart_info(subject: str) -> dict[str, int] | None:
@@ -2795,7 +2806,7 @@ def _grouped_article(items: list[dict[str, Any]], *, opaque: bool = False) -> di
 def group_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     opaque_signatures = _opaque_multipart_signatures(articles)
     opaque_buckets: dict[tuple[str, int], list[dict[str, Any]]] = {}
-    named_buckets: dict[str, list[dict[str, Any]]] = {}
+    named_buckets: dict[tuple[str, int], list[dict[str, Any]]] = {}
     singles: list[dict[str, Any]] = []
     consumed: set[int] = set()
 
@@ -2806,7 +2817,7 @@ def group_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if mp and sig in opaque_signatures:
             opaque_buckets.setdefault(sig, []).append(article)
         elif mp and media:
-            named_buckets.setdefault(normalize_subject(article["subject"]), []).append(article)
+            named_buckets.setdefault((normalize_subject(article["subject"]), int((mp or {}).get("total", 1) or 1)), []).append(article)
         else:
             singles.append(article)
 
@@ -3160,11 +3171,11 @@ def _resolution_filename_media(filename: str) -> dict[str, Any] | None:
         return None
     if ext in {"jpg", "jpeg", "png", "gif", "webp", "bmp"}:
         kind = "image"
-    elif ext in {"mp4", "m4v", "webm", "mov", "avi", "mkv"}:
+    elif ext in VIDEO_MEDIA_EXTS:
         kind = "video"
     else:
         kind = "file"
-    mime = mimetypes.guess_type(name)[0] or ("image/jpeg" if kind == "image" else "video/mp4" if kind == "video" else "application/octet-stream")
+    mime = _recognized_media_mime(name, ext, kind)
     return {"filename": name, "extension": ext, "kind": kind, "mime": mime}
 
 def _name_resolution_cache_key(provider_id: str, group: str, article: dict[str, Any]) -> str:
@@ -13011,6 +13022,98 @@ def _finish_progressive_smart_page(provider_id: str, provider: dict[str, Any], g
                 failed = dict(current.get("payload") or {}); failed["smart_binary_pending"] = False; failed["smart_binary_background_error"] = str(exc)[:300]
                 ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": failed}
 
+# v3.7.31: Videos-only bounded progressive discovery. A single page of NNTP
+# article numbers is not a page of playable videos. The initial page is served
+# immediately; a separate worker scans older windows, regrouping ALL retrieved
+# headers so multipart video parts crossing a window boundary can complete.
+VIDEO_DISCOVERY_TARGET = 18
+VIDEO_DISCOVERY_MAX_HEADER_POSITIONS = 3600
+VIDEO_DISCOVERY_MAX_PAGES = 8
+
+
+def _video_discovery_complete_count(grouped: list[dict[str, Any]], end_num: int, scanned_low: int) -> int:
+    return sum(1 for item in grouped
+               if (item.get("media") or {}).get("kind") == "video" and item.get("complete")
+               and scanned_low <= int(item.get("article", 0) or 0) <= end_num)
+
+
+def _finish_progressive_video_page(provider_id: str, provider: dict[str, Any], group: str, cache_key,
+                                   info: dict[str, Any], low: int, high: int, page: int, page_count: int,
+                                   limit: int, start_num: int, end_num: int,
+                                   seed_start: int, seed_end: int, seed_articles: list[dict[str, Any]], job_token: str) -> None:
+    """Scan at most a bounded number of live header positions, not BODYs.
+
+    Never manufacture a complete video from unresolved multipart fragments.
+    Cache replacement requires an unchanged pending entry; refreshes win races.
+    """
+    started = time.perf_counter()
+    try:
+        raw = list(seed_articles)
+        scan_low = max(low, int(seed_start))
+        max_positions = max(limit, min(VIDEO_DISCOVERY_MAX_HEADER_POSITIONS, limit * VIDEO_DISCOVERY_MAX_PAGES))
+        budget_low = max(low, end_num - max_positions + 1)
+        calls = 0
+        with BROWSE_HEADER_POOL.lease(provider, group) as client:
+            client.group(group)
+            while True:
+                _apply_cached_name_resolutions(provider_id, group, raw)
+                grouped = group_articles(raw)
+                count = _video_discovery_complete_count(grouped, end_num, scan_low)
+                if count >= VIDEO_DISCOVERY_TARGET or scan_low <= budget_low:
+                    break
+                # Scan only one more logical page at a time. When the target is
+                # reached, one additional small look-behind closes short boundary
+                # fragments without scanning an unbounded number of headers.
+                next_low = max(budget_low, scan_low - limit)
+                if next_low >= scan_low:
+                    break
+                batch = client.overview_chunked(next_low, scan_low - 1)
+                calls += len(_overview_chunk_ranges(next_low, scan_low - 1))
+                raw = _merge_overview_headers(raw, batch)
+                scan_low = next_low
+            # The last window's incomplete fragments stay incomplete. They are
+            # never advertised as downloadable until a future scan recovers them.
+        _apply_cached_name_resolutions(provider_id, group, raw)
+        grouped = group_articles(raw)
+        videos = [item for item in grouped if (item.get("media") or {}).get("kind") == "video"
+                  and scan_low <= int(item.get("article", 0) or 0) <= end_num]
+        # Keep arbitrary other media out of the videos-only result. Incomplete
+        # items remain in the backend payload for diagnostics but are filtered
+        # from the UI and cannot be downloaded through the normal selection.
+        scanned_end = page_count if scan_low <= low else min(page_count, max(page, (high - scan_low + 1) // limit))
+        next_page = scanned_end + 1 if scanned_end < page_count else 0
+        paging = {"page": page, "page_count": page_count, "page_size": limit,
+                  "start": start_num, "end": end_num, "low": low, "high": high,
+                  "has_older": bool(next_page), "has_newer": page > 1,
+                  "scanned_page_end": scanned_end, "next_older_page": next_page,
+                  "smart_binary_scan": False, "video_discovery_scan": True,
+                  "video_matches": sum(1 for item in videos if item.get("complete")),
+                  "video_header_positions": max(0, end_num - scan_low + 1)}
+        payload = {"group": info, "articles": videos, "paging": paging,
+                   "elapsed_ms": round((time.perf_counter() - started) * 1000),
+                   "cache_source": "video discovery", "cache_age_seconds": 0,
+                   "smart_binary_headers": 0, "smart_binary_pending": False,
+                   "video_discovery_pending": False, "progressive_first_paint": False,
+                   "overview_calls": calls, "raw_header_count": len(raw)}
+        with ARTICLE_PAGE_CACHE_LOCK:
+            current = ARTICLE_PAGE_CACHE.get(cache_key)
+            if current and (current.get("payload") or {}).get("video_discovery_pending") and (current.get("payload") or {}).get("video_discovery_job") == job_token:
+                ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": payload}
+        _browse_perf_add(_BROWSER_PERF_SERVER, "videos", "background_total", (time.perf_counter() - started) * 1000)
+        _browse_perf_counter("videos", "background_overview_calls", calls)
+        _browse_perf_counter("videos", "background_completions", 1)
+    except Exception as exc:
+        _browse_perf_counter("videos", "background_failures", 1)
+        DIAGNOSTICS.event("warning", "browse", f"Video discovery failed: {exc}", provider_id=provider_id, group=group, page=page)
+        with ARTICLE_PAGE_CACHE_LOCK:
+            current = ARTICLE_PAGE_CACHE.get(cache_key)
+            if current and (current.get("payload") or {}).get("video_discovery_pending") and (current.get("payload") or {}).get("video_discovery_job") == job_token:
+                failed = dict(current["payload"])
+                failed["smart_binary_pending"] = False
+                failed["video_discovery_pending"] = False
+                failed["smart_binary_background_error"] = str(exc)[:300]
+                ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": failed}
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = f"NewzDeck/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
@@ -13765,7 +13868,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         progressive = bool(data.get("progressive", False))
         refresh = bool(data.get("refresh", False))
         mode = _browse_mode(data.get("content_filter"))
-        cache_key = (provider_id, group, limit, requested_page, smart_binaries)
+        video_discovery = mode == "videos" and bool(data.get("video_discovery", False))
+        if video_discovery:
+            smart_binaries = False
+        cache_key = (provider_id, group, limit, requested_page, smart_binaries, video_discovery)
         started = time.perf_counter()
 
         if not refresh:
@@ -13790,6 +13896,8 @@ class AppHandler(SimpleHTTPRequestHandler):
 
         fetch_start = fetch_end = smart_extra = 0
         background_smart = None
+        background_video = None
+        video_job = ""
         overview_calls = 0; raw_header_count = 0; first_paint_deferred = False
         pool_started = time.perf_counter()
         try:
@@ -13832,6 +13940,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                                         raw_articles.extend(older); fetch_start = expanded_start
                     _browse_perf_add(_BROWSER_PERF_SERVER, mode, "overview", (time.perf_counter() - overview_started) * 1000.0)
                     raw_header_count = len(raw_articles)
+                    if video_discovery and fetch_start > low:
+                        background_video = (fetch_start, fetch_end, list(raw_articles))
+                        video_job = secrets.token_hex(12)
                     processing_started = time.perf_counter()
                     _apply_cached_name_resolutions(provider_id, group, raw_articles)
                     grouped_all = group_articles(raw_articles)
@@ -13862,13 +13973,16 @@ class AppHandler(SimpleHTTPRequestHandler):
             "has_newer": bool(page_count and page > 1),
             "scanned_page_end": scanned_page_end, "next_older_page": next_older_page,
             "smart_binary_scan": bool(smart_binaries),
+            "video_discovery_scan": bool(video_discovery),
         }
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         _browse_perf_add(_BROWSER_PERF_SERVER, mode, "article_total", elapsed_ms)
-        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round(elapsed_ms), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0), "smart_binary_pending": bool(background_smart), "progressive_first_paint": bool(first_paint_deferred), "overview_calls": overview_calls, "raw_header_count": raw_header_count}
+        base_payload = {"group": info, "articles": articles, "paging": paging, "elapsed_ms": round(elapsed_ms), "cache_source": "provider", "cache_age_seconds": 0, "smart_binary_headers": max(0, (fetch_end - fetch_start + 1) if smart_binaries and fetch_end and fetch_start else 0), "smart_binary_pending": bool(background_smart or background_video), "video_discovery_pending": bool(background_video), "video_discovery_job": video_job, "progressive_first_paint": bool(first_paint_deferred), "overview_calls": overview_calls, "raw_header_count": raw_header_count}
         with ARTICLE_PAGE_CACHE_LOCK:
             ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": base_payload}
             _trim_article_page_cache_locked()
+        if background_video:
+            SMART_BROWSE_EXECUTOR.submit(_finish_progressive_video_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_video[0], background_video[1], background_video[2], video_job)
         if background_smart:
             SMART_BROWSE_EXECUTOR.submit(_finish_progressive_smart_page, provider_id, provider, group, cache_key, info, low, high, page, page_count, limit, start_num, end_num, background_smart[0], background_smart[1], mode, list(raw_articles) if first_paint_deferred else None, fetch_start if first_paint_deferred else 0, fetch_end if first_paint_deferred else 0)
         payload = dict(base_payload)
