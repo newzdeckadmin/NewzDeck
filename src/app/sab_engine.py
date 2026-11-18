@@ -40,7 +40,7 @@ def _load_flat_output_from_installed_source():
 flatten_completed_folder = _load_flat_output_from_installed_source()
 
 SAB_VERSION = "5.1.3"
-ADAPTER_VERSION = "3.7.33"
+ADAPTER_VERSION = "3.7.34"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.3/SABnzbd-5.1.3-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "62733e427534a1afec6a64b89dd06253f1a3cf51cb189d980f4e759c04f8d7eb"
 ENGINE_STATE_VERSION = 2

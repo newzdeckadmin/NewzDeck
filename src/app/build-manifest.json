@@ -1,27 +1,23 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.33",
-  "base_version": "3.7.32",
-  "release": "Completed Download Folder Control & Manual Grab Identity",
-  "adapter_version": "3.7.33",
-  "name": "Completed Download Folder Control & Manual Grab Identity",
+  "version": "3.7.34",
+  "base_version": "3.7.33",
+  "release": "Windows CI Recovery & Path-Identity Regression Correction",
+  "adapter_version": "3.7.34",
+  "name": "Windows CI Recovery & Path-Identity Regression Correction",
   "sab_version": "5.1.3",
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac",
   "changes": [
-    "When Download Organization is One folder and Extract into a subfolder is unchecked, place fully processed non-Automation NZB payload files directly in the selected Download Folder; keep checked behavior unchanged.",
-    "Keep temporary per-job staging through download, verification, PAR2 repair, Direct Unpack and extraction; never flatten incomplete transfers.",
-    "Use durable collision-safe name plans and atomic no-clobber moves, preserving filenames and incomplete or interrupted output for safe retry; newly submitted jobs alone inherit the checkbox choice.",
-    "Preserve Smart Import target root folders and completed import cleanup; leave existing queued/completed jobs and existing loose-media browser handling unchanged.",
-    "Fix async manual TV Grab temporary request identity so distinct episodes and season packs cannot be incorrectly merged.",
-    "Preserve SABnzbd 5.1.3, SABCTools 9.6.3, release-source/trigger model and existing Windows installation state."
+    "Fix Windows CI false-negative in SAB completed-output regression by comparing canonical filesystem identity instead of path spelling.",
+    "Preserve v3.7.33 checked/unchecked extraction behavior, manual Grab episode identity, crash-safe flat finalization, existing SABnzbd 5.1.3 and SABCTools 9.6.3.",
+    "No feature or data migration; maintain v3.7.33 application logic except release version identities."
   ],
   "regression_guards": [
-    "Real atomic completed-output finalizer: collision, nested output, symlink rejection, interrupted hard-link recovery, unsupported filesystem fail-closed.",
-    "Execute actual native and managed SAB finalization handlers against isolated filesystem fixtures.",
-    "Execute actual async ManualGrabOperations coordinator with distinct TV episode, same target and season pack identity tests.",
-    "Retain v3.7.32 asynchronous Grab, history and SAB-preservation tests and v3.7.31 video, v3.7.29 metadata and older browsing regressions.",
-    "Current v3.7.33 release gate only; old version-specific full gates are not called by Windows workflow."
+    "Path.samefile verifies actual SAB output-directory identity and durability independently of Windows aliases or junction normalization.",
+    "Retain v3.7.33 flat-output, manual TV Grab identity, v3.7.32 queue/history, v3.7.31 video and all historical regressions.",
+    "Current v3.7.34 full release gate; do not run prior version-specific full release gates.",
+    "Validate actual stage-3 guarded source preparation under both core.autocrlf=true and false with dirty/wrong-source negative tests."
   ],
   "preserved": [
     "SABnzbd 5.1.3 and SABCTools 9.6.3 engine, providers, download records, Smart Import and existing user data.",

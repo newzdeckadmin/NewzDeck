@@ -125,7 +125,10 @@ with tempfile.TemporaryDirectory(prefix='nz3733-output-') as temp:
     slot={'storage':str(source),'status':'Completed'}
     s=Sab(meta);assert sab(s,'id1',meta,slot) is True
     assert (root/'sab.mkv').read_bytes()==b'sab' and not source.exists() and meta['flat_output_done']
-    assert slot['storage']==str(root) and s.saves>=2
+    # The Windows runner may spell the same directory through an 8.3 alias or
+    # junction; SAB stores a resolved path. Verify identity, not spelling.
+    assert Path(slot['storage']).samefile(root), (slot['storage'], str(root))
+    assert s.saves >= 2, f'Expected durable plan + completion saves, got {s.saves}'
     # Already completed -> do not try another rename. Checked -> no modifications.
     assert sab(s,'id1',meta,slot) is False
     other=root/'CheckedJob';other.mkdir();make_files(other,{'keep.mp4':b'keep'})

@@ -2,16 +2,17 @@
 
 NewzDeck is free and open-source software. Current Windows releases are built from the public source in this repository.
 
-## Current release: v3.7.33
+## Current release: v3.7.34
 
-**v3.7.33 is the current stable production release.**
+**v3.7.34 is the current stable production release.**
 
-The `v3.7.33` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
+The `v3.7.34` tag identifies the public source used by the canonical Windows release workflow. Published installer, Portable, and SHA-256 values are recorded in the GitHub Release and checksum asset.
 
 Five NewzDeck-owned Windows executables are built from public Go source. The Python backend, Automation engine, SAB adapter, browser interface, and SABCTools decoder adapter are published in `src/app/`. SABCTools 9.6.3 remains built from its pinned upstream source during the release workflow.
 
 ## Recent production releases
 
+- **v3.7.34 — Windows CI Recovery & Path-Identity Regression Correction.** Fixes path-alias-sensitive SAB flat-output regression assertion in the Windows gate; preserves v3.7.33 application semantics. The v3.7.33 source was tagged but its Windows workflow failed before installer publication; its annotated tag is immutable.
 - **v3.7.33 — Completed Download Folder Control & Manual Grab Identity.** Checked extraction layout preserved; unchecked One folder moves finished NZB files into the download root after complete verification/repair/unpack with no-clobber crash recovery. Manual TV Grab coalescing now distinguishes episodes, seasons and packs.
 - **v3.7.32 — Download Queue Reliability, Asynchronous Grab & History Consistency.** Bounded manual Grab workers, progress polling and idempotent client identities; accurate pending/duplicate/reserved results; Completed/post-processing history consistency. Uses standard three-part Windows version metadata. No data migration.
 
