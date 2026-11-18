@@ -88,6 +88,13 @@ def _load_app_source_module(module_name: str, module_path: Path):
         raise
     return module
 
+# The embedded Windows Python runtime may not place APP_DIR on sys.path.
+# Load NewzDeck-owned source through the existing bytecode-safe mechanism.
+_flat_output_module = _load_app_source_module(
+    "newzdeck_flat_output", APP_DIR / "flat_output.py"
+)
+flatten_completed_folder = _flat_output_module.flatten_completed_folder
+
 def user_data_root() -> Path:
     """Return NewzDeck's version-independent per-user storage directory."""
     override = os.environ.get("NEWZDECK_USER_ROOT", "").strip()
@@ -298,7 +305,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.32"
+APP_VERSION = "3.7.33"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -8954,6 +8961,10 @@ class DownloadManager:
                     "destination_mode": "flat" if force_destination_root else destination_mode,
                     "destination_subdir": "" if force_destination_root else (safe_folder_name(str(item.get("destination_subdir", "") or "")) if item.get("destination_subdir") else ""),
                     "destination_root": force_destination_root,
+                    "flat_output_requested": bool(item_source == "nzb" and destination_mode == "flat"
+                                                 and not bool(settings.get("extract_subfolder", DEFAULT_EXTRACT_SUBFOLDER))
+                                                 and not bool(item.get("automation_context"))),
+                    "flat_output_plan": {}, "flat_output_done": False,
                     "category": str(item.get("category") or "")[:80],
                     "category_folder": safe_folder_name(str(item.get("category_folder") or "")) if item.get("category_folder") else "",
                     "automation_source": str(item.get("automation_source") or "")[:40],
@@ -11598,6 +11609,32 @@ class DownloadManager:
                     self.post_cancel_events.pop(key, None)
         future.add_done_callback(finished)
 
+    def _finalize_flat_native_output(self, targets: list[dict[str, Any]], parent: Path) -> None:
+        """Finish a flat native NZB without flattening its active staging files."""
+        if not targets or any(not bool(j.get("flat_output_requested")) for j in targets):
+            return
+        rec = targets[0]
+        plan = dict(rec.get("flat_output_plan") or {})
+        def save_plan(updated: dict[str, str]) -> None:
+            with self.lock:
+                for job in targets:
+                    job["flat_output_plan"] = dict(updated)
+                self._save()
+        finalized = flatten_completed_folder(parent, DOWNLOAD_DIR, plan, save_plan)
+        with self.lock:
+            for job in targets:
+                original = Path(str(job.get("path") or ""))
+                if original:
+                    try:
+                        relative = original.relative_to(parent).as_posix()
+                    except ValueError:
+                        relative = ""
+                    if relative in finalized:
+                        job["path"] = str(DOWNLOAD_DIR / finalized[relative])
+                job["flat_output_plan"] = dict(finalized)
+                job["flat_output_done"] = True
+            self._save()
+
     def _run_post_processing(self, key: str, job_ids: list[str], cancel_event: threading.Event | None = None) -> None:
         with self.lock:
             targets = [j for j in self.jobs if str(j.get("id")) in job_ids]
@@ -11646,6 +11683,12 @@ class DownloadManager:
                 elif imported and (imported.get("needs_root") or imported.get("needs_attention") or (imported.get("reason") and not imported.get("skipped"))):
                     set_state("needs_attention", 100, f"Download preserved • Import needs attention: {imported.get('reason')}")
                 else:
+                    if all(bool(j.get("flat_output_requested")) for j in targets) and parent != DOWNLOAD_DIR:
+                        try:
+                            self._finalize_flat_native_output(targets, parent)
+                        except Exception as exc:
+                            set_state("needs_attention", 100, "Completed files preserved in their working folder: " + str(exc)[:240])
+                            return
                     set_state("not_needed", 100, "No repair or extraction required")
                 return
 
@@ -11877,6 +11920,13 @@ class DownloadManager:
                             path.unlink(missing_ok=True)
                         except OSError:
                             pass
+            if extracted_any and all(bool(j.get("flat_output_requested")) for j in targets) and not automation_cleaned:
+                try:
+                    self._finalize_flat_native_output(targets, parent)
+                    output_dir = DOWNLOAD_DIR
+                except Exception as exc:
+                    set_state("needs_attention", 100, "Extraction complete; files preserved in working folder: " + str(exc)[:240])
+                    return
             msg = f"Extracted to {output_dir}"
             if direct_used:
                 msg = f"Direct Unpack complete → {output_dir}"
@@ -13169,7 +13219,9 @@ class ManualGrabOperations:
         if item:
             raw = ['library', item, str(data.get('season') or ''), str(data.get('episode') or ''), str(bool(data.get('season_pack')))]
         elif manual:
-            raw = ['manual', str(data.get('media_kind') or ''), manual, str(data.get('media_year') or '')]
+            raw = ['manual', str(data.get('media_kind') or '').casefold(), manual,
+                   str(data.get('media_year') or ''), str(data.get('season') if data.get('season') is not None else ''),
+                   str(data.get('episode') if data.get('episode') is not None else ''), str(bool(data.get('season_pack')))]
         else:
             raw = ['release', str(data.get('guid') or data.get('download_url') or data.get('title') or '')]
         return hashlib.sha256(json.dumps(raw, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()

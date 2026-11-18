@@ -24,8 +24,23 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Callable
 
+# The shipped Windows CPython 3.12 isolated runtime does not guarantee that
+# sab_engine.py's sibling folder is on sys.path. Always compile the exact
+# installed NewzDeck source rather than importing stale bytecode by name.
+def _load_flat_output_from_installed_source():
+    import importlib.util
+    source_path = Path(__file__).resolve().with_name("flat_output.py")
+    spec = importlib.util.spec_from_file_location("newzdeck_flat_output", source_path)
+    if spec is None:
+        raise ImportError(f"Cannot load completed-output helper: {source_path}")
+    module = importlib.util.module_from_spec(spec)
+    exec(compile(source_path.read_bytes(), str(source_path), "exec", dont_inherit=True), module.__dict__)
+    return module.flatten_completed_folder
+
+flatten_completed_folder = _load_flat_output_from_installed_source()
+
 SAB_VERSION = "5.1.3"
-ADAPTER_VERSION = "3.7.32"
+ADAPTER_VERSION = "3.7.33"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.3/SABnzbd-5.1.3-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "62733e427534a1afec6a64b89dd06253f1a3cf51cb189d980f4e759c04f8d7eb"
 ENGINE_STATE_VERSION = 2
@@ -5148,6 +5163,7 @@ class SabDownloadManager:
         if post in actionable or import_status in actionable: return False
         if bool(meta.get("cleanup_pending")): return False
         if bool(meta.get("browser_flat_images")) and not bool(meta.get("browser_flattened")): return False
+        if bool(meta.get("flat_output_requested")) and not bool(meta.get("flat_output_done")): return False
         context=meta.get("automation_context") if isinstance(meta.get("automation_context"),dict) else {}
         if _is_smart_import_context(context) and not (bool(meta.get("imported")) or import_status=="completed"):
             return False
@@ -5291,7 +5307,7 @@ class SabDownloadManager:
                    expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None,
                    priority: str = "normal", browser_flat_images: bool = False,
                    browser_flat_filenames: list[str] | None = None, browser_flat_staging_name: str = "",
-                   browser_group: str = "") -> None:
+                   browser_group: str = "", flat_output_requested: bool = False) -> None:
         self._refresh_shared_state()
         with self.lock:
             tracked = self._tracked()
@@ -5318,6 +5334,9 @@ class SabDownloadManager:
                 "browser_flat_filenames": [Path(str(x)).name for x in (browser_flat_filenames or []) if Path(str(x)).name],
                 "browser_flat_staging_name": _safe_name(browser_flat_staging_name, "") if browser_flat_staging_name else "",
                 "browser_flattened": False,
+                "flat_output_requested": bool(flat_output_requested and not browser_flat_images),
+                "flat_output_done": False, "flat_output_plan": {},
+                "post_status": "waiting" if flat_output_requested and not browser_flat_images else "",
                 "browser_group": str(browser_group or ""),
                 "filename_recovery_source": "",
                 "filename_recovery_exact": False,
@@ -5607,6 +5626,91 @@ class SabDownloadManager:
         self._event("info", "Placed completed loose Newsgroups files directly in Download Folder", nzo_id=nzo_id, files=len(moved_names))
         return True
 
+    def _finalize_flat_completed_nzb(self, nzo_id: str, meta: dict[str, Any], slot: dict[str, Any]) -> bool:
+        """Serialize a completed NZB's flat finalization across NewzDeck runtimes."""
+        lock_name = "flat-output-" + hashlib.sha256(str(nzo_id).encode("utf-8")).hexdigest()[:32] + ".lock"
+        claim = self._try_kernel_file_lock(self.admin_dir / lock_name)
+        if claim is None:
+            return False
+        try:
+            self._refresh_shared_state()
+            with self.lock:
+                latest = self._tracked().get(str(nzo_id))
+                if not isinstance(latest, dict):
+                    return False
+                meta = dict(latest)
+            return self._finalize_flat_completed_nzb_owned(nzo_id, meta, slot)
+        finally:
+            self._release_kernel_file_lock(claim)
+
+    def _finalize_flat_completed_nzb_owned(self, nzo_id: str, meta: dict[str, Any], slot: dict[str, Any]) -> bool:
+        """Finalize a completed non-Automation NZB into the configured root.
+
+        SAB owns the per-NZB folder until transfer/repair/unpack finishes. The
+        setting is sampled when the NZB is submitted, so existing jobs do not
+        change layout after a settings edit. No unverified SAB output is moved.
+        """
+        if not bool(meta.get("flat_output_requested")) or bool(meta.get("flat_output_done")):
+            return False
+        if bool(meta.get("browser_flat_images")) or _is_smart_import_context(meta.get("automation_context")):
+            return False
+        root = Path(self.download_dir_getter()).expanduser().resolve()
+        raw = str(slot.get("storage") or slot.get("path") or "").strip()
+        if not raw:
+            return False
+        source = Path(raw).expanduser()
+        if source.is_symlink():
+            return False
+        try:
+            source = source.resolve(strict=False)
+        except OSError:
+            return False
+        # A fresh SAB history slot is required, but never trust a stale pointer
+        # into the Download Folder or a different NZB's completed output.
+        expected = str(meta.get("output_hint") or "").strip()
+        if source.parent != root or not expected or source != Path(expected).expanduser().resolve():
+            self._event("warning", "Flat output deferred: SAB folder identity mismatch", nzo_id=nzo_id)
+            return False
+        plan = dict(meta.get("flat_output_plan") or {})
+        # A crash may occur after deleting the emptied source folder and before
+        # recording the final state; in that case the durable plan is enough to
+        # confirm all promoted files still exist without touching anything.
+        if not source.is_dir():
+            if not plan or any(not (root / name).is_file() for name in plan.values()):
+                return False
+            finalized = plan
+        else:
+            finalized = None
+        def save_plan(updated: dict[str, str]) -> None:
+            with self.lock:
+                live = self._tracked().get(nzo_id)
+                if not isinstance(live, dict):
+                    raise RuntimeError("Completed job record is no longer available")
+                live["flat_output_plan"] = dict(updated)
+                self._touch_job_locked(live)
+                self._save_state()
+        try:
+            if finalized is None:
+                finalized = flatten_completed_folder(source, root, plan, save_plan)
+        except Exception as exc:
+            self._event("warning", "Flat output deferred; completed NZB retained safely", nzo_id=nzo_id, error=str(exc)[:250])
+            return False
+        with self.lock:
+            live = self._tracked().get(nzo_id)
+            if isinstance(live, dict):
+                live["flat_output_done"] = True
+                live["post_status"] = "completed"
+                live["flat_output_plan"] = dict(finalized)
+                live["flat_output_files"] = sorted(finalized.values())
+                live["resolved_output"] = str(root)
+                self._touch_job_locked(live)
+                meta.update(live)
+                self._save_state()
+        slot["storage"] = str(root)
+        slot["path"] = str(root)
+        self._event("info", "Placed completed NZB files directly in Download Folder", nzo_id=nzo_id, files=len(finalized))
+        return True
+
     def _browser_recovery_catalog(self, meta: dict[str, Any]) -> list[dict[str, Any]]:
         provider_id = str(meta.get("provider_id") or "")
         group = str(meta.get("browser_group") or "")
@@ -5872,6 +5976,9 @@ class SabDownloadManager:
                 "pending_attempts": 0, "pending_next_ts": 0.0, "pending_last_error": "",
                 "pending_before_ids": [], "pending_before_ids_known": False, "pending_ambiguous_since": 0.0,
                 "output_hint": str(self.download_dir_getter() / _safe_name(job_name)), "_updated_ts": now,
+                "flat_output_requested": bool(not (automation_context or {}).get("source")
+                    and not bool((self.settings_getter() or {}).get("extract_subfolder", True))
+                    and str((self.settings_getter() or {}).get("download_organization", "flat")) == "flat"),
             }
             self.state.setdefault("removed_jobs", {}).pop(ticket, None)
             self._save_state()
@@ -6006,6 +6113,7 @@ class SabDownloadManager:
                         file_count=int(meta.get("file_count") or 1),
                         automation_context=dict(meta.get("automation_context") or {}),
                         priority=str(meta.get("priority") or "normal"), password=str(meta.get("pending_password") or ""),
+                        flat_output_requested=bool(meta.get("flat_output_requested", False)),
                     )
                     real_id = str(result.get("collection_id") or "")
                     self._refresh_shared_state()
@@ -6051,7 +6159,8 @@ class SabDownloadManager:
     def _submit_nzb(self, provider_id: str, source_name: str, raw: bytes, *, name: str,
                     expected_bytes: int, file_count: int, automation_context: dict[str, Any] | None = None,
                     priority: str = "normal", password: str = "", browser_flat_images: bool = False,
-                    browser_flat_filenames: list[str] | None = None, browser_group: str = "") -> dict[str, Any]:
+                    browser_flat_filenames: list[str] | None = None, browser_group: str = "",
+                    flat_output_requested: bool | None = None) -> dict[str, Any]:
         # Synchronous callers (ordinary NZB imports) may still ensure SAB is ready.
         # Interactive/Automation Grabs use queue_nzb() and therefore never block the
         # browser request on this startup/control path.
@@ -6063,6 +6172,11 @@ class SabDownloadManager:
         path = self.incoming_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{safe_source}"
         path.write_bytes(raw)
         settings = self.settings_getter() or {}
+        if flat_output_requested is None:
+            flat_output_requested = bool(
+                not bool(settings.get("extract_subfolder", True))
+                and str(settings.get("download_organization", "flat")) == "flat"
+                and not _is_smart_import_context(automation_context) and not browser_flat_images)
         # SAB pp=3 means +Repair/+Unpack/Delete; pp=2 retains archive parts.
         cleanup = bool(settings.get("cleanup_archives", False) or automation_context)
         pp = 3 if cleanup else 2
@@ -6130,7 +6244,7 @@ class SabDownloadManager:
                         priority=priority, browser_flat_images=browser_flat_images,
                         browser_flat_filenames=browser_flat_filenames,
                         browser_flat_staging_name=sab_job_name if browser_flat_images else "",
-                        browser_group=browser_group)
+                        browser_group=browser_group, flat_output_requested=bool(flat_output_requested))
         # Explicitly wake SAB after addlocalfile. This is idempotent when the queue is
         # already running and avoids leaving a newly-added job behind a stale internal
         # downloader pause after a service/engine hand-off.
@@ -6939,6 +7053,8 @@ class SabDownloadManager:
         if expected and downloaded <= 0 and pct > 0:
             downloaded = int(expected * pct / 100.0)
         storage = str(slot.get("storage") or slot.get("path") or "")
+        if bool(meta.get("flat_output_done")) and meta.get("resolved_output"):
+            storage = str(meta.get("resolved_output"))
         pp = str(slot.get("status") or "")
         sab_post_stage, sab_post_progress, sab_post_progress_known, sab_post_message = _sab_post_progress(slot, post)
         if sab_post_stage:
@@ -6973,6 +7089,9 @@ class SabDownloadManager:
             repair["par2_fetch_observed"] = bool(repair.get("par2_fetch_observed") or persisted_repair.get("par2_fetch_observed"))
             if not repair.get("sab_stage_log"):
                 repair["sab_stage_log"] = list(persisted_repair.get("sab_stage_log") or [])
+        if status == "completed" and bool(meta.get("flat_output_requested")) and not bool(meta.get("flat_output_done")):
+            post = "importing"
+            pp = "Finalizing completed files into Download Folder; source folder preserved until safe"
         return {
             "id": nzo_id, "identity": nzo_id, "collection_id": nzo_id, "collection_name": str(meta.get("name") or slot.get("filename") or "NZB"),
             "provider_id": str(meta.get("provider_id") or ""), "provider_name": "SABnzbd engine", "origin_provider_id": str(meta.get("provider_id") or ""),
@@ -6988,6 +7107,7 @@ class SabDownloadManager:
             "post_progress_known": bool(import_status == "importing" or (not import_status and sab_post_progress_known)),
             "post_indeterminate": bool(post in {"queued", "verifying", "repairing", "extracting", "importing"} and not (import_status == "importing" or (not import_status and sab_post_progress_known))),
             "post_message": str(meta.get("import_message") or sab_post_message or pp), "automation_context": automation_context, "source": "nzb",
+            "flat_output_requested": bool(meta.get("flat_output_requested")), "flat_output_done": bool(meta.get("flat_output_done")),
             "automation_label": automation_label, "automation_release_title": automation_release_title,
             "automation_destination": automation_destination, "display_name": automation_label or (visible_filename if bool(meta.get("browser_flattened")) and len(flat_names) == 1 else str(slot.get("filename") or meta.get("name") or "NZB package")),
             "source_filename": str(slot.get("filename") or ""), "import_status": import_status,
@@ -8924,8 +9044,11 @@ class SabDownloadManager:
                 if bool(hroot.get("_newzdeck_fresh", True)):
                     for nzo_id, meta in tracked.items():
                         slot = by_id.get(nzo_id)
-                        if slot is not None and str(slot.get("status") or "").casefold() == "completed" and bool(meta.get("browser_flat_images")):
-                            self._flatten_completed_browser_images(nzo_id, meta, slot)
+                        if slot is not None and str(slot.get("status") or "").casefold() == "completed":
+                            if bool(meta.get("browser_flat_images")):
+                                self._flatten_completed_browser_images(nzo_id, meta, slot)
+                            elif bool(meta.get("flat_output_requested")):
+                                self._finalize_flat_completed_nzb(nzo_id, meta, slot)
                 if self.media_automation is not None:
                     for nzo_id, meta in tracked.items():
                         context = meta.get("automation_context") if isinstance(meta.get("automation_context"), dict) else {}

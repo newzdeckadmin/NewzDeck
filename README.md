@@ -16,9 +16,9 @@
 
 ## Download
 
-The current stable release is **NewzDeck v3.7.32** for 64-bit Windows.
+The current stable release is **NewzDeck v3.7.33** for 64-bit Windows.
 
-**Recommended:** download `NewzDeck_v3.7.32_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
+**Recommended:** download `NewzDeck_v3.7.33_Setup.exe` from the [latest release](https://github.com/newzdeckadmin/NewzDeck/releases/latest).
 
 A Portable ZIP is also available if you prefer to run NewzDeck without a normal installation.
 
@@ -33,6 +33,9 @@ NewzDeck is free and open source. **Usenet access is not included** - you need y
 - **Automate TV and movies** with monitored libraries, quality profiles, Wanted items, calendar, history, root folders, and Newznab-compatible indexers.
 - **Organize media** with Smart Import, including completed downloads and explicit external TV season/episode imports, canonical renaming/moving, duplicate/existing-media handling, and safe quality upgrades.
 - **Keep downloads running in the background** with the Windows background service and system tray companion.
+
+## v3.7.33 Completed Download Folder Control & Manual Grab Identity
+When Extract into a subfolder is unchecked and Organization is One folder, only finished NZB output is safely placed directly in the Download Folder. The checked behavior, unfinished downloads, Smart Import and existing data are unchanged. Distinct manually grabbed TV episodes no longer share an asynchronous operation.
 
 ## v3.7.32 Download Queue Reliability, Asynchronous Grab & History Consistency
 
@@ -99,7 +102,7 @@ Your NewzDeck settings, history, queue state, provider configuration, and other 
 
 NewzDeck is currently distributed **unsigned**, so Windows may show an **Unknown Publisher** or Microsoft Defender SmartScreen warning.
 
-Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.32_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
+Only download NewzDeck from this repository or the official website. The release includes `NewzDeck_v3.7.33_SHA256.txt` so you can verify the installer and Portable ZIP before running them.
 
 ## Updating
 

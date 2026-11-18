@@ -45,6 +45,7 @@ def helper_ldflags(exe: str) -> str:
 def copy_app(stage: pathlib.Path, sabctools_package: pathlib.Path):
     for rel in [
         "server.py",
+        "flat_output.py",
         "sab_engine.py",
         "automation_engine.py",
         "yenc_decoder.py",
@@ -100,7 +101,7 @@ def validate_source(version: str):
         raise SystemExit("build-manifest runtime identities do not match version.txt")
     run([
         sys.executable, "-m", "py_compile",
-        str(APP / "server.py"), str(APP / "sab_engine.py"),
+        str(APP / "server.py"), str(APP / "flat_output.py"), str(APP / "sab_engine.py"),
         str(APP / "automation_engine.py"), str(APP / "yenc_decoder.py"),
     ])
     node = shutil.which("node")
@@ -161,6 +162,7 @@ def write_manifest(stage: pathlib.Path, version: str):
         }],
         "application_source": [
             {"path": "src/app/server.py", "sha256": sha(APP / "server.py")},
+            {"path": "src/app/flat_output.py", "sha256": sha(APP / "flat_output.py")},
             {"path": "src/app/sab_engine.py", "sha256": sha(APP / "sab_engine.py")},
             {"path": "src/app/automation_engine.py", "sha256": sha(APP / "automation_engine.py")},
             {"path": "src/app/yenc_decoder.py", "sha256": sha(APP / "yenc_decoder.py")},
@@ -210,7 +212,7 @@ def main():
         if bad:
             raise SystemExit(f"ZIP CRC failure: {bad}")
         required = list(HELPERS) + [
-            "server.py", "yenc_decoder.py", "version.txt", "LICENSE.txt",
+            "server.py", "flat_output.py", "yenc_decoder.py", "version.txt", "LICENSE.txt",
             "SOURCE_MANIFEST.json", "static/tmdb-logo.svg", "sabctools/__init__.py",
             "sabctools/sabctools.cp312-win_amd64.pyd",
         ]

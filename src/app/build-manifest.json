@@ -1,27 +1,27 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.32",
-  "base_version": "3.7.31",
-  "release": "Download Queue Reliability, Asynchronous Grab & History Consistency",
-  "adapter_version": "3.7.32",
-  "name": "Download Queue Reliability, Asynchronous Grab & History Consistency",
+  "version": "3.7.33",
+  "base_version": "3.7.32",
+  "release": "Completed Download Folder Control & Manual Grab Identity",
+  "adapter_version": "3.7.33",
+  "name": "Completed Download Folder Control & Manual Grab Identity",
   "sab_version": "5.1.3",
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac",
   "changes": [
-    "Opt-in asynchronous manual Grab operations with bounded worker concurrency, stable client request IDs, status polling and no automatic duplicate submission after timeouts.",
-    "Expose authoritative result states: newly accepted pending SAB handoff, already queued target, reservation only, suppressed release or failed request.",
-    "Preserve in-flight Grab state across UI timeouts and tab navigation; after process restarts, require review of Downloads before resubmission.",
-    "Keep background release validation and existing cross-runtime reservation rules; protect indexer credentials and NZB contents from progress reports.",
-    "Align durable Completed history counts/pages with Smart Import and post-processing state; unfinished items remain protected and visible under Post-processing.",
-    "Use canonical three-component v3.7.32 release identity while preserving established source and Windows publishing guards."
+    "When Download Organization is One folder and Extract into a subfolder is unchecked, place fully processed non-Automation NZB payload files directly in the selected Download Folder; keep checked behavior unchanged.",
+    "Keep temporary per-job staging through download, verification, PAR2 repair, Direct Unpack and extraction; never flatten incomplete transfers.",
+    "Use durable collision-safe name plans and atomic no-clobber moves, preserving filenames and incomplete or interrupted output for safe retry; newly submitted jobs alone inherit the checkbox choice.",
+    "Preserve Smart Import target root folders and completed import cleanup; leave existing queued/completed jobs and existing loose-media browser handling unchanged.",
+    "Fix async manual TV Grab temporary request identity so distinct episodes and season packs cannot be incorrectly merged.",
+    "Preserve SABnzbd 5.1.3, SABCTools 9.6.3, release-source/trigger model and existing Windows installation state."
   ],
   "regression_guards": [
-    "Source behavioral tests for async Grab idempotency, target coalescing, failures, rejection, and bounded concurrency.",
-    "Completed-history scope tests ensure pending post-processing never appears as a clearable Completed item.",
-    "New API progress GET route and asynchronous POST status contract, legacy POST preserved.",
-    "Retain v3.7.31 video discovery, v3.7.30 SAB 5.1.3 engine, v3.7.29 metadata, Downloads and browser regressions.",
-    "New version-specific full gate only; previous full gates stay out of current CI."
+    "Real atomic completed-output finalizer: collision, nested output, symlink rejection, interrupted hard-link recovery, unsupported filesystem fail-closed.",
+    "Execute actual native and managed SAB finalization handlers against isolated filesystem fixtures.",
+    "Execute actual async ManualGrabOperations coordinator with distinct TV episode, same target and season pack identity tests.",
+    "Retain v3.7.32 asynchronous Grab, history and SAB-preservation tests and v3.7.31 video, v3.7.29 metadata and older browsing regressions.",
+    "Current v3.7.33 release gate only; old version-specific full gates are not called by Windows workflow."
   ],
   "preserved": [
     "SABnzbd 5.1.3 and SABCTools 9.6.3 engine, providers, download records, Smart Import and existing user data.",

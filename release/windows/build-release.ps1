@@ -44,6 +44,7 @@ $requiredFiles = @(
     'NewzDeckPicker.exe',
     'NewzDeckThumb.exe',
     'server.py',
+    'flat_output.py',
     'sab_engine.py',
     'automation_engine.py',
     'yenc_decoder.py',

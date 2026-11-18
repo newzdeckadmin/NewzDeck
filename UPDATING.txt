@@ -1,3 +1,3 @@
-NewzDeck v3.7.32 update notes
+NewzDeck v3.7.33 update notes
 
 This hotfix requires no data migration. It preserves existing downloads, incomplete files, Smart Import, monitoring, service settings and SABnzbd 5.1.3. Manual Grab now runs asynchronously with status polling and deduplication. Post-processing jobs remain protected; Completed history counts only finalized entries. Use the canonical guarded Windows source/tag/trigger build and verify upgrade behavior before production deployment.
