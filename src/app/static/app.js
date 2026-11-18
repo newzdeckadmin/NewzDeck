@@ -8,7 +8,7 @@ const state = {
   groupSearchJob:null, searchMode:false, browsePageBeforeSearch:1, groupSearchPollTimer:null, favorites:new Set(), bookmarkFolders:[], recentGroups:[], groupStates:{}, groupSessions:new Map(), groupMode:'all', nameResolutionInFlight:false, nameResolutionAttempted:new Set(), nameResolutionFailures:new Map(), nameResolutionDeferred:new Map(), nameResolutionClassifications:new Map(), nameResolutionTimer:null, nameResolutionAutoRemaining:24, nameResolutionBackoffUntil:0, nameResolutionResultRenderTimer:null, nameResolutionResultRenderDirty:false, nameResolutionResultRenderBatches:0, nameResolutionResultRenderGroup:'', nameResolutionResultRenderProvider:'', nameResolutionResultRenderFirstAt:0, nameResolutionResultRenderManual:false,
   viewerOpen:false, viewerKey:'', viewerFit:true, viewerMode:'fit', viewerZoom:1, viewerRotation:0, viewerSetOnly:false, viewerReturnState:null, viewerPreloadTimer:null, viewerDrag:null, viewerInfoOpen:false, articleSearchReturn:null, articleSearchHistory:[], articleSearchTimer:null, perfMetrics:{}, perfTelemetryPending:[], perfTelemetryTimer:null, perfTelemetrySending:false, uiSaveTimer:null, groupStateSaveTimer:null, groupsPaneWidth:320, groupRelatedMedia:false, groupBinarySets:true, binaryPackageFilter:'downloadable', binaryPackageSort:'newest', binaryMinSizeValue:0, binaryMinSizeUnit:'MB', smartBinaryHeaders:0, expandedBinarySets:new Set(), binarySetGroups:new Map(), settingsData:{}, activeMediaSetKey:'', savedSearches:[], activeSavedSearchId:'', blockedPosters:new Set(), showBlockedPosters:false, groupSeenHigh:{}, groupReadStates:{}, currentSeenArticles:new Set(), currentUnseenArticles:new Set(), currentReadStateKey:'', groupVisitBaseline:{}, articleStatusFilter:'all', trackedGroupStatus:{}, groupStatusRefreshTimer:null, browserTabs:[], activeBrowserTabId:'', diagnosticsSnapshot:null, onlineUpdate:null, pendingNzbFiles:[], currentNzbPreview:null, archivePasswordJobId:'', dragDownloadId:'', onboardingActive:false, serviceStatus:null, serviceTransition:'', automation:null, automationTab:'tv', automationLoadError:'', automationCalendarView:localStorage.getItem('newzdeckAutomationCalendarView')==='month'?'month':'guide', automationCalendarKind:localStorage.getItem('newzdeckAutomationCalendarKind')||'all', automationCalendarStatus:localStorage.getItem('newzdeckAutomationCalendarStatus')||'all', automationCalendarRange:Number(localStorage.getItem('newzdeckAutomationCalendarRange')||30), automationCalendarMonth:'', automationCalendarSelectedDate:'', discover:null, discoverTab:'home', discoverItems:[], discoverCurrentDetail:null, discoverLoadToken:0, discoverDetailToken:0, discoverDetailCache:{}, discoverDetailCacheTs:{}, discoverDetailInflight:{}, discoverDetailPrefetchTimers:{}, discoverDetailPrefetchActive:0, discoverDetailPrefetchLimit:2, discoverGenres:{tv:[],movie:[]}, discoverPersonReturn:null, discoverPage:1, discoverPayloadCache:{home:null,for_you:null}, discoverPayloadCacheTs:{home:0,for_you:0}
 };
-const UI_VERSION = '3.7.31';
+const UI_VERSION = '3.7.32';
 const $ = (id) => document.getElementById(id);
 const THEME_STORAGE_KEY = 'newzdeckTheme';
 const GROUPS_PANE_WIDTH_KEY = 'newzdeckGroupsPaneWidth';
@@ -3853,7 +3853,82 @@ async function openReleaseSearch(itemId,season=null,episode=null){
   }catch(e){$('releaseSearchBody').innerHTML=automationEmpty('!','Search failed',e.message)}
 }
 async function blacklistAutomationRelease(r,b){if(!confirm(`Blacklist this release for this Automation target?\n\n${r.title}`))return;const old=b.textContent;b.disabled=true;b.textContent='Blocking…';try{await api('/api/automation/blacklist/add',r);toast('Release blacklisted for this target.','success');const c=state.releaseSearchContext||{};await loadAutomation({quiet:true});await openReleaseSearch(c.itemId,c.season,c.episode)}catch(e){toast(e.message,'error');b.disabled=false;b.textContent=old}}
-async function grabAutomationRelease(r,b){const old=b.textContent;b.disabled=true;b.textContent='Grabbing…';try{const d=await api('/api/automation/releases/grab',r,{timeoutMs:30000,timeoutMessage:'The indexer did not finish returning this NZB in time. Try the release again.'});const oneTime=!String(r.item_id||'')&&!!String(r.media_title||'');toast(oneTime?`${r.media_title} queued for one-time Smart Import. It will be renamed and moved without being added to Automation.`:`${d.collection_name||'Release'} added to the background download queue.`,'success');b.textContent='Queued';void loadDownloads();return}catch(e){const msg=friendlyTransportErrorMessage(e.message,'/api/automation/releases/grab',e?.status?'http':'network');toast(msg,'error');const markedFailed=/marked FAILED for this target/i.test(String(msg||''));if(markedFailed&&state.releaseSearchContext?.itemId){const c={...state.releaseSearchContext};await loadAutomation({quiet:true});await openReleaseSearch(c.itemId,c.season,c.episode);return}b.disabled=false;b.textContent=old}}
+// v3.7.32: POST acknowledges work; polling observes the SAME operation.
+// A lost acknowledgement is never permission to blindly submit a second NZB.
+const manualGrabRequests = new Map();
+const manualGrabDelay = ms => new Promise(resolve=>setTimeout(resolve,ms));
+function grabRequestIdentity(r){
+  return [r.item_id||'',r.season??'',r.episode??'',r.media_title||'',r.media_year||'',r.guid||r.download_url||r.title||''].join('\u001f');
+}
+async function pollManualGrabOperation(id,button,old,title){
+  const stages={queued:'Waiting for worker…',retrieving_nzb:'Retrieving NZB…',validating_nzb:'Checking NZB…',saving_pending_handoff:'Saving to queue…'};
+  for(let attempt=0;attempt<300;attempt++){
+    if(attempt)await manualGrabDelay(attempt<10?1200:2000);
+    let d;
+    try{d=await api(`/api/automation/releases/grab/status?request_id=${encodeURIComponent(id)}`,null,{timeoutMs:5000});}
+    catch(e){
+      if(e?.status===404){
+        // The original POST may still be waiting for a browser connection.
+        // Give it time to arrive instead of assuming that nothing was queued.
+        if(attempt<6)continue;
+        // A restart can lose the ephemeral operation registry. The persisted
+        // SAB/Smart Import ledger is authoritative; never automatically re-POST.
+        toast('Grab operation status was lost after a backend restart. Check Downloads before trying again.','warning');
+        if(button?.isConnected){button.disabled=false;button.textContent=old;}
+        return;
+      }
+      if(attempt>=298){toast('Grab progress is unavailable. Check Downloads before retrying.','warning');break;}
+      continue;
+    }
+    if(['queued','running'].includes(d.status)){
+      if(button?.isConnected)button.textContent=stages[d.phase]||'Preparing…';
+      continue;
+    }
+    if(d.status==='accepted'){
+      toast(d.pending_engine_handoff?`${title}: NZB saved; waiting for SABnzbd handoff.`:`${title}: download manager accepted the release.`,'success');
+      if(button?.isConnected){button.disabled=true;button.textContent=d.pending_engine_handoff?'Pending SAB':'Queued';}
+      void loadDownloads();return;
+    }
+    if(d.status==='already_queued'||d.status==='reservation_only'||d.status==='suppressed'){
+      toast(d.message||'No new download was added.','warning');
+      // A distinct attempt may be made after the reservation clears.
+      for(const [key,value] of manualGrabRequests)if(value===id)manualGrabRequests.delete(key);
+      if(button?.isConnected){button.disabled=false;button.textContent=old;}
+      void loadDownloads();return;
+    }
+    if(d.status==='failed'){
+      toast(d.message||'Grab failed. Check the indexer and Automation Health.','error');
+      for(const [key,value] of manualGrabRequests)if(value===id)manualGrabRequests.delete(key);
+      if(button?.isConnected){button.disabled=false;button.textContent=old;}
+      return;
+    }
+  }
+  toast('Grab is still being processed. Check Downloads before starting another attempt.','warning');
+  if(button?.isConnected){button.disabled=false;button.textContent=old;}
+}
+async function grabAutomationRelease(r,b){
+  const old=b.textContent,identity=grabRequestIdentity(r),title=String(r.title||'Release');
+  let requestId=manualGrabRequests.get(identity);
+  if(!requestId){requestId=crypto.randomUUID().replaceAll('-','');manualGrabRequests.set(identity,requestId);}
+  b.disabled=true;b.textContent='Submitting…';
+  try{
+    // Never retry the mutation with a new identity after a network timeout.
+    const d=await api('/api/automation/releases/grab',{...r,async_grab:true,client_request_id:requestId},
+      {timeoutMs:15000,timeoutMessage:'Grab acknowledgement was delayed. NewzDeck will check the existing operation instead of submitting a duplicate.'});
+    if(d?.request_id)manualGrabRequests.set(identity,d.request_id);
+    await pollManualGrabOperation(d.request_id||requestId,b,old,title);
+  }catch(e){
+    // A canceled POST can still have been accepted by the server. The stable
+    // request ID lets us query that same operation rather than guessing.
+    if(e?.code==='ui-timeout'||!e?.status){
+      toast('Grab acknowledgement delayed. Checking the original request…','warning');
+      await pollManualGrabOperation(requestId,b,old,title);
+    }else{
+      toast(e.message||'Grab request failed.','error');
+      if(b?.isConnected){b.disabled=false;b.textContent=old;}
+    }
+  }
+}
 
 async function addAutomationRoot(kind){const roots=[...automationRootsForKind(kind)],button=document.querySelector(`[data-add-root="${kind}"]`),old=button?.textContent||'';if(button){button.disabled=true;button.textContent='Opening folder picker…'}try{const r=await api('/api/automation/choose-folder',{kind,initial:roots.at(-1)||'',title:`Choose ${kind==='tv'?'TV':'movie'} library root`});if(r.cancelled)return;const folder=String(r.folder||'').trim();if(!folder)throw new Error('Windows did not return the selected folder.');await loadAutomation();renderAutomation();const count=automationRootsForKind(kind).length;if(r.added===false)toast('That root folder is already configured.');else toast(`Media root added • ${count} configured.`,'success')}catch(e){toast(`${e.message} You can also enter the full folder path below.`,'error')}finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}}
 async function addAutomationRootPath(kind){const input=document.querySelector(`[data-root-path="${kind}"]`),path=String(input?.value||'').trim();if(!path){input?.focus();toast('Enter a full folder path first.','error');return}const button=document.querySelector(`[data-add-root-path="${kind}"]`),old=button?.textContent||'';if(button){button.disabled=true;button.textContent='Adding…'}try{const r=await api('/api/automation/root/add',{kind,path});await loadAutomation();renderAutomation();const count=automationRootsForKind(kind).length;if(r.added===false)toast('That root folder is already configured.');else toast(`Media root added • ${count} configured.`,'success')}catch(e){toast(e.message,'error');if(input?.isConnected)input.focus()}finally{if(button?.isConnected){button.disabled=false;button.textContent=old}}}

@@ -298,7 +298,7 @@ DEFAULT_BANDWIDTH_SCHEDULE_END = "23:00"
 DEFAULT_BANDWIDTH_SCHEDULE_LIMIT_MB_S = 25.0
 DEFAULT_COMPLETION_NOTIFICATION = False
 DEFAULT_COMPLETION_OPEN_FOLDER = False
-APP_VERSION = "3.7.31"
+APP_VERSION = "3.7.32"
 
 def installed_version() -> str:
     """Return the version currently installed on disk.
@@ -309,7 +309,7 @@ def installed_version() -> str:
     """
     try:
         value = (APP_DIR / "version.txt").read_text(encoding="utf-8").strip()
-        if re.fullmatch(r"\d+\.\d+\.\d+", value):
+        if re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?", value):
             return value
     except Exception:
         pass
@@ -13114,6 +13114,189 @@ def _finish_progressive_video_page(provider_id: str, provider: dict[str, Any], g
                 failed["smart_binary_background_error"] = str(exc)[:300]
                 ARTICLE_PAGE_CACHE[cache_key] = {"cached_at": time.time(), "payload": failed}
 
+# v3.7.32: Manual NZB retrieval can legitimately outlast a browser HTTP
+# timeout. Accept the request quickly and keep the same operation queryable from
+# any tab on this process. Never persist indexer URLs, credentials or NZB bytes
+# in the status registry. The existing cross-runtime target reservation and the
+# private SAB handoff ledger continue to guard duplicate submissions.
+class ManualGrabOperations:
+    _terminal = frozenset({'accepted', 'already_queued', 'reservation_only', 'suppressed', 'failed'})
+    _stage_labels = {
+        'queued': 'Waiting for the Grab worker',
+        'retrieving_nzb': 'Retrieving NZB from indexer',
+        'validating_nzb': 'Validating release contents',
+        'saving_pending_handoff': 'Saving the pending SABnzbd handoff',
+    }
+
+    def __init__(self, *, grab_callable=None, clock=None, max_pending=8, max_workers=2):
+        self.lock = threading.RLock()
+        self.records: dict[str, dict[str, Any]] = {}
+        self.request_ids: dict[str, str] = {}
+        self.clock = clock or time.time
+        self.grab_callable = grab_callable
+        self.max_pending = max_pending
+        # Daemon workers do not prevent a Windows service or desktop backend
+        # from shutting down during a slow indexer request.
+        self.pending = queue.Queue(maxsize=max_pending)
+        self.workers = [threading.Thread(target=self._worker_loop,
+                        name=f'newzdeck-manual-grab-{i}', daemon=True)
+                        for i in range(max_workers)]
+        for worker in self.workers: worker.start()
+
+    def _worker_loop(self) -> None:
+        while True:
+            job_id, data = self.pending.get()
+            try:
+                self._work(job_id, data)
+            except Exception:
+                self._update(job_id, status='failed', phase='failed',
+                             message='Internal Grab worker error. Check Diagnostics before retrying.')
+            finally:
+                self.pending.task_done()
+
+    @staticmethod
+    def _identifier(value: Any) -> str:
+        value = str(value or '')
+        return value if re.fullmatch(r'[0-9a-f]{32}', value) else ''
+
+    @staticmethod
+    def _target_key(data: dict[str, Any]) -> str:
+        # Group concurrent manual attempts on one movie/episode. This key is
+        # only a UI-operation coalescer: the authoritative cross-process safety
+        # checks remain inside MediaAutomationEngine.grab_release().
+        item = str(data.get('item_id') or '').strip()
+        manual = str(data.get('media_title') or '').casefold().strip()
+        if item:
+            raw = ['library', item, str(data.get('season') or ''), str(data.get('episode') or ''), str(bool(data.get('season_pack')))]
+        elif manual:
+            raw = ['manual', str(data.get('media_kind') or ''), manual, str(data.get('media_year') or '')]
+        else:
+            raw = ['release', str(data.get('guid') or data.get('download_url') or data.get('title') or '')]
+        return hashlib.sha256(json.dumps(raw, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()
+
+    def _clean_locked(self, now: float) -> None:
+        # Bound history, while retaining in-progress operations until they
+        # complete. Losing the browser does not cancel or retry the submission.
+        for job_id, row in list(self.records.items()):
+            if row['status'] in self._terminal and now - row['updated_ts'] > 1800:
+                self.records.pop(job_id, None)
+                self.request_ids.pop(row['request_id'], None)
+
+    @staticmethod
+    def _safe_message(value: Any) -> str:
+        # Error objects can contain a failed indexer request URL. Never echo
+        # signed NZB links, userinfo, token query parameters or raw credentials
+        # in public status JSON or diagnostic error details.
+        message = str(value or '')
+        message = re.sub(r'https?://[^\s<>]+', '[indexer URL hidden]', message, flags=re.I)
+        message = re.sub(r'(?i)\b(apikey|api_key|api-token|token|password|secret|authorization)\s*[=:]\s*[^\s&;,]+', r'\1=[redacted]', message)
+        return message[:350]
+
+    def _public(self, row: dict[str, Any]) -> dict[str, Any]:
+        # Deliberate allowlist; never echo indexer URLs, API keys or NZB payloads.
+        fields = ('ok', 'job_id', 'request_id', 'status', 'phase', 'message',
+                  'collection_id', 'collection_name', 'pending_engine_handoff',
+                  'already_queued', 'reservation_only', 'suppressed', 'created_ts', 'updated_ts')
+        return {key: row[key] for key in fields if key in row}
+
+    def start(self, data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        request_id = self._identifier(data.get('client_request_id'))
+        if not request_id:
+            return 400, {'ok': False, 'error': 'A valid manual Grab request ID is required.'}
+        now = self.clock()
+        key = self._target_key(data)
+        with self.lock:
+            self._clean_locked(now)
+            existing_id = self.request_ids.get(request_id)
+            if existing_id and existing_id in self.records:
+                return 202, {**self._public(self.records[existing_id]), 'replayed': True}
+            # Only coalesce *running* operations for the same media target.
+            # After a failed attempt, a different release can be tried safely.
+            for row in self.records.values():
+                if row.get('target_key') == key and row['status'] not in self._terminal:
+                    return 202, {**self._public(row), 'already_running': True}
+            if sum(row['status'] not in self._terminal for row in self.records.values()) >= self.max_pending:
+                return 429, {'ok': False, 'error': 'Too many pending Grab operations. Wait for an existing operation to finish.'}
+            job_id = uuid.uuid4().hex
+            title = str(data.get('title') or 'Selected release')[:240]
+            row = {'ok': True, 'job_id': job_id, 'request_id': request_id,
+                   'target_key': key, 'status': 'queued', 'phase': 'queued',
+                   'message': self._stage_labels['queued'], 'collection_id': '',
+                   'collection_name': title, 'created_ts': now, 'updated_ts': now}
+            self.records[job_id] = row
+            self.request_ids[request_id] = job_id
+            # The worker owns an independent copy; the registry retains no secret URLs.
+            try:
+                self.pending.put_nowait((job_id, dict(data)))
+            except Exception:
+                self.records.pop(job_id, None)
+                self.request_ids.pop(request_id, None)
+                return 503, {'ok': False, 'error': 'The manual Grab worker is unavailable.'}
+            return 202, self._public(row)
+
+    def _update(self, job_id: str, **fields) -> None:
+        with self.lock:
+            row = self.records.get(job_id)
+            if row is not None:
+                row.update(fields)
+                row['updated_ts'] = self.clock()
+
+    def _work(self, job_id: str, data: dict[str, Any]) -> None:
+        self._update(job_id, status='running', phase='retrieving_nzb', message=self._stage_labels['retrieving_nzb'])
+        def progress(stage):
+            self._update(job_id, phase=stage, message=self._stage_labels.get(stage, 'Preparing release'))
+        try:
+            handler = self.grab_callable or MEDIA_AUTOMATION.grab_release
+            result = handler(data, progress_callback=progress)
+            if not isinstance(result, dict):
+                raise ValueError('The Grab operation returned no result.')
+            status = ('reservation_only' if result.get('reservation_only')
+                      else 'already_queued' if result.get('already_queued')
+                      else 'suppressed' if result.get('suppressed') else 'accepted')
+            messages = {
+                'reservation_only': 'Another NewzDeck runtime is preparing this media target. No new download was added.',
+                'already_queued': 'This media target already has a download or import in progress. No new download was added.',
+                'suppressed': 'The release was not added because the current target is no longer eligible.',
+                'accepted': ('NZB saved to the local pending queue; SABnzbd handoff will follow.'
+                             if result.get('pending_engine_handoff') else 'The release was accepted by the download manager.'),
+            }
+            self._update(job_id, status=status, phase=status,
+                         message=self._safe_message(result.get('reason') or messages[status]),
+                         collection_id=str(result.get('collection_id') or '')[:180],
+                         collection_name=str(result.get('collection_name') or data.get('title') or '')[:240],
+                         pending_engine_handoff=bool(result.get('pending_engine_handoff')),
+                         already_queued=bool(result.get('already_queued')),
+                         reservation_only=bool(result.get('reservation_only')),
+                         suppressed=bool(result.get('suppressed')))
+        except Exception as exc:
+            safe = _user_safe_error_message(exc, operation='grab')
+            self._update(job_id, status='failed', phase='failed', message=self._safe_message(safe))
+            try:
+                DIAGNOSTICS.event('warning', 'automation-grab', 'Asynchronous Grab failed',
+                                  safe_error=self._safe_message(safe), release=str(data.get('title') or '')[:180])
+            except Exception:
+                pass
+
+    def get(self, identifier: str) -> tuple[int, dict[str, Any]]:
+        token = self._identifier(identifier)
+        if not token:
+            return 400, {'ok': False, 'error': 'Invalid Grab operation ID.'}
+        with self.lock:
+            self._clean_locked(self.clock())
+            row = self.records.get(token) or self.records.get(self.request_ids.get(token, ''))
+            if row is None:
+                return 404, {'ok': False, 'error': 'Grab operation not present on this runtime. Check Downloads before attempting again.'}
+            return 200, self._public(row)
+
+    def telemetry(self) -> dict[str, Any]:
+        with self.lock:
+            statuses = [row['status'] for row in self.records.values()]
+            return {'in_progress': sum(x not in self._terminal for x in statuses),
+                    'accepted': statuses.count('accepted'), 'failed': statuses.count('failed'),
+                    'reserved_or_duplicate': sum(x in {'reservation_only', 'already_queued'} for x in statuses)}
+
+GRAB_OPERATIONS = ManualGrabOperations()
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = f"NewzDeck/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
@@ -13339,6 +13522,11 @@ class AppHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     pass
                 return self._json(503, {"error": "Automation sidebar counts are not ready", "detail": _user_safe_error_message(exc), "version": APP_VERSION})
+        if parsed.path == "/api/automation/releases/grab/status":
+            query = urllib.parse.parse_qs(parsed.query or '')
+            identifier = str((query.get('job_id') or query.get('request_id') or [''])[0] or '')
+            code, payload = GRAB_OPERATIONS.get(identifier)
+            return self._json(code, payload)
         if parsed.path == "/api/automation/manual-import/progress":
             try:
                 query=urllib.parse.parse_qs(parsed.query or "")
@@ -13631,6 +13819,11 @@ class AppHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/automation/releases/search":
                 return self._json(200, MEDIA_AUTOMATION.search_releases(str(data.get("item_id") or ""), data.get("season"), data.get("episode")))
             if parsed.path == "/api/automation/releases/grab":
+                # Opt-in async semantics preserve old synchronous API clients.
+                # The background worker performs the existing guarded Grab path.
+                if data.get('async_grab') is True:
+                    code, payload = GRAB_OPERATIONS.start(data)
+                    return self._json(code, payload)
                 try:
                     return self._json(200, MEDIA_AUTOMATION.grab_release(data))
                 except Exception as exc:

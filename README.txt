@@ -1,3 +1,3 @@
-NewzDeck v3.7.31 - High-Performance Video Discovery & Browsing
+NewzDeck v3.7.32 - Download Queue Reliability, Asynchronous Grab & History Consistency
 
-Videos mode progressively scans a bounded number of NNTP header pages to find more complete videos without delaying the first page, recognizes additional video formats and keeps valid videos visible when thumbnail generation fails. Existing SABnzbd 5.1.3, provider configuration and personal data are unchanged. See release/RELEASE_NOTES_v3.7.31.md in the source repository.
+Manual grabs now use tracked background NZB retrieval, explicit queue-status feedback, and safe request idempotency. Completed history no longer counts unfinished Smart Import jobs as clearable. SABnzbd 5.1.3, user data, provider settings and video browsing are preserved. See release/RELEASE_NOTES_v3.7.32.md.

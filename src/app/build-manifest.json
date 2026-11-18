@@ -1,31 +1,31 @@
 {
   "product": "NewzDeck",
-  "version": "3.7.31",
-  "base_version": "3.7.30",
-  "release": "High-Performance Video Discovery & Browsing",
-  "adapter_version": "3.7.31",
-  "name": "High-Performance Video Discovery & Browsing",
+  "version": "3.7.32",
+  "base_version": "3.7.31",
+  "release": "Download Queue Reliability, Asynchronous Grab & History Consistency",
+  "adapter_version": "3.7.32",
+  "name": "Download Queue Reliability, Asynchronous Grab & History Consistency",
   "sab_version": "5.1.3",
   "sabctools_version": "9.6.3",
   "sabctools_upstream_commit": "54d7663b9e8f527b5ab196d43f0d5c561a87c1ac",
   "changes": [
-    "Videos mode performs bounded background discovery after first paint, adding older NNTP header windows until sufficient complete videos are recognized or scan budget is exhausted.",
-    "Regroup headers across the entire bounded video scan to recover named multipart videos crossing adjacent page boundaries, with completeness enforced before download.",
-    "Recognize MPEG, Windows Media, MPEG transport streams, FLV, 3GP and VOB via subjects and yEnc filename resolution without mistaking archives for video.",
-    "Keep complete videos visible/selectable when preview or thumbnail generation fails; show a retryable/error placeholder rather than removing videos.",
-    "Use the lightweight header-only Videos path; preserve All Posts opaque-binary reconstruction and other views.",
-    "Expose scanned header pages/visible video counts and preserve progressive background polling for appended pages."
+    "Opt-in asynchronous manual Grab operations with bounded worker concurrency, stable client request IDs, status polling and no automatic duplicate submission after timeouts.",
+    "Expose authoritative result states: newly accepted pending SAB handoff, already queued target, reservation only, suppressed release or failed request.",
+    "Preserve in-flight Grab state across UI timeouts and tab navigation; after process restarts, require review of Downloads before resubmission.",
+    "Keep background release validation and existing cross-runtime reservation rules; protect indexer credentials and NZB contents from progress reports.",
+    "Align durable Completed history counts/pages with Smart Import and post-processing state; unfinished items remain protected and visible under Post-processing.",
+    "Use canonical three-component v3.7.32 release identity while preserving established source and Windows publishing guards."
   ],
   "regression_guards": [
-    "Source-level tests for actual classifier and real group_articles with multipart video across window boundaries.",
-    "Bounded background video scan with no BODY retrieval, no unsafe incomplete download, refresh generation isolation and page coverage accuracy.",
-    "Existing v3.7.30 SAB upgrade, v3.7.29 metadata full sweep and v3.7.27 Downloads, v3.7.26 NNTP search regressions retained.",
-    "No new persistent search index or history, no media deletions, no SAB queue modifications.",
-    "v3.7.31-only full version gate; older full version gates never run on current version."
+    "Source behavioral tests for async Grab idempotency, target coalescing, failures, rejection, and bounded concurrency.",
+    "Completed-history scope tests ensure pending post-processing never appears as a clearable Completed item.",
+    "New API progress GET route and asynchronous POST status contract, legacy POST preserved.",
+    "Retain v3.7.31 video discovery, v3.7.30 SAB 5.1.3 engine, v3.7.29 metadata, Downloads and browser regressions.",
+    "New version-specific full gate only; previous full gates stay out of current CI."
   ],
   "preserved": [
-    "SABnzbd 5.1.3 and SABCTools 9.6.3 pins, download queue, history, providers, services and Windows helpers.",
-    "Metadata Server v0.3.3 and Diagnostic Collector v1.0.31 unchanged.",
-    "Images, All Posts and Images + Video existing browsing semantics and settings preserved."
+    "SABnzbd 5.1.3 and SABCTools 9.6.3 engine, providers, download records, Smart Import and existing user data.",
+    "Video discovery, All Posts, Images, Image Sets, Electron/Chromium desktop shell, Windows helpers and updates.",
+    "Metadata Server 0.3.3 and Diagnostic Collector 1.0.31 unchanged."
   ]
 }

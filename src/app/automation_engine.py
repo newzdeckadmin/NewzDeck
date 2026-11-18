@@ -593,7 +593,7 @@ DEFAULT_PROFILES = [
 ]
 
 class MediaAutomationEngine:
-    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.7.31'):
+    def __init__(self, data_dir: Path, protect_secret: Callable[[str], str], unprotect_secret: Callable[[str], str], download_manager, get_providers: Callable[[], list[dict[str,Any]]], version='3.7.32'):
         self.data_dir = Path(data_dir)
         self.library_file = self.data_dir / 'media-library.json'
         self.config_file = self.data_dir / 'media-automation-config.json'
@@ -7848,7 +7848,11 @@ class MediaAutomationEngine:
             )
         return evidence
 
-    def grab_release(self,data):
+    def grab_release(self,data,progress_callback=None):
+        def progress(stage):
+            if callable(progress_callback):
+                try: progress_callback(stage)
+                except Exception: pass
         title=str(data.get('title') or 'Indexer release')
         providers=[p for p in self.get_providers() if p.get('use_downloads',True) is not False]
         if not providers:
@@ -7989,6 +7993,7 @@ class MediaAutomationEngine:
             # Fetch only after the target claim is held so two overlapping desktop/
             # service schedulers cannot both download and submit the same NZB.
             try:
+                progress('retrieving_nzb')
                 raw=self._fetch_release_nzb(data)
             except ReleaseFetchError as exc:
                 if str(context.get('source') or '')=='automation_grab' and exc.blacklist:
@@ -7997,6 +8002,7 @@ class MediaAutomationEngine:
                 raise ValueError(str(exc)) from exc
 
             try:
+                progress('validating_nzb')
                 validation=self._validate_release_nzb_content(raw,context) if context else {'checked':False}
                 if isinstance(context,dict):
                     context['nzb_content_validation']={
@@ -8015,6 +8021,7 @@ class MediaAutomationEngine:
             # Submission/control-plane errors are not proof that the release itself
             # is bad. Only SAB's terminal history state may blacklist after queueing.
             try:
+                progress('saving_pending_handoff')
                 queue_submit=getattr(self.download_manager,'queue_nzb',None)
                 if callable(queue_submit):
                     result=queue_submit(str(providers[0].get('id')),title+'.nzb',raw,automation_context=context or None)

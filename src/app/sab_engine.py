@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SAB_VERSION = "5.1.3"
-ADAPTER_VERSION = "3.7.31"
+ADAPTER_VERSION = "3.7.32"
 SAB_WINDOWS_X64_URL = "https://github.com/sabnzbd/sabnzbd/releases/download/5.1.3/SABnzbd-5.1.3-win64-bin.zip"
 SAB_WINDOWS_X64_SHA256 = "62733e427534a1afec6a64b89dd06253f1a3cf51cb189d980f4e759c04f8d7eb"
 ENGINE_STATE_VERSION = 2
@@ -4957,7 +4957,10 @@ class SabDownloadManager:
     @staticmethod
     def _terminal_history_scope_for_row(row:dict[str,Any]) -> str:
         status=str(row.get("status") or "").casefold(); post=str(row.get("post_status") or "").casefold()
-        if status=="completed" and post not in {"failed","needs_attention","needs_tool","blocked","cancelled"}:
+        # Transfer completion is not Smart Import completion. A record with
+        # pending/blocked post-processing belongs to the live Post-processing
+        # view, not a clearable Completed history page. Keep it durably recorded.
+        if status=="completed" and post in {"", "completed", "not_needed", "disabled"}:
             return "completed"
         if status in {"failed","cancelled"} or post in {"failed","needs_attention","needs_tool","blocked","cancelled"}:
             return "failed"

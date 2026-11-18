@@ -1,3 +1,3 @@
-NewzDeck v3.7.31 update notes
+NewzDeck v3.7.32 update notes
 
-No data migration. Existing downloads, engine, background service, metadata monitoring and provider settings remain unchanged. Videos mode now uses bounded header-only progressive discovery. A failed video thumbnail does not remove its gallery card. Verify videos against a real NNTP provider and use the normal guarded Windows installer build.
+This hotfix requires no data migration. It preserves existing downloads, incomplete files, Smart Import, monitoring, service settings and SABnzbd 5.1.3. Manual Grab now runs asynchronously with status polling and deduplication. Post-processing jobs remain protected; Completed history counts only finalized entries. Use the canonical guarded Windows source/tag/trigger build and verify upgrade behavior before production deployment.
